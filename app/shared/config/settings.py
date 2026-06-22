@@ -21,6 +21,7 @@ class AppSettings:
     material_height: float = 1500.0
     spacing: float = 5.0
     offset: float = 3.0
+    safety_inset: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)

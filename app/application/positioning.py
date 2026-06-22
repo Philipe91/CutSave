@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from app.application.footprint import artwork_footprint
 from app.domain.model.artwork import Artwork
 from app.domain.model.cut_contour import CutContour
 from app.domain.model.layout import Layout
@@ -17,8 +18,10 @@ def _contours_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list[C
         if art is None or not art.has_cut:
             continue
         faca = art.cut_contour
-        tx = item.position.x - faca.origin.x + dx
-        ty = item.position.y - faca.origin.y
+        footprint = artwork_footprint(art)
+        # origem art-local (0,0) vai para item.position - footprint.min
+        tx = item.position.x - footprint.min_x + dx
+        ty = item.position.y - footprint.min_y
         contours.append(CutContour([p.translated(tx, ty) for p in faca.points]))
     return contours
 

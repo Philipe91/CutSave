@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from app.application.dto.print_placement import PrintPlacement, PrintSheet
+from app.application.footprint import artwork_footprint
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
 from app.domain.geometry import Point2D, Size
 from app.domain.model.artwork import Artwork
@@ -42,10 +43,11 @@ class ExportPrintPdfUseCase:
                 source = sources.get(item.artwork_id)
                 if source is None:
                     raise ValidationError(f"Origem ausente para id {item.artwork_id}.")
-                footprint = art.cut_contour.size if art.has_cut else art.size
-                inset_x = (footprint.width - art.size.width) / 2
-                inset_y = (footprint.height - art.size.height) / 2
-                position = Point2D(item.position.x + inset_x, item.position.y + inset_y)
+                footprint = artwork_footprint(art)
+                # origem art-local (0,0) -> item.position - footprint.min
+                position = Point2D(
+                    item.position.x - footprint.min_x, item.position.y - footprint.min_y
+                )
                 placements.append(PrintPlacement(source[0], source[1], position, art.size))
             sheet_size = Size(layout.material.width, layout.used_length)
             print_sheets.append(PrintSheet(tuple(placements), sheet_size))

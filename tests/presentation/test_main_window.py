@@ -14,6 +14,7 @@ from app.application.use_cases.run_production_pipeline import (  # noqa: E402
 from app.infrastructure.exporters.dxf_exporter import DxfExporter  # noqa: E402
 from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter  # noqa: E402
 from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter  # noqa: E402
+from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer  # noqa: E402
 from app.presentation.main_window import MainWindow  # noqa: E402
 from app.shared.config.settings import SettingsStore  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -43,6 +44,7 @@ def _window(tmp_path):
         pipeline,
         ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
         ExportDxfUseCase(DxfExporter()),
+        PyMuPdfPageRenderer(),
         store,
         settings,
     )
@@ -57,8 +59,10 @@ def test_fluxo_completo_da_ui(qapp, tmp_path):
 
     assert window._result is not None
     assert sum(s.item_count for s in window._result.sheets) == 2
-    # preview: 1 retangulo de material + 2 pecas
-    assert len(window._scene.items()) >= 3
+    # preview: material + 2 imagens (arte) + 2 facas
+    assert len(window._scene.items()) >= 5
+    # a arte foi rasterizada e cacheada (2 paginas distintas)
+    assert len(window._pixmaps) == 2
 
     pdf_out = tmp_path / "IMPRESSAO.pdf"
     window.export_pdf(str(pdf_out))
@@ -81,12 +85,51 @@ def test_clique_do_botao_nao_usa_o_argumento_checked(qapp, tmp_path):
     assert window._result is None
 
 
+def test_remover_pdf_da_lista(qapp, tmp_path):
+    window = _window(tmp_path)
+    window.add_paths(["a.pdf", "b.pdf"])
+    assert window._list.count() == 2
+    window._list.setCurrentRow(0)
+    window.remove_selected()
+    assert window._list.count() == 1
+    assert window._paths == ["b.pdf"]
+
+
+def test_relayout_em_tempo_real_ao_mudar_offset(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    faca_antes = window._result.artworks[0].cut_contour.size.width
+    window._offset.setValue(window._offset.value() + 5)  # dispara _relayout
+    faca_depois = window._result.artworks[0].cut_contour.size.width
+    assert faca_depois == faca_antes + 10  # +5mm em cada lado
+
+
+def test_recuo_de_seguranca_deixa_faca_menor_que_a_arte(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._offset.setValue(0)
+    window._safety.setValue(0)
+    window.generate(blocking=True)
+
+    art = window._result.artworks[0]
+    # com recuo 5 e offset 0, a faca fica menor que a arte
+    window._safety.setValue(5)
+    faca = window._result.artworks[0].cut_contour
+    assert faca.size.width == art.size.width - 10
+    assert faca.size.height == art.size.height - 10
+
+
 def test_persiste_configuracoes(qapp, tmp_path):
     window = _window(tmp_path)
     window._width.setValue(1500)
     window._height.setValue(1000)
     window._spacing.setValue(8)
     window._offset.setValue(2)
+    window._safety.setValue(1)
     window._save_settings()
 
     recarregado = SettingsStore(tmp_path / "config.json").load()
@@ -94,3 +137,4 @@ def test_persiste_configuracoes(qapp, tmp_path):
     assert recarregado.material_height == 1000
     assert recarregado.spacing == 8
     assert recarregado.offset == 2
+    assert recarregado.safety_inset == 1

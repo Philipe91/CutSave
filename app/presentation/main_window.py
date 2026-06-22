@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor, QPen
+from PySide6.QtGui import QBrush, QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
@@ -21,15 +21,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.application.footprint import artwork_footprint
+from app.application.ports.page_renderer import IPageRenderer
 from app.application.positioning import SHEET_GAP_MM, positioned_cut_contours_sheets
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase
+from app.application.use_cases.generate_rectangular_cut import GenerateRectangularCutUseCase
+from app.application.use_cases.run_grid_nesting import RunGridNestingUseCase
 from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
 )
 from app.domain.model.material import Material
 from app.shared.config.settings import AppSettings, SettingsStore
+from app.shared.errors import ValidationError
 
 
 class ZoomableGraphicsView(QGraphicsView):
@@ -45,19 +50,20 @@ class ZoomableGraphicsView(QGraphicsView):
         self.scale(factor, factor)
 
 
-class PipelineWorker(QObject):
-    """Executa o pipeline em uma thread, sem travar a UI."""
+class ProductionWorker(QObject):
+    """Importa + monta producao e rasteriza as paginas, fora da thread da UI."""
 
     progress = Signal(int, int)
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, pipeline, paths, material, offset_mm, sheet_height):
+    def __init__(self, pipeline, renderer, paths, material, offset, sheet_height):
         super().__init__()
         self._pipeline = pipeline
+        self._renderer = renderer
         self._paths = paths
         self._material = material
-        self._offset = offset_mm
+        self._offset = offset
         self._sheet_height = sheet_height
 
     def run(self) -> None:
@@ -66,20 +72,26 @@ class PipelineWorker(QObject):
                 self._paths, self._material, self._offset, self._sheet_height,
                 on_progress=lambda done, total: self.progress.emit(done, total),
             )
+            unique = sorted(set(result.sources.values()))
+            png_map = {}
+            for index, (path, page) in enumerate(unique, start=1):
+                png_map[(path, page)] = self._renderer.render_png(path, page)
+                self.progress.emit(index, len(unique))
         except Exception as exc:  # reportado a UI
             self.failed.emit(str(exc))
             return
-        self.finished.emit(result)
+        self.finished.emit((result, png_map))
 
 
 class MainWindow(QMainWindow):
-    """Tela unica do MVP PrintNest."""
+    """Tela unica do MVP PrintNest, com preview da arte + faca."""
 
     def __init__(
         self,
         pipeline: RunProductionPipelineUseCase,
         print_export: ExportPrintPdfUseCase,
         dxf_export: ExportDxfUseCase,
+        renderer: IPageRenderer,
         settings_store: SettingsStore,
         settings: AppSettings,
     ) -> None:
@@ -87,13 +99,21 @@ class MainWindow(QMainWindow):
         self._pipeline = pipeline
         self._print_export = print_export
         self._dxf_export = dxf_export
+        self._renderer = renderer
         self._store = settings_store
         self._settings = settings
 
+        self._faca_uc = GenerateRectangularCutUseCase()
+        self._nesting_uc = RunGridNestingUseCase()
+
         self._paths: list[str] = []
+        self._base_artworks: list = []
+        self._sources: dict[str, tuple[str, int]] = {}
+        self._pixmaps: dict[tuple[str, int], QPixmap] = {}
+        self._loaded = False
         self._result: ProductionResult | None = None
         self._thread: QThread | None = None
-        self._worker: PipelineWorker | None = None
+        self._worker: ProductionWorker | None = None
 
         self.setWindowTitle("PrintNest MVP")
         self._build_ui()
@@ -112,25 +132,39 @@ class MainWindow(QMainWindow):
         self._list = QListWidget()
         panel.addWidget(self._list)
 
+        self._btn_remove = QPushButton("Remover PDF selecionado")
+        self._btn_remove.clicked.connect(lambda: self.remove_selected())
+        panel.addWidget(self._btn_remove)
+
         panel.addWidget(QLabel("Largura da chapa (mm)"))
         self._width = QSpinBox()
         self._width.setRange(1, 20000)
+        self._width.valueChanged.connect(lambda _: self._relayout())
         panel.addWidget(self._width)
 
         panel.addWidget(QLabel("Altura da chapa (mm) - 0 = chapa unica"))
         self._height = QSpinBox()
         self._height.setRange(0, 20000)
+        self._height.valueChanged.connect(lambda _: self._relayout())
         panel.addWidget(self._height)
 
         panel.addWidget(QLabel("Espacamento (mm)"))
         self._spacing = QDoubleSpinBox()
         self._spacing.setRange(0, 500)
+        self._spacing.valueChanged.connect(lambda _: self._relayout())
         panel.addWidget(self._spacing)
 
-        panel.addWidget(QLabel("Offset da faca (mm)"))
+        panel.addWidget(QLabel("Offset da faca - sangria p/ fora (mm)"))
         self._offset = QDoubleSpinBox()
         self._offset.setRange(-100, 100)
+        self._offset.valueChanged.connect(lambda _: self._relayout())
         panel.addWidget(self._offset)
+
+        panel.addWidget(QLabel("Recuo de seguranca - faca p/ dentro (mm)"))
+        self._safety = QDoubleSpinBox()
+        self._safety.setRange(0, 100)
+        self._safety.valueChanged.connect(lambda _: self._relayout())
+        panel.addWidget(self._safety)
 
         self._btn_generate = QPushButton("Gerar Producao")
         self._btn_generate.clicked.connect(lambda: self.generate())
@@ -148,7 +182,6 @@ class MainWindow(QMainWindow):
 
         self._progress = QProgressBar()
         panel.addWidget(self._progress)
-
         self._status = QLabel("")
         panel.addWidget(self._status)
         panel.addStretch()
@@ -166,15 +199,21 @@ class MainWindow(QMainWindow):
         self._height.setValue(int(self._settings.material_height))
         self._spacing.setValue(self._settings.spacing)
         self._offset.setValue(self._settings.offset)
+        self._safety.setValue(self._settings.safety_inset)
 
     def _save_settings(self) -> None:
         self._settings.material_width = float(self._width.value())
         self._settings.material_height = float(self._height.value())
         self._settings.spacing = float(self._spacing.value())
         self._settings.offset = float(self._offset.value())
+        self._settings.safety_inset = float(self._safety.value())
         self._store.save(self._settings)
 
-    # ---- acoes ----
+    def _effective_offset(self) -> float:
+        """Sangria (p/ fora) menos recuo de seguranca (p/ dentro)."""
+        return float(self._offset.value()) - float(self._safety.value())
+
+    # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Adicionar PDFs", self._settings.last_dir, "PDF (*.pdf)"
@@ -189,6 +228,14 @@ class MainWindow(QMainWindow):
             self._paths.append(path)
             self._list.addItem(Path(path).name)
 
+    def remove_selected(self) -> None:
+        row = self._list.currentRow()
+        if row < 0:
+            return
+        self._list.takeItem(row)
+        del self._paths[row]
+
+    # ---- producao ----
     def _material(self) -> Material:
         return Material(
             name="MVP",
@@ -202,19 +249,20 @@ class MainWindow(QMainWindow):
             return
         self._save_settings()
         material = self._material()
-        offset = float(self._offset.value())
+        offset = self._effective_offset()
         sheet_height = float(self._height.value())
 
         if blocking:
-            self._apply_result(
-                self._pipeline.execute(self._paths, material, offset, sheet_height)
-            )
+            result = self._pipeline.execute(self._paths, material, offset, sheet_height)
+            unique = sorted(set(result.sources.values()))
+            png_map = {key: self._renderer.render_png(*key) for key in unique}
+            self._load_production(result, png_map)
             return
 
         self._set_busy(True)
         self._thread = QThread()
-        self._worker = PipelineWorker(
-            self._pipeline, list(self._paths), material, offset, sheet_height
+        self._worker = ProductionWorker(
+            self._pipeline, self._renderer, list(self._paths), material, offset, sheet_height
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -233,23 +281,49 @@ class MainWindow(QMainWindow):
         self._progress.setRange(0, total)
         self._progress.setValue(done)
 
-    def _on_finished(self, result: ProductionResult) -> None:
+    def _on_finished(self, bundle) -> None:
         self._set_busy(False)
-        self._apply_result(result)
+        result, png_map = bundle
+        self._load_production(result, png_map)
 
     def _on_failed(self, message: str) -> None:
         self._set_busy(False)
         QMessageBox.critical(self, "PrintNest", f"Falha ao gerar producao:\n{message}")
 
-    def _apply_result(self, result: ProductionResult) -> None:
-        self._result = result
-        self._draw_preview()
+    def _load_production(self, result: ProductionResult, png_map: dict) -> None:
+        self._base_artworks = result.artworks
+        self._sources = result.sources
+        self._pixmaps = {}
+        by_bytes: dict[bytes, QPixmap] = {}
+        for key, data in png_map.items():
+            pixmap = by_bytes.get(data)
+            if pixmap is None:
+                pixmap = QPixmap()
+                pixmap.loadFromData(data, "PNG")
+                by_bytes[data] = pixmap
+            self._pixmaps[key] = pixmap
+        self._loaded = True
         self._btn_pdf.setEnabled(True)
         self._btn_dxf.setEnabled(True)
-        self._progress.setRange(0, 1)
-        self._progress.setValue(1)
-        total = sum(layout.item_count for layout in result.sheets)
-        self._status.setText(f"{len(result.sheets)} chapa(s) | {total} peca(s)")
+        self._relayout()
+
+    def _relayout(self) -> None:
+        """Recalcula faca + nesting com os parametros atuais (tempo real)."""
+        if not self._loaded:
+            return
+        offset = self._effective_offset()
+        material = self._material()
+        sheet_height = float(self._height.value())
+        try:
+            artworks = [self._faca_uc.execute(art, offset) for art in self._base_artworks]
+        except ValidationError:
+            self._status.setText("Recuo de seguranca grande demais para a peca.")
+            return
+        sheets = self._nesting_uc.execute_sheets(artworks, material, sheet_height)
+        self._result = ProductionResult(sheets=sheets, artworks=artworks, sources=self._sources)
+        self._draw_preview()
+        total = sum(s.item_count for s in sheets)
+        self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
 
     def _draw_preview(self) -> None:
         self._scene.clear()
@@ -260,9 +334,9 @@ class MainWindow(QMainWindow):
 
         material_pen = QPen(QColor(40, 40, 40))
         material_pen.setCosmetic(True)
-        piece_pen = QPen(QColor(0, 90, 180))
-        piece_pen.setCosmetic(True)
-        piece_brush = QBrush(QColor(120, 170, 220, 90))
+        faca_pen = QPen(QColor(220, 0, 0))
+        faca_pen.setCosmetic(True)
+        empty_brush = QBrush(QColor(200, 200, 200, 120))
 
         for index, layout in enumerate(result.sheets):
             dx = index * (layout.material.width + SHEET_GAP_MM)
@@ -273,13 +347,31 @@ class MainWindow(QMainWindow):
                 art = by_id.get(item.artwork_id)
                 if art is None:
                     continue
-                foot = art.cut_contour.size if art.has_cut else art.size
-                self._scene.addRect(
-                    dx + item.position.x, item.position.y, foot.width, foot.height,
-                    piece_pen, piece_brush,
-                )
+                fp = artwork_footprint(art)
+                # canto da arte (art-local 0,0) na chapa
+                base_x = dx + item.position.x - fp.min_x
+                base_y = item.position.y - fp.min_y
+
+                pixmap = self._pixmaps.get(self._sources.get(item.artwork_id))
+                if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
+                    pm_item = self._scene.addPixmap(pixmap)
+                    pm_item.setScale(art.size.width / pixmap.width())
+                    pm_item.setPos(base_x, base_y)
+                else:
+                    self._scene.addRect(
+                        base_x, base_y, art.size.width, art.size.height,
+                        material_pen, empty_brush,
+                    )
+                # faca (vermelho) por cima, na sua posicao real (pode estar p/ dentro)
+                if art.has_cut:
+                    faca = art.cut_contour
+                    self._scene.addRect(
+                        base_x + faca.origin.x, base_y + faca.origin.y,
+                        faca.size.width, faca.size.height, faca_pen,
+                    )
         self._view.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
+    # ---- exportacao ----
     def export_pdf(self, path: str | None = None) -> None:
         if self._result is None:
             return

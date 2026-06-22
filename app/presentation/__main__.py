@@ -11,6 +11,7 @@ from app.application.use_cases.run_production_pipeline import RunProductionPipel
 from app.infrastructure.exporters.dxf_exporter import DxfExporter
 from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter
 from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
+from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer
 from app.presentation.main_window import MainWindow
 from app.shared.config import AppPaths, SettingsStore
 from app.shared.logging import setup_logging
@@ -28,6 +29,7 @@ def main() -> int:
         pipeline,
         ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
         ExportDxfUseCase(DxfExporter()),
+        PyMuPdfPageRenderer(),
         store,
         settings,
     )

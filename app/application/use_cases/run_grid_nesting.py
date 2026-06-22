@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from app.application.footprint import artwork_footprint
 from app.domain.model.artwork import Artwork
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
@@ -22,10 +23,7 @@ class RunGridNestingUseCase:
     def _pieces(self, artworks: Sequence[Artwork]) -> list[NestingPiece]:
         if not artworks:
             raise ValidationError("Nenhuma arte para nesting.")
-        return [
-            NestingPiece(art.id, art.cut_contour.size if art.has_cut else art.size)
-            for art in artworks
-        ]
+        return [NestingPiece(art.id, artwork_footprint(art).size) for art in artworks]
 
     def execute(self, artworks: Sequence[Artwork], material: Material) -> Layout:
         return self._packer.pack(self._pieces(artworks), material)

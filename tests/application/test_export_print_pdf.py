@@ -14,6 +14,15 @@ def _rect_faca(w, h):
     return CutContour([Point2D(0, 0), Point2D(w, 0), Point2D(w, h), Point2D(0, h)])
 
 
+def _faca_offset(art_w, art_h, off):
+    # faca realista: centrada na arte, deslocada off em cada lado
+    w, h = art_w + 2 * off, art_h + 2 * off
+    return CutContour([
+        Point2D(-off, -off), Point2D(w - off, -off),
+        Point2D(w - off, h - off), Point2D(-off, h - off),
+    ])
+
+
 def _artwork(art_id, w, h, faca=None):
     return Artwork(
         id=art_id, name=art_id, file_format=FileFormat.PDF,
@@ -36,8 +45,8 @@ class _FakeExporter(IPrintPdfExporter):
 
 
 def test_carimba_arte_centralizada_na_celula_da_faca():
-    # faca 326x98 em (10,20); arte real 320x92 -> inset 3,3 -> posicao (13,23)
-    art = _artwork("a0", 320, 92, faca=_rect_faca(326, 98))
+    # faca +3 (origem -3,-3); arte real 320x92 -> arte vai p/ (10,20)+3 = (13,23)
+    art = _artwork("a0", 320, 92, faca=_faca_offset(320, 92, 3))
     layout = _layout([PlacedItem("a0", Point2D(10, 20))])
     fake = _FakeExporter()
     ExportPrintPdfUseCase(fake).execute([layout], [art], {"a0": ("bike.pdf", 0)}, "IMPRESSAO.pdf")
