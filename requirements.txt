@@ -1,0 +1,9 @@
+# Stack de runtime aprovado. Instalado no ambiente; cada lib passa a ser
+# usada na fase em que entra (ver docs/ROADMAP.md). SQLite e stdlib (sqlite3).
+PySide6>=6.6
+shapely>=2.0
+PyMuPDF>=1.24
+opencv-python>=4.9
+Pillow>=10.0
+numpy>=1.26
+ezdxf>=1.1

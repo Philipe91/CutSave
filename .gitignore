@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+*.egg-info/
+build/
+dist/
+logs/
+data/
+*.db
+
+# Artes de clientes e arquivos gerados (nao versionar)
+*.pdf
+*.dxf
