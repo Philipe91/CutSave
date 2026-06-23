@@ -519,6 +519,8 @@ class MainWindow(QMainWindow):
                             "Gera um DXF com todas as chapas")
         exp_dxf_n = self._act("Exportar DXF por chapa...", self.export_dxf_per_sheet, None,
                               "Gera um arquivo DXF para cada chapa")
+        exp_img = self._act("Exportar Imagem (PNG/JPEG)...", self.export_image, None,
+                            "Rasteriza a impressao em imagem, no DPI escolhido")
         sair = self._act("Sair", self.close, None, "Fecha o programa")
         sobre = self._act("Sobre", self._show_about, None, "Sobre o PrintNest")
 
@@ -529,6 +531,7 @@ class MainWindow(QMainWindow):
         m_arq.addAction(exp_pdf)
         m_arq.addAction(exp_dxf)
         m_arq.addAction(exp_dxf_n)
+        m_arq.addAction(exp_img)
         m_arq.addSeparator()
         m_arq.addAction(sair)
         m_edit = bar.addMenu("&Editar")
@@ -550,7 +553,7 @@ class MainWindow(QMainWindow):
         toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         for action in (add, gerar, reset, fit, None, undo, redo,
                        sel_all, dup, grp, ungrp, excluir,
-                       None, exp_pdf, exp_dxf, exp_dxf_n):
+                       None, exp_pdf, exp_dxf, exp_dxf_n, exp_img):
             toolbar.addSeparator() if action is None else toolbar.addAction(action)
 
     def _show_about(self) -> None:
@@ -588,6 +591,11 @@ class MainWindow(QMainWindow):
         self._btn_dxf.clicked.connect(lambda: self.export_dxf())
         self._btn_dxf.setEnabled(False)
         panel.addWidget(self._btn_dxf)
+
+        self._btn_img = QPushButton("Exportar Imagem (PNG/JPEG)")
+        self._btn_img.clicked.connect(lambda: self.export_image())
+        self._btn_img.setEnabled(False)
+        panel.addWidget(self._btn_img)
 
         self._progress = QProgressBar()
         panel.addWidget(self._progress)
@@ -1012,6 +1020,7 @@ class MainWindow(QMainWindow):
         self._loaded = True
         self._btn_pdf.setEnabled(True)
         self._btn_dxf.setEnabled(True)
+        self._btn_img.setEnabled(True)
         self._relayout()
         self._update_selection_info()
 
@@ -1475,6 +1484,20 @@ class MainWindow(QMainWindow):
         return out
 
     # ---- exportacao ----
+    def _print_kwargs(self) -> dict:
+        """Parametros de marca/recorte/rotacao/caixa comuns ao PDF e a imagem."""
+        return {
+            "reg_type": self._reg(),
+            "reg_margin_mm": float(self._reg_margin.value()),
+            "reg_diameter_mm": float(self._reg_diameter.value()),
+            "mimaki_distance_mm": float(self._mk_distance.value()),
+            "mimaki_size_mm": float(self._mk_size.value()),
+            "mimaki_thickness_mm": float(self._mk_thickness.value()),
+            "crop_mm": float(self._crop.value()),
+            "rotate": self._rotation_value(),
+            "box": self._import_box.currentData(),
+        }
+
     def export_pdf(self, path: str | None = None, pages=None) -> None:
         if self._result is None:
             return
@@ -1496,19 +1519,56 @@ class MainWindow(QMainWindow):
             if not path:
                 return
         self._print_export.execute(
-            sheets, self._result.artworks, self._result.sources, path,
-            reg_type=self._reg(),
-            reg_margin_mm=float(self._reg_margin.value()),
-            reg_diameter_mm=float(self._reg_diameter.value()),
-            mimaki_distance_mm=float(self._mk_distance.value()),
-            mimaki_size_mm=float(self._mk_size.value()),
-            mimaki_thickness_mm=float(self._mk_thickness.value()),
-            crop_mm=float(self._crop.value()),
-            rotate=self._rotation_value(),
-            box=self._import_box.currentData(),
+            sheets, self._result.artworks, self._result.sources, path, **self._print_kwargs()
         )
         if interactive:
             QMessageBox.information(self, "PrintNest", f"PDF gerado:\n{path}")
+
+    def export_image(
+        self, path: str | None = None, pages=None, dpi=None, image_format=None
+    ) -> None:
+        if self._result is None:
+            return
+        interactive = not isinstance(path, str) or not path
+        sheets = self._select_export_sheets(
+            self._effective_sheets(), pages, interactive, "Exportar Imagem"
+        )
+        if sheets is None:
+            return
+        if not sheets:
+            if interactive:
+                QMessageBox.warning(self, "PrintNest", "Nenhuma chapa selecionada.")
+            return
+        if dpi is None:
+            if interactive:
+                dpi, ok = QInputDialog.getInt(
+                    self, "Exportar Imagem", "Resolucao (DPI):",
+                    int(self._settings.export_dpi), 30, 1200, 10,
+                )
+                if not ok:
+                    return
+            else:
+                dpi = int(self._settings.export_dpi)
+        if interactive:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Imagem",
+                str(Path(self._settings.last_dir) / "IMPRESSAO.png"),
+                "PNG (*.png);;JPEG (*.jpg *.jpeg)",
+            )
+            if not path:
+                return
+        if image_format is None:
+            image_format = "jpeg" if Path(path).suffix.lower() in (".jpg", ".jpeg") else "png"
+        self._settings.export_dpi = int(dpi)
+        self._store.save(self._settings)
+        gerados = self._print_export.execute_image(
+            sheets, self._result.artworks, self._result.sources, path,
+            dpi=int(dpi), image_format=image_format, **self._print_kwargs(),
+        )
+        if interactive:
+            QMessageBox.information(
+                self, "PrintNest", f"{len(gerados)} imagem(ns) gerada(s) a {int(dpi)} DPI."
+            )
 
     @staticmethod
     def _parse_pages(spec: str, total: int) -> list[int]:

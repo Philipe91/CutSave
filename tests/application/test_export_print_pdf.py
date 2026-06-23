@@ -38,10 +38,20 @@ class _FakeExporter(IPrintPdfExporter):
     def __init__(self):
         self.sheets = None
         self.path = None
+        self.image_sheets = None
+        self.dpi = None
+        self.fmt = None
 
     def export(self, sheets, output_path):
         self.sheets = list(sheets)
         self.path = output_path
+
+    def export_image(self, sheets, output_path, *, dpi=150, image_format="png"):
+        self.image_sheets = list(sheets)
+        self.path = output_path
+        self.dpi = dpi
+        self.fmt = image_format
+        return [output_path]
 
 
 def test_carimba_arte_centralizada_na_celula_da_faca():
@@ -133,6 +143,19 @@ def test_crop_propaga_para_o_carimbo():
         [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf", crop_mm=2.0
     )
     assert fake.sheets[0].placements[0].crop_mm == 2.0
+
+
+def test_execute_image_repassa_dpi_formato_e_chapas():
+    art = _artwork("a0", 100, 50)
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    paths = ExportPrintPdfUseCase(fake).execute_image(
+        [layout], [art], {"a0": ("x.pdf", 0)}, "out.png", dpi=300, image_format="jpeg"
+    )
+    assert paths == ["out.png"]
+    assert fake.dpi == 300
+    assert fake.fmt == "jpeg"
+    assert len(fake.image_sheets) == 1
 
 
 def test_sem_marcas_nao_aplica_padding():

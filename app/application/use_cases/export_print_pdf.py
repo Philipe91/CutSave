@@ -30,12 +30,11 @@ class ExportPrintPdfUseCase:
     def __init__(self, exporter: IPrintPdfExporter) -> None:
         self._exporter = exporter
 
-    def execute(
+    def build_print_sheets(
         self,
         sheets: Sequence[Layout],
         artworks: Sequence[Artwork],
         sources: Mapping[str, tuple[str, int]],
-        output_path: str,
         *,
         reg_type: str = "none",
         reg_margin_mm: float = 15.0,
@@ -46,7 +45,8 @@ class ExportPrintPdfUseCase:
         crop_mm: float = 0.0,
         rotate: int = 0,
         box: str = "media",
-    ) -> str:
+    ) -> list[PrintSheet]:
+        """Monta os PrintSheet (posicao, escala e marcas) usados na exportacao."""
         layouts = [layout for layout in sheets if layout.items]
         if not layouts:
             raise ValidationError("Nenhuma chapa com pecas para imprimir.")
@@ -85,9 +85,36 @@ class ExportPrintPdfUseCase:
             )
             sheet_size = Size(layout.material.width + 2 * pad, layout.used_length + 2 * pad)
             print_sheets.append(PrintSheet(tuple(placements), sheet_size, circles, lines))
+        return print_sheets
 
+    def execute(
+        self,
+        sheets: Sequence[Layout],
+        artworks: Sequence[Artwork],
+        sources: Mapping[str, tuple[str, int]],
+        output_path: str,
+        **kwargs,
+    ) -> str:
+        print_sheets = self.build_print_sheets(sheets, artworks, sources, **kwargs)
         self._exporter.export(print_sheets, output_path)
         return output_path
+
+    def execute_image(
+        self,
+        sheets: Sequence[Layout],
+        artworks: Sequence[Artwork],
+        sources: Mapping[str, tuple[str, int]],
+        output_path: str,
+        *,
+        dpi: int = 150,
+        image_format: str = "png",
+        **kwargs,
+    ) -> list[str]:
+        """Exporta a impressao como imagem (PNG/JPEG) no DPI pedido."""
+        print_sheets = self.build_print_sheets(sheets, artworks, sources, **kwargs)
+        return self._exporter.export_image(
+            print_sheets, output_path, dpi=dpi, image_format=image_format
+        )
 
     @staticmethod
     def _marks(

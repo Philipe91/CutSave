@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 import fitz
 
@@ -16,9 +17,14 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
     """Gera o PDF de impressao (uma pagina por chapa), preservando vetores.
 
     Usa show_pdf_page, que embute cada pagina como Form XObject (sem rasterizar).
+    A exportacao em imagem (PNG/JPEG) rasteriza esse mesmo documento no DPI pedido.
     """
 
-    def export(self, sheets: Sequence[PrintSheet], output_path: str) -> None:
+    def _build_document(self, sheets: Sequence[PrintSheet]) -> fitz.Document:
+        """Compoe o documento de impressao (uma pagina por chapa) e o devolve.
+
+        As origens sao fechadas aqui; o conteudo ja fica embutido em 'out'.
+        """
         out = fitz.open()
         sources: dict[str, fitz.Document] = {}
         try:
@@ -58,13 +64,55 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                         color=(0, 0, 0),
                         width=line.width * MM2PT,
                     )
+        except (RuntimeError, OSError, ValueError) as exc:
+            out.close()
+            raise PrintExportError("Falha ao compor o documento de impressao.") from exc
+        finally:
+            for src in sources.values():
+                src.close()
+        return out
+
+    def export(self, sheets: Sequence[PrintSheet], output_path: str) -> None:
+        out = self._build_document(sheets)
+        try:
             out.save(output_path)
         except (RuntimeError, OSError, ValueError) as exc:
             raise PrintExportError(f"Falha ao gerar PDF de impressao: {output_path}") from exc
         finally:
-            for src in sources.values():
-                src.close()
             out.close()
+
+    def export_image(
+        self,
+        sheets: Sequence[PrintSheet],
+        output_path: str,
+        *,
+        dpi: int = 150,
+        image_format: str = "png",
+    ) -> list[str]:
+        """Rasteriza o documento de impressao: uma imagem por chapa, no DPI dado.
+
+        Com mais de uma chapa, gera arquivos numerados (..._01, _02). Retorna os
+        caminhos gerados.
+        """
+        fmt = image_format.lower()
+        if fmt == "jpg":
+            fmt = "jpeg"
+        ext = Path(output_path).suffix or ("." + ("jpg" if fmt == "jpeg" else fmt))
+        stem = str(Path(output_path).with_suffix(""))
+        out = self._build_document(sheets)
+        generated: list[str] = []
+        try:
+            multi = out.page_count > 1
+            for index in range(out.page_count):
+                pixmap = out[index].get_pixmap(dpi=dpi)
+                target = f"{stem}_{index + 1:02d}{ext}" if multi else output_path
+                pixmap.save(target)
+                generated.append(target)
+        except (RuntimeError, OSError, ValueError) as exc:
+            raise PrintExportError(f"Falha ao gerar imagem: {output_path}") from exc
+        finally:
+            out.close()
+        return generated
 
     @staticmethod
     def _source_clip(src, page_index: int, box: str, crop_mm: float):

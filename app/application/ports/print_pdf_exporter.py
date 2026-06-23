@@ -12,3 +12,14 @@ class IPrintPdfExporter(ABC):
     @abstractmethod
     def export(self, sheets: Sequence[PrintSheet], output_path: str) -> None:
         raise NotImplementedError
+
+    def export_image(
+        self,
+        sheets: Sequence[PrintSheet],
+        output_path: str,
+        *,
+        dpi: int = 150,
+        image_format: str = "png",
+    ) -> list[str]:
+        """Rasteriza as chapas em imagem (PNG/JPEG). Opcional na porta."""
+        raise NotImplementedError

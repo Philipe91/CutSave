@@ -327,6 +327,34 @@ def test_exportar_dxf_por_chapa(qapp, tmp_path):
     assert len(gerados) == n_chapas
 
 
+def test_exportar_imagem_png(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    out = tmp_path / "IMG.png"
+    window.export_image(str(out), dpi=72)
+    assert out.exists()
+
+
+def test_exportar_imagem_varias_chapas_numera(qapp, tmp_path):
+    window = _multi_sheet_window(qapp, tmp_path)
+    assert len(window._result.sheets) >= 2
+    out = tmp_path / "IMG.png"
+    window.export_image(str(out), dpi=50)
+    gerados = list(tmp_path.glob("IMG_*.png"))
+    assert len(gerados) >= 2
+
+
+def test_exportar_imagem_persiste_dpi(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window.export_image(str(tmp_path / "a.png"), dpi=222)
+    assert SettingsStore(tmp_path / "config.json").load().export_dpi == 222
+
+
 def test_excluir_peca_selecionada(qapp, tmp_path):
     src = _two_page_pdf(tmp_path)
     window = _window(tmp_path)

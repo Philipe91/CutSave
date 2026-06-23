@@ -35,6 +35,7 @@ class AppSettings:
     view_mode: str = "both"  # both | print | cut | split
     import_box: str = "media"  # media (Caixa de Midia) | trim (Caixa de Apara)
     snap_enabled: bool = True  # encaixe (snap) ao arrastar pecas
+    export_dpi: int = 150  # resolucao da exportacao em imagem (PNG/JPEG)
 
     def to_dict(self) -> dict:
         return asdict(self)

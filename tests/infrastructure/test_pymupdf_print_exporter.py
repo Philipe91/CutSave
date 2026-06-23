@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import fitz
 import pytest
 from app.application.dto.print_placement import PrintPlacement, PrintSheet
@@ -91,6 +93,41 @@ def test_posicionamento_e_escala(tmp_path):
     assert _is_black(pix, 50, 36)
     assert _is_white(pix, 400, 36)
     doc.close()
+
+
+def test_export_image_gera_png_no_dpi(tmp_path):
+    src = _source_pdf(tmp_path)
+    out = tmp_path / "IMG.png"
+    art_w, art_h = 144 / MM2PT, 72 / MM2PT
+    paths = PyMuPdfPrintExporter().export_image(
+        [_sheet(src, art_w, art_h, 200)], str(out), dpi=150
+    )
+    assert paths == [str(out)]
+    assert out.exists()
+    pix = fitz.Pixmap(str(out))
+    # 200mm a 150 dpi ~= 1181 px de largura
+    assert abs(pix.width - 200 / 25.4 * 150) < 5
+
+
+def test_export_image_varias_chapas_numera(tmp_path):
+    src = _source_pdf(tmp_path)
+    out = tmp_path / "IMG.png"
+    art_w, art_h = 144 / MM2PT, 72 / MM2PT
+    sheets = [_sheet(src, art_w, art_h, 200), _sheet(src, art_w, art_h, 200)]
+    paths = PyMuPdfPrintExporter().export_image(sheets, str(out), dpi=72)
+    assert len(paths) == 2
+    assert [Path(p).name for p in paths] == ["IMG_01.png", "IMG_02.png"]
+    assert all(Path(p).exists() for p in paths)
+
+
+def test_export_image_jpeg(tmp_path):
+    src = _source_pdf(tmp_path)
+    out = tmp_path / "IMG.jpg"
+    art_w, art_h = 144 / MM2PT, 72 / MM2PT
+    PyMuPdfPrintExporter().export_image(
+        [_sheet(src, art_w, art_h, 200)], str(out), dpi=72, image_format="jpeg"
+    )
+    assert out.exists()
 
 
 def test_arquivo_origem_invalido_falha(tmp_path):
