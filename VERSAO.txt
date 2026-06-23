@@ -1,22 +1,28 @@
 PrintNest - Preparacao de Producao Grafica
 ============================================
 
-Versao:        V1.1 (prototipo de producao)
+Versao:        V1.2 (prototipo de producao)
 Data da build: 2026-06-23
-Commit base:   a82dc14
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 
 Funcionalidades nesta versao
 ----------------------------
 - Importacao de PDF (dimensao real, prioridade TrimBox > CropBox > MediaBox)
+- Caixa de Midia (sangria) ou Caixa de Apara (corte) na importacao
 - Geracao de faca retangular + offset (sangria) e recuo de seguranca
 - Recorte da arte (remover borda branca)
+- Faca por peca ou compartilhada (grade fora a fora)
 - Quantidade por item
 - Nesting automatico (grid) com divisao em multiplas chapas
 - Exportacao PDF de impressao (vetores preservados)
-- Exportacao DXF (mm, layer CUT)
+- Exportacao DXF (mm, layers CUT/REGMARK) - unico ou um por chapa
+- Exportacao em imagem PNG/JPEG com DPI escolhido
 - Registro: Bolinhas (5) e Mimaki (marcas em L + quadro)
 - Rotacao
-- Interface PySide6 com preview (zoom/pan), faixas por categoria
-- Configuracoes persistidas
+- Ferramentas de canvas estilo CorelDRAW: nudge (setas), alinhar/distribuir,
+  duplicar, repetir em grade (step and repeat), encaixe magnetico (snap)
+- Sistema de Projeto (.printnest): Novo / Abrir / Salvar / Salvar Como,
+  reabre o ultimo projeto ao iniciar
+- Interface PySide6 com preview (zoom/pan), faixas por categoria recolhiveis
+- Configuracoes persistidas (em %APPDATA%\PrintNest)

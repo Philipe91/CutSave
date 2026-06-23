@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.application.use_cases.export_dxf import ExportDxfUseCase
@@ -15,6 +16,7 @@ from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer
 from app.presentation.main_window import MainWindow
 from app.shared.config import AppPaths, SettingsStore
 from app.shared.logging import setup_logging
+from app.shared.resources import resource_path
 
 
 def main() -> int:
@@ -24,6 +26,9 @@ def main() -> int:
     setup_logging(settings.log_level, paths.logs_dir)
 
     app = QApplication(sys.argv)
+    icon_file = resource_path("assets/printnest.ico")
+    if icon_file.exists():
+        app.setWindowIcon(QIcon(str(icon_file)))
     pipeline = RunProductionPipelineUseCase(ImportPdfUseCase(PyMuPdfImporter()))
     window = MainWindow(
         pipeline,

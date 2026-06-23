@@ -47,9 +47,42 @@ def _selftest() -> int:
     contours = positioned_cut_contours_sheets(sheets, arts, material.width)
     ExportDxfUseCase(DxfExporter()).execute(contours, dxf_out)
 
-    ok = os.path.exists(pdf_out) and os.path.exists(dxf_out)
+    # projeto (.printnest): salvar e reabrir restaura arquivos/parametros
+    from pathlib import Path
+
+    from app.application.project_io import ProjectDocument, ProjectFile, ProjectStore
+    from app.shared.config.settings import AppSettings, SettingsStore
+
+    proj_out = os.path.join(tmp, "trabalho.printnest")
+    ProjectStore().save(
+        proj_out,
+        ProjectDocument(files=[ProjectFile(src, quantity=3)], settings={"offset": 3.0}),
+    )
+    reaberto = ProjectStore().load(proj_out)
+    projeto_ok = (
+        os.path.exists(proj_out)
+        and len(reaberto.files) == 1
+        and reaberto.files[0].quantity == 3
+    )
+
+    # configuracoes persistem entre execucoes (escreve e le de volta)
+    cfg = SettingsStore(Path(tmp) / "config.json")
+    s = cfg.load_or_create()
+    s.material_width = 1234.0
+    cfg.save(s)
+    config_ok = cfg.load().material_width == 1234.0 and isinstance(s, AppSettings)
+
+    ok = (
+        os.path.exists(pdf_out)
+        and os.path.exists(dxf_out)
+        and projeto_ok
+        and config_ok
+    )
     print("SELFTEST OK" if ok else "SELFTEST FAIL")
-    print(f"  pecas={sum(s.item_count for s in sheets)} pdf={pdf_out} dxf={dxf_out}")
+    print(
+        f"  pecas={sum(s.item_count for s in sheets)} pdf={pdf_out} dxf={dxf_out} "
+        f"projeto={projeto_ok} config={config_ok}"
+    )
     return 0 if ok else 1
 
 
