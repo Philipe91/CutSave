@@ -7,10 +7,12 @@ from PySide6.QtWidgets import QApplication
 
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase
+from app.application.use_cases.import_image import ImportImageUseCase
 from app.application.use_cases.import_pdf import ImportPdfUseCase
 from app.application.use_cases.run_production_pipeline import RunProductionPipelineUseCase
 from app.infrastructure.exporters.dxf_exporter import DxfExporter
 from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter
+from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
 from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer
 from app.presentation.main_window import MainWindow
@@ -29,7 +31,10 @@ def main() -> int:
     icon_file = resource_path("assets/printnest.ico")
     if icon_file.exists():
         app.setWindowIcon(QIcon(str(icon_file)))
-    pipeline = RunProductionPipelineUseCase(ImportPdfUseCase(PyMuPdfImporter()))
+    pipeline = RunProductionPipelineUseCase(
+        ImportPdfUseCase(PyMuPdfImporter()),
+        image_uc=ImportImageUseCase(Cv2ImageImporter(paths.cache_dir)),
+    )
     window = MainWindow(
         pipeline,
         ExportPrintPdfUseCase(PyMuPdfPrintExporter()),

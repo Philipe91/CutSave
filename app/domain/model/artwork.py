@@ -12,6 +12,21 @@ class FileFormat(Enum):
     PDF = "pdf"
     PNG = "png"
     JPG = "jpg"
+    WEBP = "webp"
+
+    @classmethod
+    def from_path(cls, path: str) -> FileFormat:
+        """Deriva o formato pela extensao do arquivo (jpeg conta como jpg)."""
+        from pathlib import Path
+
+        ext = Path(path).suffix.lower().lstrip(".")
+        if ext == "jpeg":
+            ext = "jpg"
+        return cls(ext)
+
+    @property
+    def is_image(self) -> bool:
+        return self in (FileFormat.PNG, FileFormat.JPG, FileFormat.WEBP)
 
 
 class ArtKind(Enum):

@@ -42,3 +42,14 @@ def test_apara_recorta_no_trimbox(tmp_path):
 def test_arquivo_inexistente_falha(tmp_path):
     with pytest.raises(PdfImportError):
         PyMuPdfPageRenderer().render_png(str(tmp_path / "nao_existe.pdf"))
+
+
+@pytest.mark.parametrize("box", ["media", "trim", "auto"])
+def test_render_imagem_em_qualquer_caixa_nao_quebra(tmp_path, box):
+    # imagem (nao-PDF) com box de apara NAO pode acessar page.xref (falha nativa):
+    # box_clip_rect deve devolver a pagina inteira. Regressao do crash em producao.
+    from PIL import Image
+    p = tmp_path / "img.png"
+    Image.new("RGBA", (120, 80), (10, 10, 10, 255)).save(p, dpi=(150, 150))
+    data = PyMuPdfPageRenderer().render_png(str(p), box=box)
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"

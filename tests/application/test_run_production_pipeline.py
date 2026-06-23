@@ -1,9 +1,12 @@
 import pytest
+from app.application.ports.image_importer import ImportedImage
 from app.application.use_cases.run_production_pipeline import RunProductionPipelineUseCase
-from app.domain.geometry import Size
+from app.domain.geometry import Point2D, Size
 from app.domain.model.artwork import ArtKind, Artwork, FileFormat
+from app.domain.model.cut_contour import CutContour
+from app.domain.model.image_artwork import ImageArtwork, ImageKind
 from app.domain.model.material import Material
-from app.shared.errors import ValidationError
+from app.shared.errors import ImageImportError, ValidationError
 
 
 def _artwork(art_id, w=100.0, h=50.0):
@@ -17,6 +20,45 @@ class _FakeImport:
 
     def execute(self, path, box="auto"):
         return self._by_path[path]
+
+
+class _FakeImageImport:
+    def execute(self, path, *, sensitivity=50.0, ignore_white=True):
+        art = ImageArtwork(
+            id=f"{path}#img", name=path, file_format=FileFormat.PNG,
+            size=Size(40, 40), kind=ArtKind.RASTER,
+            cut_contour=CutContour([Point2D(0, 0), Point2D(40, 0), Point2D(40, 40)]),
+            dpi=150.0, image_kind=ImageKind.IMAGE_ALPHA,
+        )
+        return ImportedImage(art, render_path=f"cache/{path}.png")
+
+
+def test_pipeline_importa_imagem_e_usa_contorno_detectado():
+    pipeline = RunProductionPipelineUseCase(
+        _FakeImport({}), image_uc=_FakeImageImport()
+    )
+    result = pipeline.execute(["logo.png"], Material("UV", width=1300), 3.0)
+    art = result.artworks[0]
+    assert isinstance(art, ImageArtwork)
+    assert art.has_cut  # contorno detectado (nao a faca retangular)
+    # render usa o caminho de cache; origem mantem o caminho do usuario
+    assert result.sources["logo.png#img"] == ("cache/logo.png.png", 0)
+    assert result.origins["logo.png#img"] == "logo.png"
+
+
+def test_pipeline_mistura_pdf_e_imagem():
+    pipeline = RunProductionPipelineUseCase(
+        _FakeImport({"a.pdf": [_artwork("a#p1")]}), image_uc=_FakeImageImport()
+    )
+    result = pipeline.execute(["a.pdf", "logo.png"], Material("UV", width=1300), 3.0)
+    formats = {a.file_format for a in result.artworks}
+    assert formats == {FileFormat.PDF, FileFormat.PNG}
+
+
+def test_pipeline_imagem_sem_importador_configurado_falha():
+    pipeline = RunProductionPipelineUseCase(_FakeImport({}))  # sem image_uc
+    with pytest.raises(ImageImportError):
+        pipeline.execute(["logo.png"], Material("UV", width=1300), 3.0)
 
 
 def test_pipeline_importa_aplica_faca_e_nesting():

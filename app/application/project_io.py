@@ -42,6 +42,10 @@ PROJECT_SETTING_KEYS = (
     "import_box",
     "snap_enabled",
     "export_dpi",
+    "auto_sensitivity",
+    "auto_ignore_white",
+    "auto_offset_external",
+    "auto_offset_internal",
 )
 
 

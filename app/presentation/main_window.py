@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPainter,
     QPen,
     QPixmap,
+    QPolygonF,
     QTransform,
     QUndoCommand,
     QUndoStack,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsItemGroup,
     QGraphicsPixmapItem,
+    QGraphicsPolygonItem,
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
@@ -74,12 +76,19 @@ from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
 )
+from app.domain.cut.contour_ops import offset_contour
 from app.domain.geometry import Point2D, Size
+from app.domain.model.image_artwork import ImageArtwork
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ProjectError, ValidationError
+
+IMAGE_FILE_FILTER = (
+    "Arquivos suportados (*.pdf *.png *.jpg *.jpeg *.webp);;"
+    "PDF (*.pdf);;Imagens (*.png *.jpg *.jpeg *.webp)"
+)
 
 RULER_SIZE = 24
 
@@ -335,7 +344,8 @@ class ProductionWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, pipeline, renderer, paths, material, offset, sheet_height, box):
+    def __init__(self, pipeline, renderer, paths, material, offset, sheet_height, box,
+                 sensitivity=50.0, ignore_white=True):
         super().__init__()
         self._pipeline = pipeline
         self._renderer = renderer
@@ -344,12 +354,15 @@ class ProductionWorker(QObject):
         self._offset = offset
         self._sheet_height = sheet_height
         self._box = box
+        self._sensitivity = sensitivity
+        self._ignore_white = ignore_white
 
     def run(self) -> None:
         try:
             result = self._pipeline.execute(
                 self._paths, self._material, self._offset, self._sheet_height, self._box,
                 on_progress=lambda done, total: self.progress.emit(done, total),
+                sensitivity=self._sensitivity, ignore_white=self._ignore_white,
             )
             unique = sorted(set(result.sources.values()))
             png_map = {}
@@ -447,6 +460,7 @@ class MainWindow(QMainWindow):
         self._paths: list[str] = []
         self._base_artworks: list = []
         self._sources: dict[str, tuple[str, int]] = {}
+        self._origins: dict[str, str] = {}  # id da arte -> caminho original (quantidade)
         self._pixmaps: dict[tuple[str, int], QPixmap] = {}
         self._loaded = False
         self._result: ProductionResult | None = None
@@ -649,7 +663,7 @@ class MainWindow(QMainWindow):
         if row < 0 or row >= len(self._paths):
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Substituir arquivo", self._settings.last_dir, "PDF (*.pdf)"
+            self, "Substituir arquivo", self._settings.last_dir, IMAGE_FILE_FILTER
         )
         if not path:
             return
@@ -940,6 +954,24 @@ class MainWindow(QMainWindow):
         self._shared.addItems(["Faca por peca (quadrados)", "Faca compartilhada (grade)"])
         self._shared.currentIndexChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._shared)
+
+        # Faca automatica de imagens (PNG/JPG/WEBP)
+        sep = QLabel("Faca automatica (imagens)")
+        sep.setStyleSheet("font-weight:bold; color:#c0392b; margin-top:6px;")
+        lay.addWidget(sep)
+        lay.addWidget(QLabel("Sensibilidade (0-100)"))
+        self._auto_sensitivity = _spin(0, 100)
+        lay.addWidget(self._auto_sensitivity)
+        self._auto_ignore_white = QCheckBox("Ignorar fundo branco (imagens opacas)")
+        lay.addWidget(self._auto_ignore_white)
+        lay.addWidget(QLabel("Offset externo - sangria p/ fora (mm)"))
+        self._auto_offset_ext = _spin(0, 100, decimals=2)
+        self._auto_offset_ext.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._auto_offset_ext)
+        lay.addWidget(QLabel("Offset interno - recuo p/ dentro (mm)"))
+        self._auto_offset_int = _spin(0, 100, decimals=2)
+        self._auto_offset_int.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._auto_offset_int)
         return group
 
     def _build_registro_group(self) -> QFrame:
@@ -1019,6 +1051,10 @@ class MainWindow(QMainWindow):
         self._set_snap(s.snap_enabled)
         self._view_mode.setCurrentIndex(max(0, self._view_mode.findData(s.view_mode)))
         self._import_box.setCurrentIndex(max(0, self._import_box.findData(s.import_box)))
+        self._auto_sensitivity.setValue(int(s.auto_sensitivity))
+        self._auto_ignore_white.setChecked(s.auto_ignore_white)
+        self._auto_offset_ext.setValue(s.auto_offset_external)
+        self._auto_offset_int.setValue(s.auto_offset_internal)
 
     def _save_settings(self) -> None:
         s = self._settings
@@ -1040,6 +1076,10 @@ class MainWindow(QMainWindow):
         s.view_mode = self._view_mode.currentData()
         s.import_box = self._import_box.currentData()
         s.snap_enabled = self._snap.enabled
+        s.auto_sensitivity = float(self._auto_sensitivity.value())
+        s.auto_ignore_white = self._auto_ignore_white.isChecked()
+        s.auto_offset_external = float(self._auto_offset_ext.value())
+        s.auto_offset_internal = float(self._auto_offset_int.value())
         self._store.save(s)
 
     # ---- helpers de leitura ----
@@ -1061,10 +1101,18 @@ class MainWindow(QMainWindow):
             width, height = height, width
         return replace(art, size=Size(width, height), cut_contour=None)
 
+    def _image_faca(self, base: ImageArtwork, net_offset: float):
+        """Faca de uma imagem: contorno detectado com o offset externo/interno."""
+        contour = base.raw_contour
+        if contour is not None and net_offset != 0:
+            contour = offset_contour(contour, net_offset)
+        return replace(base, cut_contour=contour)
+
     # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Adicionar PDFs", self._settings.last_dir, "PDF (*.pdf)"
+            self, "Adicionar arquivos (PDF / imagem)", self._settings.last_dir,
+            IMAGE_FILE_FILTER,
         )
         if paths:
             self.add_paths(paths)
@@ -1131,17 +1179,22 @@ class MainWindow(QMainWindow):
 
     def generate(self, *, blocking: bool = False) -> None:
         if not self._paths:
-            QMessageBox.warning(self, "PrintNest", "Adicione ao menos um PDF.")
+            QMessageBox.warning(self, "PrintNest", "Adicione ao menos um arquivo.")
             return
         self._save_settings()
         material = self._material()
         offset = self._effective_offset()
         sheet_height = float(self._height.value())
         box = self._import_box.currentData()
+        sensitivity = float(self._auto_sensitivity.value())
+        ignore_white = self._auto_ignore_white.isChecked()
         self._fit_next = True  # ajusta o zoom uma vez apos gerar
 
         if blocking:
-            result = self._pipeline.execute(self._paths, material, offset, sheet_height, box)
+            result = self._pipeline.execute(
+                self._paths, material, offset, sheet_height, box,
+                sensitivity=sensitivity, ignore_white=ignore_white,
+            )
             unique = sorted(set(result.sources.values()))
             png_map = {key: self._renderer.render_png(key[0], key[1], box=box) for key in unique}
             self._load_production(result, png_map)
@@ -1151,7 +1204,7 @@ class MainWindow(QMainWindow):
         self._thread = QThread()
         self._worker = ProductionWorker(
             self._pipeline, self._renderer, list(self._paths),
-            material, offset, sheet_height, box,
+            material, offset, sheet_height, box, sensitivity, ignore_white,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -1182,6 +1235,9 @@ class MainWindow(QMainWindow):
     def _load_production(self, result: ProductionResult, png_map: dict) -> None:
         self._base_artworks = result.artworks
         self._sources = result.sources
+        self._origins = dict(result.origins) or {
+            art_id: src[0] for art_id, src in result.sources.items()
+        }
         self._pixmaps = {}
         by_bytes: dict[bytes, QPixmap] = {}
         for key, data in png_map.items():
@@ -1206,14 +1262,20 @@ class MainWindow(QMainWindow):
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
+        net_image_offset = (
+            float(self._auto_offset_ext.value()) - float(self._auto_offset_int.value())
+        )
         try:
             artworks = []
             for base in self._base_artworks:
-                path = self._sources.get(base.id, (None,))[0]
+                path = self._origins.get(base.id) or self._sources.get(base.id, (None,))[0]
                 qty = quantities.get(path, 0)  # arquivo removido da tabela -> 0
                 if qty <= 0:
                     continue
-                art = self._faca_uc.execute(self._transform(base), offset)
+                if isinstance(base, ImageArtwork):
+                    art = self._image_faca(base, net_image_offset)
+                else:
+                    art = self._faca_uc.execute(self._transform(base), offset)
                 artworks.extend([art] * qty)
         except ValidationError:
             self._status.setText("Recorte/recuo grande demais para a peca.")
@@ -1319,11 +1381,10 @@ class MainWindow(QMainWindow):
                         rect.setPen(material_pen)
                 if draw_cut and art.has_cut and not shared:
                     faca = art.cut_contour
-                    rect = QGraphicsRectItem(
-                        ax + faca.origin.x, ay + faca.origin.y,
-                        faca.size.width, faca.size.height, piece,
-                    )
-                    rect.setPen(faca_pen)
+                    poly = QPolygonF([QPointF(ax + p.x, ay + p.y) for p in faca.points])
+                    poly_item = QGraphicsPolygonItem(poly, piece)
+                    poly_item.setPen(faca_pen)
+                    poly_item.setBrush(Qt.NoBrush)
                 self._scene.addItem(piece)
 
             if draw_cut and shared:

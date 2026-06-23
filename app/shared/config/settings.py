@@ -37,6 +37,10 @@ class AppSettings:
     import_box: str = "media"  # media (Caixa de Midia) | trim (Caixa de Apara)
     snap_enabled: bool = True  # encaixe (snap) ao arrastar pecas
     export_dpi: int = 150  # resolucao da exportacao em imagem (PNG/JPEG)
+    auto_sensitivity: float = 50.0  # faca automatica de imagem: sensibilidade (0-100)
+    auto_ignore_white: bool = True  # imagens opacas: recortar ignorando fundo branco
+    auto_offset_external: float = 2.0  # faca de imagem: offset externo (sangria) mm
+    auto_offset_internal: float = 0.0  # faca de imagem: offset interno (recuo) mm
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -3,7 +3,8 @@
 PySide6>=6.6
 shapely>=2.0
 PyMuPDF>=1.24
-opencv-python>=4.9
+# headless evita conflito de plugins Qt com o PySide6 (mesma API de cv2)
+opencv-python-headless>=4.9
 Pillow>=10.0
 numpy>=1.26
 ezdxf>=1.1

@@ -2,7 +2,12 @@ from pathlib import Path
 
 import fitz
 import pytest
-from app.application.dto.print_placement import PrintPlacement, PrintSheet
+from app.application.dto.print_placement import (
+    PrintCircle,
+    PrintLine,
+    PrintPlacement,
+    PrintSheet,
+)
 from app.domain.geometry import Point2D, Size
 from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter
 from app.shared.errors import PrintExportError
@@ -128,6 +133,53 @@ def test_export_image_jpeg(tmp_path):
         [_sheet(src, art_w, art_h, 200)], str(out), dpi=72, image_format="jpeg"
     )
     assert out.exists()
+
+
+def _png_source(tmp_path, w_px=120, h_px=60):
+    from PIL import Image
+    p = tmp_path / "art.png"
+    Image.new("RGB", (w_px, h_px), (10, 10, 10)).save(p, dpi=(150, 150))
+    return str(p)
+
+
+def test_imagem_e_embutida_via_insert_image(tmp_path):
+    src = _png_source(tmp_path)
+    out = tmp_path / "IMPRESSAO.pdf"
+    art = Size(120 / MM2PT, 60 / MM2PT)
+    sheet = PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art),), Size(200, 60 / MM2PT))
+    PyMuPdfPrintExporter().export([sheet], str(out))
+
+    doc = fitz.open(str(out))
+    assert doc.page_count == 1
+    assert len(doc[0].get_images()) >= 1  # a imagem foi inserida na pagina
+    doc.close()
+
+
+def test_imagem_exporta_para_png(tmp_path):
+    src = _png_source(tmp_path)
+    out = tmp_path / "OUT.png"
+    art = Size(120 / MM2PT, 60 / MM2PT)
+    sheet = PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art),), Size(200, 60 / MM2PT))
+    paths = PyMuPdfPrintExporter().export_image([sheet], str(out), dpi=96)
+    assert paths == [str(out)]
+    assert out.exists()
+
+
+def test_marcas_circulos_e_linhas_sao_desenhadas(tmp_path):
+    src = _source_pdf(tmp_path)
+    out = tmp_path / "MARCAS.pdf"
+    art = Size(144 / MM2PT, 72 / MM2PT)
+    sheet = PrintSheet(
+        (PrintPlacement(src, 0, Point2D(0, 0), art),),
+        Size(200, 72 / MM2PT),
+        circles=(PrintCircle(Point2D(5, 5), 6.0),),
+        lines=(PrintLine(Point2D(10, 10), Point2D(30, 10), 1.0),),
+    )
+    PyMuPdfPrintExporter().export([sheet], str(out))
+    assert out.exists()
+    doc = fitz.open(str(out))
+    assert doc[0].get_drawings()  # ha vetores desenhados (circulo + linha)
+    doc.close()
 
 
 def test_arquivo_origem_invalido_falha(tmp_path):

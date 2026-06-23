@@ -18,6 +18,10 @@ class PdfImportError(PrintNestError):
     """Falha ao importar um arquivo PDF como Artworks."""
 
 
+class ImageImportError(PrintNestError):
+    """Falha ao importar uma imagem (PNG/JPG/WEBP) ou gerar sua faca."""
+
+
 class DxfExportError(PrintNestError):
     """Falha ao exportar geometrias para DXF."""
 

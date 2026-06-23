@@ -11,6 +11,11 @@ from app.infrastructure.pdf_boxes import box_clip_rect
 from app.shared.errors import PrintExportError
 
 MM2PT = 72.0 / 25.4
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def _is_image_source(path: str) -> bool:
+    return Path(path).suffix.lower() in _IMAGE_SUFFIXES
 
 
 class PyMuPdfPrintExporter(IPrintPdfExporter):
@@ -33,16 +38,23 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                     width=sheet.size.width * MM2PT, height=sheet.size.height * MM2PT
                 )
                 for pl in sheet.placements:
-                    src = sources.get(pl.source_path)
-                    if src is None:
-                        src = fitz.open(pl.source_path)
-                        sources[pl.source_path] = src
                     rect = fitz.Rect(
                         pl.position.x * MM2PT,
                         pl.position.y * MM2PT,
                         (pl.position.x + pl.size.width) * MM2PT,
                         (pl.position.y + pl.size.height) * MM2PT,
                     )
+                    if _is_image_source(pl.source_path):
+                        # imagem raster: embute o arquivo direto (crop nao se aplica)
+                        page.insert_image(
+                            rect, filename=pl.source_path,
+                            keep_proportion=False, rotate=pl.rotate,
+                        )
+                        continue
+                    src = sources.get(pl.source_path)
+                    if src is None:
+                        src = fitz.open(pl.source_path)
+                        sources[pl.source_path] = src
                     clip = self._source_clip(src, pl.source_page, pl.box, pl.crop_mm)
                     page.show_pdf_page(
                         rect, src, pl.source_page, clip=clip, rotate=pl.rotate

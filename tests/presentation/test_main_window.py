@@ -7,12 +7,14 @@ import fitz  # noqa: E402
 import pytest  # noqa: E402
 from app.application.use_cases.export_dxf import ExportDxfUseCase  # noqa: E402
 from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase  # noqa: E402
+from app.application.use_cases.import_image import ImportImageUseCase  # noqa: E402
 from app.application.use_cases.import_pdf import ImportPdfUseCase  # noqa: E402
 from app.application.use_cases.run_production_pipeline import (  # noqa: E402
     RunProductionPipelineUseCase,
 )
 from app.infrastructure.exporters.dxf_exporter import DxfExporter  # noqa: E402
 from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter  # noqa: E402
+from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter  # noqa: E402
 from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter  # noqa: E402
 from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer  # noqa: E402
 from app.presentation.main_window import MainWindow  # noqa: E402
@@ -39,7 +41,10 @@ def _two_page_pdf(tmp_path):
 def _window(tmp_path):
     store = SettingsStore(tmp_path / "config.json")
     settings = store.load_or_create()
-    pipeline = RunProductionPipelineUseCase(ImportPdfUseCase(PyMuPdfImporter()))
+    pipeline = RunProductionPipelineUseCase(
+        ImportPdfUseCase(PyMuPdfImporter()),
+        image_uc=ImportImageUseCase(Cv2ImageImporter(cache_dir=tmp_path / "imgcache")),
+    )
     return MainWindow(
         pipeline,
         ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
@@ -544,7 +549,10 @@ def _window_cfg(tmp_path, name):
     folder.mkdir(exist_ok=True)
     store = SettingsStore(folder / "config.json")
     settings = store.load_or_create()
-    pipeline = RunProductionPipelineUseCase(ImportPdfUseCase(PyMuPdfImporter()))
+    pipeline = RunProductionPipelineUseCase(
+        ImportPdfUseCase(PyMuPdfImporter()),
+        image_uc=ImportImageUseCase(Cv2ImageImporter(cache_dir=folder / "imgcache")),
+    )
     return MainWindow(
         pipeline,
         ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
@@ -620,3 +628,97 @@ def test_novo_projeto_limpa_a_lista(qapp, tmp_path):
     assert w._table.rowCount() == 0
     assert w._result is None
     assert w._loaded is False
+
+
+# ---- importacao de imagens + faca automatica (V1.4) ----
+from tests import synth_images as si  # noqa: E402
+
+
+def test_fluxo_imagem_png_gera_faca_e_exporta(qapp, tmp_path):
+    img = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([img])
+    window.generate(blocking=True)
+
+    assert window._result is not None
+    art = window._result.artworks[0]
+    from app.domain.model.image_artwork import ImageArtwork
+    assert isinstance(art, ImageArtwork)
+    assert art.has_cut  # faca automatica (contorno detectado)
+
+    pdf_out = tmp_path / "IMG_IMPRESSAO.pdf"
+    window.export_pdf(str(pdf_out))
+    assert pdf_out.exists()
+
+    dxf_out = tmp_path / "IMG_CORTE.dxf"
+    window.export_dxf(str(dxf_out))
+    assert dxf_out.exists()
+    doc = ezdxf.readfile(str(dxf_out))
+    assert len(doc.modelspace().query("LWPOLYLINE")) >= 1  # contorno irregular
+
+    png_out = tmp_path / "IMG_OUT.png"
+    window.export_image(str(png_out), dpi=72)
+    assert png_out.exists()
+
+
+def test_fluxo_imagem_webp(qapp, tmp_path):
+    img = si.webp_opaque(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([img])
+    window.generate(blocking=True)
+    assert window._result is not None
+    # render usa o PNG em cache (webp nao abre no fitz), mas a quantidade
+    # continua mapeada pelo caminho original do usuario
+    art = window._result.artworks[0]
+    assert window._origins[art.id] == img
+    pdf_out = tmp_path / "webp.pdf"
+    window.export_pdf(str(pdf_out))
+    assert pdf_out.exists()
+
+
+def test_offset_externo_de_imagem_aumenta_a_faca(qapp, tmp_path):
+    img = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([img])
+    window._auto_offset_ext.setValue(0)
+    window._auto_offset_int.setValue(0)
+    window.generate(blocking=True)
+    antes = window._result.artworks[0].cut_contour.size.width
+
+    window._auto_offset_ext.setValue(5)  # dispara _relayout
+    depois = window._result.artworks[0].cut_contour.size.width
+    assert depois > antes
+
+
+def test_quantidade_de_imagem_multiplica(qapp, tmp_path):
+    img = si.jpg_white_square(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([img])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 1
+    window._table.cellWidget(0, 1).setValue(5)
+    assert sum(s.item_count for s in window._result.sheets) == 5
+
+
+def test_imagem_com_caixa_apara_nao_quebra(qapp, tmp_path):
+    # Regressao: imagem + "Cortar para = Apara" fazia render_png acessar page.xref
+    # de um documento nao-PDF -> falha nativa (o programa fechava).
+    img = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window._import_box.setCurrentIndex(window._import_box.findData("trim"))
+    window.add_paths([img])
+    window.generate(blocking=True)
+    assert window._result is not None
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+
+def test_projeto_com_imagem_salva_e_reabre(qapp, tmp_path):
+    img = si.jpg_white_square(tmp_path)
+    w1 = _window_cfg(tmp_path, "wi1")
+    w1.add_paths([img])
+    proj = tmp_path / "img.printnest"
+    assert w1.save_project(str(proj)) is True
+
+    w2 = _window_cfg(tmp_path, "wi2")
+    assert w2.open_project(str(proj)) is True
+    assert w2._paths == [img]

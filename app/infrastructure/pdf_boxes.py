@@ -21,8 +21,11 @@ def box_clip_rect(doc, page, box: str):
     - 'trim'/'auto': TrimBox (corte) convertido para coords do fitz; None se ausente.
 
     Considera apenas paginas sem rotacao (os arquivos da operacao usam /Rotate 0).
+
+    Em documentos que nao sao PDF (imagens abertas pelo fitz) nao existe caixa de
+    apara, e acessar page.xref provoca falha nativa: nesse caso usa a pagina inteira.
     """
-    if box == "media":
+    if box == "media" or not doc.is_pdf:
         return None
     trim = _raw_box(doc, page, "TrimBox")
     if trim is None:
