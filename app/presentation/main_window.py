@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRect, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -14,13 +15,14 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -226,8 +228,14 @@ class MainWindow(QMainWindow):
         self._btn_add = QPushButton("Adicionar PDFs")
         self._btn_add.clicked.connect(lambda: self.add_pdfs())
         lay.addWidget(self._btn_add)
-        self._list = QListWidget()
-        lay.addWidget(self._list)
+        self._table = QTableWidget(0, 2)
+        self._table.setHorizontalHeaderLabels(["Arquivo", "Qtd"])
+        self._table.verticalHeader().setVisible(False)
+        self._table.setColumnWidth(0, 175)
+        self._table.setColumnWidth(1, 70)
+        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        lay.addWidget(self._table)
         self._btn_remove = QPushButton("Remover PDF selecionado")
         self._btn_remove.clicked.connect(lambda: self.remove_selected())
         lay.addWidget(self._btn_remove)
@@ -371,15 +379,31 @@ class MainWindow(QMainWindow):
 
     def add_paths(self, paths: list[str]) -> None:
         for path in paths:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            self._table.setItem(row, 0, QTableWidgetItem(Path(path).name))
+            spin = QSpinBox()
+            spin.setRange(1, 100000)
+            spin.setValue(1)
+            spin.valueChanged.connect(lambda _: self._relayout())
+            self._table.setCellWidget(row, 1, spin)
             self._paths.append(path)
-            self._list.addItem(Path(path).name)
 
     def remove_selected(self) -> None:
-        row = self._list.currentRow()
+        row = self._table.currentRow()
         if row < 0:
             return
-        self._list.takeItem(row)
+        self._table.removeRow(row)
         del self._paths[row]
+        self._relayout()
+
+    def _quantities(self) -> dict[str, int]:
+        """Quantidade por arquivo, lida da tabela (path -> qtd)."""
+        result: dict[str, int] = {}
+        for row in range(self._table.rowCount()):
+            spin = self._table.cellWidget(row, 1)
+            result[self._paths[row]] = spin.value() if spin else 1
+        return result
 
     # ---- producao ----
     def _material(self) -> Material:
@@ -458,13 +482,22 @@ class MainWindow(QMainWindow):
         offset = self._effective_offset()
         material = self._material()
         sheet_height = float(self._height.value())
+        quantities = self._quantities()
         try:
-            artworks = [
-                self._faca_uc.execute(self._transform(a), offset)
-                for a in self._base_artworks
-            ]
+            artworks = []
+            for base in self._base_artworks:
+                path = self._sources.get(base.id, (None,))[0]
+                qty = quantities.get(path, 0)  # arquivo removido da tabela -> 0
+                if qty <= 0:
+                    continue
+                art = self._faca_uc.execute(self._transform(base), offset)
+                artworks.extend([art] * qty)
         except ValidationError:
             self._status.setText("Recorte/recuo grande demais para a peca.")
+            return
+        if not artworks:
+            self._scene.clear()
+            self._status.setText("Nenhuma peca (verifique quantidades).")
             return
         sheets = self._nesting_uc.execute_sheets(artworks, material, sheet_height)
         self._result = ProductionResult(sheets=sheets, artworks=artworks, sources=self._sources)

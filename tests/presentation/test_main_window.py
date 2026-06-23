@@ -88,11 +88,24 @@ def test_clique_do_botao_nao_usa_o_argumento_checked(qapp, tmp_path):
 def test_remover_pdf_da_lista(qapp, tmp_path):
     window = _window(tmp_path)
     window.add_paths(["a.pdf", "b.pdf"])
-    assert window._list.count() == 2
-    window._list.setCurrentRow(0)
+    assert window._table.rowCount() == 2
+    window._table.setCurrentCell(0, 0)
     window.remove_selected()
-    assert window._list.count() == 1
+    assert window._table.rowCount() == 1
     assert window._paths == ["b.pdf"]
+
+
+def test_quantidade_multiplica_pecas(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)  # 2 paginas
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    base = sum(s.item_count for s in window._result.sheets)
+    assert base == 2  # 2 paginas, qtd 1
+
+    window._table.cellWidget(0, 1).setValue(3)  # qtd 3 -> dispara relayout
+    total = sum(s.item_count for s in window._result.sheets)
+    assert total == 6  # 2 paginas x 3
 
 
 def test_relayout_em_tempo_real_ao_mudar_offset(qapp, tmp_path):
