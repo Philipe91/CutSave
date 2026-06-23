@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QFileDialog,
     QGraphicsScene,
@@ -23,7 +24,14 @@ from PySide6.QtWidgets import (
 
 from app.application.footprint import artwork_footprint
 from app.application.ports.page_renderer import IPageRenderer
-from app.application.positioning import SHEET_GAP_MM, positioned_cut_contours_sheets
+from app.application.positioning import (
+    SHEET_GAP_MM,
+    positioned_cut_contours_sheets,
+    registration_marks,
+    registration_marks_sheets,
+    shared_cut_segments,
+    shared_cut_segments_sheets,
+)
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase
 from app.application.use_cases.generate_rectangular_cut import GenerateRectangularCutUseCase
@@ -166,6 +174,14 @@ class MainWindow(QMainWindow):
         self._safety.valueChanged.connect(lambda _: self._relayout())
         panel.addWidget(self._safety)
 
+        self._shared = QCheckBox("Faca compartilhada (grade fora a fora)")
+        self._shared.toggled.connect(lambda _: self._relayout())
+        panel.addWidget(self._shared)
+
+        self._regmarks = QCheckBox("Marcas de registro (5 bolinhas)")
+        self._regmarks.toggled.connect(lambda _: self._relayout())
+        panel.addWidget(self._regmarks)
+
         self._btn_generate = QPushButton("Gerar Producao")
         self._btn_generate.clicked.connect(lambda: self.generate())
         panel.addWidget(self._btn_generate)
@@ -200,6 +216,8 @@ class MainWindow(QMainWindow):
         self._spacing.setValue(self._settings.spacing)
         self._offset.setValue(self._settings.offset)
         self._safety.setValue(self._settings.safety_inset)
+        self._shared.setChecked(self._settings.shared_faca)
+        self._regmarks.setChecked(self._settings.reg_marks)
 
     def _save_settings(self) -> None:
         self._settings.material_width = float(self._width.value())
@@ -207,6 +225,8 @@ class MainWindow(QMainWindow):
         self._settings.spacing = float(self._spacing.value())
         self._settings.offset = float(self._offset.value())
         self._settings.safety_inset = float(self._safety.value())
+        self._settings.shared_faca = self._shared.isChecked()
+        self._settings.reg_marks = self._regmarks.isChecked()
         self._store.save(self._settings)
 
     def _effective_offset(self) -> float:
@@ -336,7 +356,11 @@ class MainWindow(QMainWindow):
         material_pen.setCosmetic(True)
         faca_pen = QPen(QColor(220, 0, 0))
         faca_pen.setCosmetic(True)
+        mark_brush = QBrush(QColor(0, 0, 0))
         empty_brush = QBrush(QColor(200, 200, 200, 120))
+
+        shared = self._shared.isChecked()
+        regmarks = self._regmarks.isChecked()
 
         for index, layout in enumerate(result.sheets):
             dx = index * (layout.material.width + SHEET_GAP_MM)
@@ -362,12 +386,29 @@ class MainWindow(QMainWindow):
                         base_x, base_y, art.size.width, art.size.height,
                         material_pen, empty_brush,
                     )
-                # faca (vermelho) por cima, na sua posicao real (pode estar p/ dentro)
-                if art.has_cut:
+                # faca de quadrados (vermelho) por cima, na posicao real da peca
+                if art.has_cut and not shared:
                     faca = art.cut_contour
                     self._scene.addRect(
                         base_x + faca.origin.x, base_y + faca.origin.y,
                         faca.size.width, faca.size.height, faca_pen,
+                    )
+
+            if shared:
+                for seg in shared_cut_segments(layout, result.artworks):
+                    self._scene.addLine(
+                        dx + seg.start.x, seg.start.y, dx + seg.end.x, seg.end.y, faca_pen
+                    )
+            if regmarks:
+                marks = registration_marks(
+                    layout, result.artworks,
+                    margin_mm=self._settings.reg_margin,
+                    diameter_mm=self._settings.reg_diameter,
+                )
+                for mark in marks:
+                    self._scene.addEllipse(
+                        dx + mark.center.x - mark.radius, mark.center.y - mark.radius,
+                        mark.diameter, mark.diameter, faca_pen, mark_brush,
                     )
         self._view.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
@@ -384,7 +425,10 @@ class MainWindow(QMainWindow):
             if not path:
                 return
         self._print_export.execute(
-            self._result.sheets, self._result.artworks, self._result.sources, path
+            self._result.sheets, self._result.artworks, self._result.sources, path,
+            reg_marks=self._regmarks.isChecked(),
+            reg_margin_mm=self._settings.reg_margin,
+            reg_diameter_mm=self._settings.reg_diameter,
         )
         if interactive:
             QMessageBox.information(self, "PrintNest", f"PDF gerado:\n{path}")
@@ -400,10 +444,25 @@ class MainWindow(QMainWindow):
             )
             if not path:
                 return
-        sheet_width = self._result.sheets[0].material.width
-        contours = positioned_cut_contours_sheets(
-            self._result.sheets, self._result.artworks, sheet_width
+        sheets = self._result.sheets
+        artworks = self._result.artworks
+        sheet_width = sheets[0].material.width
+
+        if self._shared.isChecked():
+            contours = []
+            segments = shared_cut_segments_sheets(sheets, artworks, sheet_width)
+        else:
+            contours = positioned_cut_contours_sheets(sheets, artworks, sheet_width)
+            segments = []
+        marks = (
+            registration_marks_sheets(
+                sheets, artworks, sheet_width,
+                margin_mm=self._settings.reg_margin,
+                diameter_mm=self._settings.reg_diameter,
+            )
+            if self._regmarks.isChecked()
+            else []
         )
-        self._dxf_export.execute(contours, path)
+        self._dxf_export.execute(contours, path, segments=segments, marks=marks)
         if interactive:
             QMessageBox.information(self, "PrintNest", f"DXF gerado:\n{path}")

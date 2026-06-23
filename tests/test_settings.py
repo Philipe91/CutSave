@@ -35,3 +35,22 @@ def test_json_invalido_levanta_config_error(tmp_path):
 def test_to_dict_from_dict_simetrico():
     original = AppSettings(language="pt-BR", log_level="WARNING")
     assert AppSettings.from_dict(original.to_dict()) == original
+
+
+def test_defaults_de_faca_e_marcas():
+    s = AppSettings()
+    assert s.shared_faca is False
+    assert s.reg_marks is True
+    assert s.reg_margin == 15.0
+    assert s.reg_diameter == 6.0
+
+
+def test_roundtrip_persiste_faca_compartilhada(tmp_path):
+    store = SettingsStore(tmp_path / "config.json")
+    settings = store.load_or_create()
+    settings.shared_faca = True
+    settings.reg_marks = False
+    store.save(settings)
+    reloaded = store.load()
+    assert reloaded.shared_faca is True
+    assert reloaded.reg_marks is False

@@ -22,6 +22,10 @@ class AppSettings:
     spacing: float = 5.0
     offset: float = 3.0
     safety_inset: float = 0.0
+    shared_faca: bool = False
+    reg_marks: bool = True
+    reg_margin: float = 15.0
+    reg_diameter: float = 6.0
 
     def to_dict(self) -> dict:
         return asdict(self)

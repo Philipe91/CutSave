@@ -37,6 +37,16 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                         (pl.position.y + pl.size.height) * MM2PT,
                     )
                     page.show_pdf_page(rect, src, pl.source_page)
+                for circle in sheet.circles:
+                    center = fitz.Point(
+                        circle.center.x * MM2PT, circle.center.y * MM2PT
+                    )
+                    page.draw_circle(
+                        center,
+                        (circle.diameter / 2) * MM2PT,
+                        color=(0, 0, 0),
+                        fill=(0, 0, 0),
+                    )
             out.save(output_path)
         except (RuntimeError, OSError, ValueError) as exc:
             raise PrintExportError(f"Falha ao gerar PDF de impressao: {output_path}") from exc

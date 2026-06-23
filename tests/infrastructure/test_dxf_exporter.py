@@ -66,3 +66,32 @@ def test_multiplas_facas(tmp_path):
     DxfExporter().export([_rect_contour(), _rect_contour(0, 100)], str(out))
     doc = ezdxf.readfile(str(out))
     assert len(doc.modelspace().query("LWPOLYLINE")) == 2
+
+
+def test_faca_compartilhada_gera_linhas_na_layer_cut(tmp_path):
+    from app.domain.cut.shared import Segment
+
+    out = tmp_path / "grade.dxf"
+    segs = [
+        Segment(Point2D(0, 0), Point2D(0, 50)),
+        Segment(Point2D(0, 0), Point2D(100, 0)),
+    ]
+    DxfExporter().export([], str(out), segments=segs)
+    doc = ezdxf.readfile(str(out))
+    lines = doc.modelspace().query("LINE")
+    assert len(lines) == 2
+    assert all(ln.dxf.layer == "CUT" for ln in lines)
+
+
+def test_marcas_de_registro_geram_circulos_na_layer_regmark(tmp_path):
+    from app.domain.cut.registration import RegistrationMark
+
+    out = tmp_path / "marcas.dxf"
+    marks = [RegistrationMark(Point2D(10, 10), 6.0), RegistrationMark(Point2D(90, 10), 6.0)]
+    DxfExporter().export([_rect_contour()], str(out), marks=marks)
+    doc = ezdxf.readfile(str(out))
+    circles = doc.modelspace().query("CIRCLE")
+    assert len(circles) == 2
+    assert "REGMARK" in doc.layers
+    assert all(c.dxf.layer == "REGMARK" for c in circles)
+    assert round(circles[0].dxf.radius, 3) == 3.0

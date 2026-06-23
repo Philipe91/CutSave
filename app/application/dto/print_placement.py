@@ -19,8 +19,17 @@ class PrintPlacement:
 
 
 @dataclass(frozen=True, slots=True)
+class PrintCircle:
+    """Circulo preenchido impresso (marca de registro). center/diameter em mm."""
+
+    center: Point2D
+    diameter: float
+
+
+@dataclass(frozen=True, slots=True)
 class PrintSheet:
-    """Uma pagina do PDF de impressao: seus carimbos + o tamanho da folha (mm)."""
+    """Uma pagina do PDF de impressao: carimbos + marcas + tamanho da folha (mm)."""
 
     placements: tuple[PrintPlacement, ...]
     size: Size
+    circles: tuple[PrintCircle, ...] = ()

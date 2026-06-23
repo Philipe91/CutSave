@@ -88,3 +88,31 @@ def test_origem_ausente_falha():
     layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
     with pytest.raises(ValidationError):
         ExportPrintPdfUseCase(_FakeExporter()).execute([layout], [art], {}, "out.pdf")
+
+
+def test_marcas_de_registro_adicionam_padding_e_circulos():
+    art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    ExportPrintPdfUseCase(fake).execute(
+        [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf",
+        reg_marks=True, reg_margin_mm=15.0, reg_diameter_mm=6.0,
+    )
+    sheet = fake.sheets[0]
+    pad = 15.0 + 6.0
+    # pagina cresce 2*pad nos dois eixos
+    assert sheet.size == Size(1300 + 2 * pad, 50 + 2 * pad)
+    # arte deslocada pelo padding
+    assert sheet.placements[0].position == Point2D(pad, pad)
+    # 5 bolinhas impressas
+    assert len(sheet.circles) == 5
+    assert all(c.diameter == 6.0 for c in sheet.circles)
+
+
+def test_sem_marcas_nao_aplica_padding():
+    art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    ExportPrintPdfUseCase(fake).execute([layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf")
+    assert fake.sheets[0].size == Size(1300, 50)
+    assert fake.sheets[0].circles == ()
