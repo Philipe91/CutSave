@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def _section(self, title: str, color: str) -> tuple[QFrame, QVBoxLayout]:
-        """Cria uma 'faixa' moderna (cabecalho colorido) + area de conteudo."""
+        """Faixa moderna recolhivel: clicar no cabecalho abre/fecha a secao."""
         box = QFrame()
         box.setObjectName("section")
         box.setStyleSheet(
@@ -196,16 +196,29 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 8)
         outer.setSpacing(6)
 
-        header = QLabel(title.upper())
+        header = QPushButton()
+        header.setCheckable(True)
+        header.setChecked(True)
+        header.setCursor(Qt.PointingHandCursor)
         header.setStyleSheet(
-            f"background:{color}; color:white; font-weight:bold; letter-spacing:1px;"
-            "padding:7px 12px; border-top-left-radius:5px; border-top-right-radius:5px;"
+            f"QPushButton{{background:{color}; color:white; font-weight:bold;"
+            "letter-spacing:1px; text-align:left; padding:7px 12px; border:none;"
+            "border-top-left-radius:5px; border-top-right-radius:5px;}}"
         )
         outer.addWidget(header)
 
-        content = QVBoxLayout()
+        content_widget = QWidget()
+        content = QVBoxLayout(content_widget)
         content.setContentsMargins(10, 0, 10, 0)
-        outer.addLayout(content)
+        outer.addWidget(content_widget)
+
+        def _toggle() -> None:
+            arrow = "▾" if header.isChecked() else "▸"  # ▾ / ▸
+            header.setText(f"{arrow}  {title.upper()}")
+            content_widget.setVisible(header.isChecked())
+
+        header.toggled.connect(lambda _: _toggle())
+        _toggle()
         return box, content
 
     def _build_arquivo_group(self) -> QFrame:
