@@ -9,9 +9,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QGraphicsScene,
     QGraphicsView,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -185,9 +185,31 @@ class MainWindow(QMainWindow):
         root.addWidget(self._view, 1)
         self.setCentralWidget(central)
 
-    def _build_arquivo_group(self) -> QGroupBox:
-        group = QGroupBox("Arquivo")
-        lay = QVBoxLayout(group)
+    def _section(self, title: str, color: str) -> tuple[QFrame, QVBoxLayout]:
+        """Cria uma 'faixa' moderna (cabecalho colorido) + area de conteudo."""
+        box = QFrame()
+        box.setObjectName("section")
+        box.setStyleSheet(
+            f"QFrame#section{{background:#fafafa; border:1px solid {color}; border-radius:6px;}}"
+        )
+        outer = QVBoxLayout(box)
+        outer.setContentsMargins(0, 0, 0, 8)
+        outer.setSpacing(6)
+
+        header = QLabel(title.upper())
+        header.setStyleSheet(
+            f"background:{color}; color:white; font-weight:bold; letter-spacing:1px;"
+            "padding:7px 12px; border-top-left-radius:5px; border-top-right-radius:5px;"
+        )
+        outer.addWidget(header)
+
+        content = QVBoxLayout()
+        content.setContentsMargins(10, 0, 10, 0)
+        outer.addLayout(content)
+        return box, content
+
+    def _build_arquivo_group(self) -> QFrame:
+        group, lay = self._section("Arquivo", "#34495e")
         self._btn_add = QPushButton("Adicionar PDFs")
         self._btn_add.clicked.connect(lambda: self.add_pdfs())
         lay.addWidget(self._btn_add)
@@ -203,9 +225,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._rotation)
         return group
 
-    def _build_chapa_group(self) -> QGroupBox:
-        group = QGroupBox("Chapa / Material")
-        lay = QVBoxLayout(group)
+    def _build_chapa_group(self) -> QFrame:
+        group, lay = self._section("Chapa / Material", "#16a085")
         lay.addWidget(QLabel("Largura da chapa (mm)"))
         self._width = _spin(1, 20000)
         self._width.valueChanged.connect(lambda _: self._relayout())
@@ -220,9 +241,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._spacing)
         return group
 
-    def _build_faca_group(self) -> QGroupBox:
-        group = QGroupBox("Faca")
-        lay = QVBoxLayout(group)
+    def _build_faca_group(self) -> QFrame:
+        group, lay = self._section("Faca", "#c0392b")
         lay.addWidget(QLabel("Offset - sangria p/ fora (mm)"))
         self._offset = _spin(-100, 100, decimals=2)
         self._offset.valueChanged.connect(lambda _: self._relayout())
@@ -241,9 +261,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._shared)
         return group
 
-    def _build_registro_group(self) -> QGroupBox:
-        group = QGroupBox("Marcas de registro")
-        lay = QVBoxLayout(group)
+    def _build_registro_group(self) -> QFrame:
+        group, lay = self._section("Marcas de registro", "#8e44ad")
         lay.addWidget(QLabel("Tipo de registro"))
         self._reg_type = QComboBox()
         self._reg_type.addItem("Nenhum", "none")
