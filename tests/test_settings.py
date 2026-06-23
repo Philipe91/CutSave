@@ -40,17 +40,23 @@ def test_to_dict_from_dict_simetrico():
 def test_defaults_de_faca_e_marcas():
     s = AppSettings()
     assert s.shared_faca is False
-    assert s.reg_marks is True
+    assert s.reg_type == "none"
     assert s.reg_margin == 15.0
     assert s.reg_diameter == 6.0
+    assert s.mimaki_distance == 15.0
+    assert s.mimaki_size == 15.0
+    assert s.mimaki_thickness == 1.0
+    assert s.rotation == 0
 
 
-def test_roundtrip_persiste_faca_compartilhada(tmp_path):
+def test_roundtrip_persiste_faca_e_registro(tmp_path):
     store = SettingsStore(tmp_path / "config.json")
     settings = store.load_or_create()
     settings.shared_faca = True
-    settings.reg_marks = False
+    settings.reg_type = "mimaki"
+    settings.rotation = 90
     store.save(settings)
     reloaded = store.load()
     assert reloaded.shared_faca is True
-    assert reloaded.reg_marks is False
+    assert reloaded.reg_type == "mimaki"
+    assert reloaded.rotation == 90

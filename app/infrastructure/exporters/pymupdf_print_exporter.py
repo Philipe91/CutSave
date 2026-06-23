@@ -37,7 +37,9 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                         (pl.position.y + pl.size.height) * MM2PT,
                     )
                     clip = self._crop_clip(src, pl.source_page, pl.crop_mm)
-                    page.show_pdf_page(rect, src, pl.source_page, clip=clip)
+                    page.show_pdf_page(
+                        rect, src, pl.source_page, clip=clip, rotate=pl.rotate
+                    )
                 for circle in sheet.circles:
                     center = fitz.Point(
                         circle.center.x * MM2PT, circle.center.y * MM2PT
@@ -47,6 +49,13 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                         (circle.diameter / 2) * MM2PT,
                         color=(0, 0, 0),
                         fill=(0, 0, 0),
+                    )
+                for line in sheet.lines:
+                    page.draw_line(
+                        fitz.Point(line.start.x * MM2PT, line.start.y * MM2PT),
+                        fitz.Point(line.end.x * MM2PT, line.end.y * MM2PT),
+                        color=(0, 0, 0),
+                        width=line.width * MM2PT,
                     )
             out.save(output_path)
         except (RuntimeError, OSError, ValueError) as exc:

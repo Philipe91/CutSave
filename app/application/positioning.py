@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from app.application.footprint import artwork_footprint
+from app.domain.cut.mimaki import MimakiMarkGenerator, MimakiMarks
 from app.domain.cut.registration import RegistrationMark, RegistrationMarkGenerator
 from app.domain.cut.shared import Segment, build_shared_grid
-from app.domain.geometry import BoundingBox
+from app.domain.geometry import BoundingBox, Point2D
 from app.domain.model.artwork import Artwork
 from app.domain.model.cut_contour import CutContour
 from app.domain.model.layout import Layout
@@ -14,6 +15,7 @@ from app.domain.model.layout import Layout
 SHEET_GAP_MM = 50.0
 
 _REG_GENERATOR = RegistrationMarkGenerator()
+_MIMAKI_GENERATOR = MimakiMarkGenerator()
 
 
 def _contours_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list[CutContour]:
@@ -144,3 +146,56 @@ def registration_marks_sheets(
             _REG_GENERATOR.generate(bbox, margin_mm=margin_mm, diameter_mm=diameter_mm)
         )
     return marks
+
+
+def mimaki_marks(
+    layout: Layout,
+    artworks: Sequence[Artwork],
+    *,
+    distance_mm: float,
+    mark_size_mm: float,
+) -> MimakiMarks | None:
+    """Quadro + marcas em L da Mimaki para uma chapa (None se sem faca)."""
+    bbox = cuts_bounding_box(layout, artworks)
+    if bbox is None:
+        return None
+    return _MIMAKI_GENERATOR.generate(
+        bbox, distance_mm=distance_mm, mark_size_mm=mark_size_mm
+    )
+
+
+def mimaki_marks_sheets(
+    sheets: Sequence[Layout],
+    artworks: Sequence[Artwork],
+    sheet_width: float,
+    *,
+    distance_mm: float,
+    mark_size_mm: float,
+    gap: float = SHEET_GAP_MM,
+) -> list[MimakiMarks]:
+    """Quadros + marcas em L de varias chapas, lado a lado."""
+    by_id = {art.id: art for art in artworks}
+    result: list[MimakiMarks] = []
+    for index, layout in enumerate(sheets):
+        rects = _faca_rects_of(layout, by_id, dx=index * (sheet_width + gap))
+        bbox = _union_bbox(rects)
+        if bbox is None:
+            continue
+        result.append(
+            _MIMAKI_GENERATOR.generate(
+                bbox, distance_mm=distance_mm, mark_size_mm=mark_size_mm
+            )
+        )
+    return result
+
+
+def mimaki_frame_contours(marks_list: Sequence[MimakiMarks]) -> list[CutContour]:
+    """Retangulos dos quadros Mimaki como facas de corte (CutContour)."""
+    contours: list[CutContour] = []
+    for marks in marks_list:
+        f = marks.frame
+        contours.append(CutContour([
+            Point2D(f.min_x, f.min_y), Point2D(f.max_x, f.min_y),
+            Point2D(f.max_x, f.max_y), Point2D(f.min_x, f.max_y),
+        ]))
+    return contours

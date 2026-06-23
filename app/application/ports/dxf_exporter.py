@@ -23,5 +23,6 @@ class IDxfExporter(ABC):
         *,
         segments: Sequence[Segment] = (),
         marks: Sequence[RegistrationMark] = (),
+        mark_segments: Sequence[Segment] = (),
     ) -> None:
         raise NotImplementedError

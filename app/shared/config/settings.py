@@ -23,10 +23,14 @@ class AppSettings:
     offset: float = 3.0
     safety_inset: float = 0.0
     crop: float = 0.0
+    rotation: int = 0
     shared_faca: bool = False
-    reg_marks: bool = True
+    reg_type: str = "none"  # none | circles | mimaki
     reg_margin: float = 15.0
     reg_diameter: float = 6.0
+    mimaki_distance: float = 15.0
+    mimaki_size: float = 15.0
+    mimaki_thickness: float = 1.0
 
     def to_dict(self) -> dict:
         return asdict(self)

@@ -96,7 +96,7 @@ def test_marcas_de_registro_adicionam_padding_e_circulos():
     fake = _FakeExporter()
     ExportPrintPdfUseCase(fake).execute(
         [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf",
-        reg_marks=True, reg_margin_mm=15.0, reg_diameter_mm=6.0,
+        reg_type="circles", reg_margin_mm=15.0, reg_diameter_mm=6.0,
     )
     sheet = fake.sheets[0]
     pad = 15.0 + 6.0
@@ -107,6 +107,22 @@ def test_marcas_de_registro_adicionam_padding_e_circulos():
     # 5 bolinhas impressas
     assert len(sheet.circles) == 5
     assert all(c.diameter == 6.0 for c in sheet.circles)
+
+
+def test_mimaki_gera_marcas_em_l_e_padding():
+    art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    ExportPrintPdfUseCase(fake).execute(
+        [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf",
+        reg_type="mimaki", mimaki_distance_mm=15.0, mimaki_size_mm=15.0,
+        mimaki_thickness_mm=1.0,
+    )
+    sheet = fake.sheets[0]
+    # 8 linhas em L (2 por canto), espessura 1mm
+    assert len(sheet.lines) == 8
+    assert all(line.width == 1.0 for line in sheet.lines)
+    assert sheet.circles == ()
 
 
 def test_crop_propaga_para_o_carimbo():

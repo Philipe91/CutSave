@@ -4,13 +4,14 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRect, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
-    QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QGraphicsScene,
     QGraphicsView,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -27,6 +29,9 @@ from app.application.footprint import artwork_footprint
 from app.application.ports.page_renderer import IPageRenderer
 from app.application.positioning import (
     SHEET_GAP_MM,
+    mimaki_frame_contours,
+    mimaki_marks,
+    mimaki_marks_sheets,
     positioned_cut_contours_sheets,
     registration_marks,
     registration_marks_sheets,
@@ -93,8 +98,14 @@ class ProductionWorker(QObject):
         self.finished.emit((result, png_map))
 
 
+def _spin(minimum, maximum, decimals=None):
+    box = QSpinBox() if decimals is None else QDoubleSpinBox()
+    box.setRange(minimum, maximum)
+    return box
+
+
 class MainWindow(QMainWindow):
-    """Tela unica do MVP PrintNest, com preview da arte + faca."""
+    """Tela unica do MVP PrintNest, organizada por categorias."""
 
     def __init__(
         self,
@@ -135,60 +146,10 @@ class MainWindow(QMainWindow):
         root = QHBoxLayout(central)
 
         panel = QVBoxLayout()
-        self._btn_add = QPushButton("Adicionar PDFs")
-        self._btn_add.clicked.connect(lambda: self.add_pdfs())
-        panel.addWidget(self._btn_add)
-
-        self._list = QListWidget()
-        panel.addWidget(self._list)
-
-        self._btn_remove = QPushButton("Remover PDF selecionado")
-        self._btn_remove.clicked.connect(lambda: self.remove_selected())
-        panel.addWidget(self._btn_remove)
-
-        panel.addWidget(QLabel("Largura da chapa (mm)"))
-        self._width = QSpinBox()
-        self._width.setRange(1, 20000)
-        self._width.valueChanged.connect(lambda _: self._relayout())
-        panel.addWidget(self._width)
-
-        panel.addWidget(QLabel("Altura da chapa (mm) - 0 = chapa unica"))
-        self._height = QSpinBox()
-        self._height.setRange(0, 20000)
-        self._height.valueChanged.connect(lambda _: self._relayout())
-        panel.addWidget(self._height)
-
-        panel.addWidget(QLabel("Espacamento (mm)"))
-        self._spacing = QDoubleSpinBox()
-        self._spacing.setRange(0, 500)
-        self._spacing.valueChanged.connect(lambda _: self._relayout())
-        panel.addWidget(self._spacing)
-
-        panel.addWidget(QLabel("Offset da faca - sangria p/ fora (mm)"))
-        self._offset = QDoubleSpinBox()
-        self._offset.setRange(-100, 100)
-        self._offset.valueChanged.connect(lambda _: self._relayout())
-        panel.addWidget(self._offset)
-
-        panel.addWidget(QLabel("Recuo de seguranca - faca p/ dentro (mm)"))
-        self._safety = QDoubleSpinBox()
-        self._safety.setRange(0, 100)
-        self._safety.valueChanged.connect(lambda _: self._relayout())
-        panel.addWidget(self._safety)
-
-        panel.addWidget(QLabel("Recorte da arte - cortar bordas (mm)"))
-        self._crop = QDoubleSpinBox()
-        self._crop.setRange(0, 100)
-        self._crop.valueChanged.connect(lambda _: self._relayout())
-        panel.addWidget(self._crop)
-
-        self._shared = QCheckBox("Faca compartilhada (grade fora a fora)")
-        self._shared.toggled.connect(lambda _: self._relayout())
-        panel.addWidget(self._shared)
-
-        self._regmarks = QCheckBox("Marcas de registro (5 bolinhas)")
-        self._regmarks.toggled.connect(lambda _: self._relayout())
-        panel.addWidget(self._regmarks)
+        panel.addWidget(self._build_arquivo_group())
+        panel.addWidget(self._build_chapa_group())
+        panel.addWidget(self._build_faca_group())
+        panel.addWidget(self._build_registro_group())
 
         self._btn_generate = QPushButton("Gerar Producao")
         self._btn_generate.clicked.connect(lambda: self.generate())
@@ -210,46 +171,161 @@ class MainWindow(QMainWindow):
         panel.addWidget(self._status)
         panel.addStretch()
 
+        panel_widget = QWidget()
+        panel_widget.setLayout(panel)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(panel_widget)
+        scroll.setMinimumWidth(320)
+
         self._scene = QGraphicsScene()
         self._view = ZoomableGraphicsView(self._scene)
 
-        root.addLayout(panel, 0)
+        root.addWidget(scroll, 0)
         root.addWidget(self._view, 1)
         self.setCentralWidget(central)
 
+    def _build_arquivo_group(self) -> QGroupBox:
+        group = QGroupBox("Arquivo")
+        lay = QVBoxLayout(group)
+        self._btn_add = QPushButton("Adicionar PDFs")
+        self._btn_add.clicked.connect(lambda: self.add_pdfs())
+        lay.addWidget(self._btn_add)
+        self._list = QListWidget()
+        lay.addWidget(self._list)
+        self._btn_remove = QPushButton("Remover PDF selecionado")
+        self._btn_remove.clicked.connect(lambda: self.remove_selected())
+        lay.addWidget(self._btn_remove)
+        lay.addWidget(QLabel("Rotacionar arquivo (graus)"))
+        self._rotation = QComboBox()
+        self._rotation.addItems(["0", "90", "180", "270"])
+        self._rotation.currentIndexChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._rotation)
+        return group
+
+    def _build_chapa_group(self) -> QGroupBox:
+        group = QGroupBox("Chapa / Material")
+        lay = QVBoxLayout(group)
+        lay.addWidget(QLabel("Largura da chapa (mm)"))
+        self._width = _spin(1, 20000)
+        self._width.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._width)
+        lay.addWidget(QLabel("Altura da chapa (mm) - 0 = chapa unica"))
+        self._height = _spin(0, 20000)
+        self._height.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._height)
+        lay.addWidget(QLabel("Espacamento (mm)"))
+        self._spacing = _spin(0, 500, decimals=2)
+        self._spacing.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._spacing)
+        return group
+
+    def _build_faca_group(self) -> QGroupBox:
+        group = QGroupBox("Faca")
+        lay = QVBoxLayout(group)
+        lay.addWidget(QLabel("Offset - sangria p/ fora (mm)"))
+        self._offset = _spin(-100, 100, decimals=2)
+        self._offset.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._offset)
+        lay.addWidget(QLabel("Recuo de seguranca - faca p/ dentro (mm)"))
+        self._safety = _spin(0, 100, decimals=2)
+        self._safety.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._safety)
+        lay.addWidget(QLabel("Recorte da arte - cortar bordas (mm)"))
+        self._crop = _spin(0, 100, decimals=2)
+        self._crop.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._crop)
+        self._shared = QComboBox()
+        self._shared.addItems(["Faca por peca (quadrados)", "Faca compartilhada (grade)"])
+        self._shared.currentIndexChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._shared)
+        return group
+
+    def _build_registro_group(self) -> QGroupBox:
+        group = QGroupBox("Marcas de registro")
+        lay = QVBoxLayout(group)
+        lay.addWidget(QLabel("Tipo de registro"))
+        self._reg_type = QComboBox()
+        self._reg_type.addItem("Nenhum", "none")
+        self._reg_type.addItem("Bolinhas (5)", "circles")
+        self._reg_type.addItem("Mimaki (marcas em L)", "mimaki")
+        self._reg_type.currentIndexChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._reg_type)
+
+        lay.addWidget(QLabel("Bolinhas: afastamento / diametro (mm)"))
+        self._reg_margin = _spin(0, 200, decimals=1)
+        lay.addWidget(self._reg_margin)
+        self._reg_diameter = _spin(1, 50, decimals=1)
+        lay.addWidget(self._reg_diameter)
+
+        lay.addWidget(QLabel("Mimaki: distancia do quadro (mm)"))
+        self._mk_distance = _spin(0, 200, decimals=1)
+        self._mk_distance.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._mk_distance)
+        lay.addWidget(QLabel("Mimaki: tamanho da marca (mm)"))
+        self._mk_size = _spin(1, 100, decimals=1)
+        self._mk_size.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._mk_size)
+        lay.addWidget(QLabel("Mimaki: espessura da marca (mm)"))
+        self._mk_thickness = _spin(0.1, 10, decimals=1)
+        lay.addWidget(self._mk_thickness)
+        return group
+
     # ---- settings ----
     def _load_settings(self) -> None:
-        self._width.setValue(int(self._settings.material_width))
-        self._height.setValue(int(self._settings.material_height))
-        self._spacing.setValue(self._settings.spacing)
-        self._offset.setValue(self._settings.offset)
-        self._safety.setValue(self._settings.safety_inset)
-        self._crop.setValue(self._settings.crop)
-        self._shared.setChecked(self._settings.shared_faca)
-        self._regmarks.setChecked(self._settings.reg_marks)
+        s = self._settings
+        self._width.setValue(int(s.material_width))
+        self._height.setValue(int(s.material_height))
+        self._spacing.setValue(s.spacing)
+        self._offset.setValue(s.offset)
+        self._safety.setValue(s.safety_inset)
+        self._crop.setValue(s.crop)
+        self._rotation.setCurrentText(str(s.rotation))
+        self._shared.setCurrentIndex(1 if s.shared_faca else 0)
+        idx = max(0, self._reg_type.findData(s.reg_type))
+        self._reg_type.setCurrentIndex(idx)
+        self._reg_margin.setValue(s.reg_margin)
+        self._reg_diameter.setValue(s.reg_diameter)
+        self._mk_distance.setValue(s.mimaki_distance)
+        self._mk_size.setValue(s.mimaki_size)
+        self._mk_thickness.setValue(s.mimaki_thickness)
 
     def _save_settings(self) -> None:
-        self._settings.material_width = float(self._width.value())
-        self._settings.material_height = float(self._height.value())
-        self._settings.spacing = float(self._spacing.value())
-        self._settings.offset = float(self._offset.value())
-        self._settings.safety_inset = float(self._safety.value())
-        self._settings.crop = float(self._crop.value())
-        self._settings.shared_faca = self._shared.isChecked()
-        self._settings.reg_marks = self._regmarks.isChecked()
-        self._store.save(self._settings)
+        s = self._settings
+        s.material_width = float(self._width.value())
+        s.material_height = float(self._height.value())
+        s.spacing = float(self._spacing.value())
+        s.offset = float(self._offset.value())
+        s.safety_inset = float(self._safety.value())
+        s.crop = float(self._crop.value())
+        s.rotation = self._rotation_value()
+        s.shared_faca = self._shared.currentIndex() == 1
+        s.reg_type = self._reg_type.currentData()
+        s.reg_margin = float(self._reg_margin.value())
+        s.reg_diameter = float(self._reg_diameter.value())
+        s.mimaki_distance = float(self._mk_distance.value())
+        s.mimaki_size = float(self._mk_size.value())
+        s.mimaki_thickness = float(self._mk_thickness.value())
+        self._store.save(s)
+
+    # ---- helpers de leitura ----
+    def _rotation_value(self) -> int:
+        return int(self._rotation.currentText())
+
+    def _reg(self) -> str:
+        return self._reg_type.currentData()
 
     def _effective_offset(self) -> float:
-        """Sangria (p/ fora) menos recuo de seguranca (p/ dentro)."""
         return float(self._offset.value()) - float(self._safety.value())
 
-    @staticmethod
-    def _cropped(art, crop: float):
-        """Reduz a arte cortando 'crop' mm de cada borda (remove faixa branca)."""
-        if crop <= 0:
-            return art
-        size = Size(art.size.width - 2 * crop, art.size.height - 2 * crop)
-        return replace(art, size=size, cut_contour=None)
+    def _transform(self, art):
+        """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
+        crop = float(self._crop.value())
+        width = art.size.width - 2 * crop
+        height = art.size.height - 2 * crop
+        if self._rotation_value() in (90, 270):
+            width, height = height, width
+        return replace(art, size=Size(width, height), cut_contour=None)
 
     # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
@@ -276,9 +352,7 @@ class MainWindow(QMainWindow):
     # ---- producao ----
     def _material(self) -> Material:
         return Material(
-            name="MVP",
-            width=float(self._width.value()),
-            spacing=float(self._spacing.value()),
+            name="MVP", width=float(self._width.value()), spacing=float(self._spacing.value())
         )
 
     def generate(self, *, blocking: bool = False) -> None:
@@ -350,13 +424,12 @@ class MainWindow(QMainWindow):
         if not self._loaded:
             return
         offset = self._effective_offset()
-        crop = float(self._crop.value())
         material = self._material()
         sheet_height = float(self._height.value())
         try:
             artworks = [
-                self._faca_uc.execute(self._cropped(art, crop), offset)
-                for art in self._base_artworks
+                self._faca_uc.execute(self._transform(a), offset)
+                for a in self._base_artworks
             ]
         except ValidationError:
             self._status.setText("Recorte/recuo grande demais para a peca.")
@@ -378,12 +451,15 @@ class MainWindow(QMainWindow):
         material_pen.setCosmetic(True)
         faca_pen = QPen(QColor(220, 0, 0))
         faca_pen.setCosmetic(True)
-        mark_brush = QBrush(QColor(0, 0, 0))
+        mark_pen = QPen(QColor(0, 90, 180))
+        mark_pen.setCosmetic(True)
+        mark_brush = QBrush(QColor(0, 90, 180))
         empty_brush = QBrush(QColor(200, 200, 200, 120))
 
-        shared = self._shared.isChecked()
-        regmarks = self._regmarks.isChecked()
+        shared = self._shared.currentIndex() == 1
+        reg = self._reg()
         crop = float(self._crop.value())
+        rotation = self._rotation_value()
         cropped_cache: dict = {}
 
         for index, layout in enumerate(result.sheets):
@@ -396,14 +472,15 @@ class MainWindow(QMainWindow):
                 if art is None:
                     continue
                 fp = artwork_footprint(art)
-                # canto da arte (art-local 0,0) na chapa
                 base_x = dx + item.position.x - fp.min_x
                 base_y = item.position.y - fp.min_y
 
                 key = self._sources.get(item.artwork_id)
                 pixmap = self._pixmaps.get(key)
                 if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
-                    display = self._crop_pixmap(pixmap, crop, art.size, cropped_cache, key)
+                    display = self._display_pixmap(
+                        pixmap, crop, rotation, art.size, cropped_cache, key
+                    )
                     pm_item = self._scene.addPixmap(display)
                     pm_item.setScale(art.size.width / display.width())
                     pm_item.setPos(base_x, base_y)
@@ -412,7 +489,6 @@ class MainWindow(QMainWindow):
                         base_x, base_y, art.size.width, art.size.height,
                         material_pen, empty_brush,
                     )
-                # faca de quadrados (vermelho) por cima, na posicao real da peca
                 if art.has_cut and not shared:
                     faca = art.cut_contour
                     self._scene.addRect(
@@ -425,34 +501,60 @@ class MainWindow(QMainWindow):
                     self._scene.addLine(
                         dx + seg.start.x, seg.start.y, dx + seg.end.x, seg.end.y, faca_pen
                     )
-            if regmarks:
-                marks = registration_marks(
-                    layout, result.artworks,
-                    margin_mm=self._settings.reg_margin,
-                    diameter_mm=self._settings.reg_diameter,
-                )
-                for mark in marks:
-                    self._scene.addEllipse(
-                        dx + mark.center.x - mark.radius, mark.center.y - mark.radius,
-                        mark.diameter, mark.diameter, faca_pen, mark_brush,
-                    )
+            self._draw_marks(layout, result.artworks, dx, reg, mark_pen, mark_brush, faca_pen)
         self._view.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
+    def _draw_marks(self, layout, artworks, dx, reg, mark_pen, mark_brush, faca_pen) -> None:
+        if reg == "circles":
+            for mark in registration_marks(
+                layout, artworks,
+                margin_mm=float(self._reg_margin.value()),
+                diameter_mm=float(self._reg_diameter.value()),
+            ):
+                self._scene.addEllipse(
+                    dx + mark.center.x - mark.radius, mark.center.y - mark.radius,
+                    mark.diameter, mark.diameter, mark_pen, mark_brush,
+                )
+        elif reg == "mimaki":
+            marks = mimaki_marks(
+                layout, artworks,
+                distance_mm=float(self._mk_distance.value()),
+                mark_size_mm=float(self._mk_size.value()),
+            )
+            if marks is None:
+                return
+            f = marks.frame
+            self._scene.addRect(
+                dx + f.min_x, f.min_y, f.max_x - f.min_x, f.max_y - f.min_y, faca_pen
+            )
+            for seg in marks.segments:
+                self._scene.addLine(
+                    dx + seg.start.x, seg.start.y, dx + seg.end.x, seg.end.y, mark_pen
+                )
+
     @staticmethod
-    def _crop_pixmap(pixmap, crop, cropped_size, cache, key):
-        """Recorta o pixmap para refletir o recorte da arte (cache por origem)."""
-        if crop <= 0:
+    def _display_pixmap(pixmap, crop, rotation, art_size, cache, key):
+        """Recorta e rotaciona o pixmap para o preview (cache por origem)."""
+        cache_key = (key, rotation)
+        if crop <= 0 and rotation == 0:
             return pixmap
-        if key in cache:
-            return cache[key]
-        orig_w = cropped_size.width + 2 * crop
-        orig_h = cropped_size.height + 2 * crop
-        x = round(pixmap.width() * crop / orig_w)
-        y = round(pixmap.height() * crop / orig_h)
-        w = pixmap.width() - 2 * x
-        h = pixmap.height() - 2 * y
-        out = pixmap.copy(QRect(x, y, w, h)) if w > 0 and h > 0 else pixmap
-        cache[key] = out
+        if cache_key in cache:
+            return cache[cache_key]
+        out = pixmap
+        if crop > 0:
+            # antes da rotacao art_size pode estar trocado; reconstroi original
+            unrotated_w = art_size.width if rotation in (0, 180) else art_size.height
+            orig_w = unrotated_w + 2 * crop
+            fx = crop / orig_w
+            x = round(pixmap.width() * fx)
+            y = round(pixmap.height() * fx)
+            w = pixmap.width() - 2 * x
+            h = pixmap.height() - 2 * y
+            if w > 0 and h > 0:
+                out = pixmap.copy(QRect(x, y, w, h))
+        if rotation:
+            out = out.transformed(QTransform().rotate(rotation))
+        cache[cache_key] = out
         return out
 
     # ---- exportacao ----
@@ -469,10 +571,14 @@ class MainWindow(QMainWindow):
                 return
         self._print_export.execute(
             self._result.sheets, self._result.artworks, self._result.sources, path,
-            reg_marks=self._regmarks.isChecked(),
-            reg_margin_mm=self._settings.reg_margin,
-            reg_diameter_mm=self._settings.reg_diameter,
+            reg_type=self._reg(),
+            reg_margin_mm=float(self._reg_margin.value()),
+            reg_diameter_mm=float(self._reg_diameter.value()),
+            mimaki_distance_mm=float(self._mk_distance.value()),
+            mimaki_size_mm=float(self._mk_size.value()),
+            mimaki_thickness_mm=float(self._mk_thickness.value()),
             crop_mm=float(self._crop.value()),
+            rotate=self._rotation_value(),
         )
         if interactive:
             QMessageBox.information(self, "PrintNest", f"PDF gerado:\n{path}")
@@ -491,22 +597,35 @@ class MainWindow(QMainWindow):
         sheets = self._result.sheets
         artworks = self._result.artworks
         sheet_width = sheets[0].material.width
+        reg = self._reg()
 
-        if self._shared.isChecked():
+        if self._shared.currentIndex() == 1:
             contours = []
             segments = shared_cut_segments_sheets(sheets, artworks, sheet_width)
         else:
             contours = positioned_cut_contours_sheets(sheets, artworks, sheet_width)
             segments = []
-        marks = (
-            registration_marks_sheets(
+
+        marks = []
+        mark_segments = []
+        if reg == "circles":
+            marks = registration_marks_sheets(
                 sheets, artworks, sheet_width,
-                margin_mm=self._settings.reg_margin,
-                diameter_mm=self._settings.reg_diameter,
+                margin_mm=float(self._reg_margin.value()),
+                diameter_mm=float(self._reg_diameter.value()),
             )
-            if self._regmarks.isChecked()
-            else []
+        elif reg == "mimaki":
+            mk_list = mimaki_marks_sheets(
+                sheets, artworks, sheet_width,
+                distance_mm=float(self._mk_distance.value()),
+                mark_size_mm=float(self._mk_size.value()),
+            )
+            contours = list(contours) + mimaki_frame_contours(mk_list)
+            for mk in mk_list:
+                mark_segments.extend(mk.segments)
+
+        self._dxf_export.execute(
+            contours, path, segments=segments, marks=marks, mark_segments=mark_segments
         )
-        self._dxf_export.execute(contours, path, segments=segments, marks=marks)
         if interactive:
             QMessageBox.information(self, "PrintNest", f"DXF gerado:\n{path}")

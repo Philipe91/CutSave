@@ -17,11 +17,12 @@ class _FakeExporter(IDxfExporter):
         self.segments = None
         self.marks = None
 
-    def export(self, contours, output_path, *, segments=(), marks=()):
+    def export(self, contours, output_path, *, segments=(), marks=(), mark_segments=()):
         self.contours = list(contours)
         self.path = output_path
         self.segments = list(segments)
         self.marks = list(marks)
+        self.mark_segments = list(mark_segments)
 
 
 def test_exporta_lista_de_facas():

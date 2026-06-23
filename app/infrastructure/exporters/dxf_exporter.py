@@ -27,6 +27,7 @@ class DxfExporter(IDxfExporter):
         *,
         segments: Sequence[Segment] = (),
         marks: Sequence[RegistrationMark] = (),
+        mark_segments: Sequence[Segment] = (),
     ) -> None:
         doc = ezdxf.new(dxfversion=DXF_VERSION)
         doc.units = ezdxf.units.MM  # define $INSUNITS = 4 (milimetros)
@@ -45,12 +46,18 @@ class DxfExporter(IDxfExporter):
                 dxfattribs={"layer": CUT_LAYER},
             )
 
-        if marks:
+        if marks or mark_segments:
             doc.layers.add(REGMARK_LAYER, color=REGMARK_COLOR)
             for mark in marks:
                 msp.add_circle(
                     (mark.center.x, mark.center.y),
                     mark.radius,
+                    dxfattribs={"layer": REGMARK_LAYER},
+                )
+            for segment in mark_segments:
+                msp.add_line(
+                    (segment.start.x, segment.start.y),
+                    (segment.end.x, segment.end.y),
                     dxfattribs={"layer": REGMARK_LAYER},
                 )
 

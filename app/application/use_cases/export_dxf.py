@@ -22,6 +22,7 @@ class ExportDxfUseCase:
         *,
         segments: Sequence[Segment] = (),
         marks: Sequence[RegistrationMark] = (),
+        mark_segments: Sequence[Segment] = (),
     ) -> str:
         if isinstance(contours, CutContour):
             contours = [contours]
@@ -29,5 +30,7 @@ class ExportDxfUseCase:
         segments = list(segments)
         if not contours and not segments:
             raise ValidationError("Nenhuma faca para exportar.")
-        self._exporter.export(contours, output_path, segments=segments, marks=marks)
+        self._exporter.export(
+            contours, output_path, segments=segments, marks=marks, mark_segments=mark_segments
+        )
         return output_path

@@ -17,6 +17,7 @@ class PrintPlacement:
     position: Point2D
     size: Size
     crop_mm: float = 0.0  # recorta esse tanto de cada borda da pagina de origem
+    rotate: int = 0  # rotacao da arte em graus (0/90/180/270)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,9 +29,19 @@ class PrintCircle:
 
 
 @dataclass(frozen=True, slots=True)
+class PrintLine:
+    """Linha preenchida impressa (marca em L da Mimaki). Espessura em mm."""
+
+    start: Point2D
+    end: Point2D
+    width: float
+
+
+@dataclass(frozen=True, slots=True)
 class PrintSheet:
     """Uma pagina do PDF de impressao: carimbos + marcas + tamanho da folha (mm)."""
 
     placements: tuple[PrintPlacement, ...]
     size: Size
     circles: tuple[PrintCircle, ...] = ()
+    lines: tuple[PrintLine, ...] = ()
