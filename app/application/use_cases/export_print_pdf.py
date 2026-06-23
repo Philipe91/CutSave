@@ -35,6 +35,7 @@ class ExportPrintPdfUseCase:
         reg_marks: bool = False,
         reg_margin_mm: float = 15.0,
         reg_diameter_mm: float = 6.0,
+        crop_mm: float = 0.0,
     ) -> str:
         layouts = [layout for layout in sheets if layout.items]
         if not layouts:
@@ -60,7 +61,9 @@ class ExportPrintPdfUseCase:
                     item.position.x - footprint.min_x + pad,
                     item.position.y - footprint.min_y + pad,
                 )
-                placements.append(PrintPlacement(source[0], source[1], position, art.size))
+                placements.append(
+                    PrintPlacement(source[0], source[1], position, art.size, crop_mm)
+                )
 
             circles: tuple[PrintCircle, ...] = ()
             if reg_marks:

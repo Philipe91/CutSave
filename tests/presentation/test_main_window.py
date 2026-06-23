@@ -123,6 +123,18 @@ def test_recuo_de_seguranca_deixa_faca_menor_que_a_arte(qapp, tmp_path):
     assert faca.size.height == art.size.height - 10
 
 
+def test_recorte_reduz_tamanho_da_arte(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._crop.setValue(0)
+    window.generate(blocking=True)
+    largura_cheia = window._result.artworks[0].size.width
+
+    window._crop.setValue(3)  # corta 3mm de cada borda -> -6mm na largura
+    assert window._result.artworks[0].size.width == largura_cheia - 6
+
+
 def test_persiste_configuracoes(qapp, tmp_path):
     window = _window(tmp_path)
     window._width.setValue(1500)

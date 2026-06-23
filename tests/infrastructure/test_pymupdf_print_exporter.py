@@ -34,6 +34,39 @@ def _sheet(src, w_mm, h_mm, sheet_w_mm):
     return PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art),), Size(sheet_w_mm, h_mm))
 
 
+def _bordered_pdf(tmp_path):
+    """Pagina 100x100 pt: borda branca, centro preto (25..75)."""
+    doc = fitz.open()
+    page = doc.new_page(width=100, height=100)
+    page.draw_rect(fitz.Rect(0, 0, 100, 100), color=(1, 1, 1), fill=(1, 1, 1))
+    page.draw_rect(fitz.Rect(25, 25, 75, 75), color=(0, 0, 0), fill=(0, 0, 0))
+    path = tmp_path / "borda.pdf"
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_crop_remove_a_borda_branca(tmp_path):
+    src = _bordered_pdf(tmp_path)
+    art = Size(100 / MM2PT, 100 / MM2PT)
+    crop = 25 / MM2PT  # recorta a borda branca -> centro preto preenche a folha
+
+    out_sem = tmp_path / "sem.pdf"
+    PyMuPdfPrintExporter().export(
+        [PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art),), art)], str(out_sem)
+    )
+    out_com = tmp_path / "com.pdf"
+    PyMuPdfPrintExporter().export(
+        [PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art, crop),), art)], str(out_com)
+    )
+
+    pix_sem = fitz.open(str(out_sem))[0].get_pixmap()
+    pix_com = fitz.open(str(out_com))[0].get_pixmap()
+    # sem recorte: canto branco; com recorte: canto preto
+    assert _is_white(pix_sem, 5, 5)
+    assert _is_black(pix_com, 5, 5)
+
+
 def test_gera_pdf_com_uma_pagina_por_chapa(tmp_path):
     src = _source_pdf(tmp_path)
     out = tmp_path / "IMPRESSAO.pdf"

@@ -36,7 +36,8 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                         (pl.position.x + pl.size.width) * MM2PT,
                         (pl.position.y + pl.size.height) * MM2PT,
                     )
-                    page.show_pdf_page(rect, src, pl.source_page)
+                    clip = self._crop_clip(src, pl.source_page, pl.crop_mm)
+                    page.show_pdf_page(rect, src, pl.source_page, clip=clip)
                 for circle in sheet.circles:
                     center = fitz.Point(
                         circle.center.x * MM2PT, circle.center.y * MM2PT
@@ -54,3 +55,17 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
             for src in sources.values():
                 src.close()
             out.close()
+
+    @staticmethod
+    def _crop_clip(src, page_index: int, crop_mm: float):
+        """Sub-retangulo da pagina de origem, recuado crop_mm de cada borda."""
+        if crop_mm <= 0:
+            return None
+        crop_pt = crop_mm * MM2PT
+        rect = src[page_index].rect
+        if rect.width <= 2 * crop_pt or rect.height <= 2 * crop_pt:
+            return None
+        return fitz.Rect(
+            rect.x0 + crop_pt, rect.y0 + crop_pt,
+            rect.x1 - crop_pt, rect.y1 - crop_pt,
+        )

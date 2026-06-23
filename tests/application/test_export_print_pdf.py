@@ -109,6 +109,16 @@ def test_marcas_de_registro_adicionam_padding_e_circulos():
     assert all(c.diameter == 6.0 for c in sheet.circles)
 
 
+def test_crop_propaga_para_o_carimbo():
+    art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    ExportPrintPdfUseCase(fake).execute(
+        [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf", crop_mm=2.0
+    )
+    assert fake.sheets[0].placements[0].crop_mm == 2.0
+
+
 def test_sem_marcas_nao_aplica_padding():
     art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
     layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)

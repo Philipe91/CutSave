@@ -16,6 +16,7 @@ class PrintPlacement:
     source_page: int
     position: Point2D
     size: Size
+    crop_mm: float = 0.0  # recorta esse tanto de cada borda da pagina de origem
 
 
 @dataclass(frozen=True, slots=True)

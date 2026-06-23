@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QObject, QRect, Qt, QThread, Signal
 from PySide6.QtGui import QBrush, QColor, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -40,6 +41,7 @@ from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
 )
+from app.domain.geometry import Size
 from app.domain.model.material import Material
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ValidationError
@@ -174,6 +176,12 @@ class MainWindow(QMainWindow):
         self._safety.valueChanged.connect(lambda _: self._relayout())
         panel.addWidget(self._safety)
 
+        panel.addWidget(QLabel("Recorte da arte - cortar bordas (mm)"))
+        self._crop = QDoubleSpinBox()
+        self._crop.setRange(0, 100)
+        self._crop.valueChanged.connect(lambda _: self._relayout())
+        panel.addWidget(self._crop)
+
         self._shared = QCheckBox("Faca compartilhada (grade fora a fora)")
         self._shared.toggled.connect(lambda _: self._relayout())
         panel.addWidget(self._shared)
@@ -216,6 +224,7 @@ class MainWindow(QMainWindow):
         self._spacing.setValue(self._settings.spacing)
         self._offset.setValue(self._settings.offset)
         self._safety.setValue(self._settings.safety_inset)
+        self._crop.setValue(self._settings.crop)
         self._shared.setChecked(self._settings.shared_faca)
         self._regmarks.setChecked(self._settings.reg_marks)
 
@@ -225,6 +234,7 @@ class MainWindow(QMainWindow):
         self._settings.spacing = float(self._spacing.value())
         self._settings.offset = float(self._offset.value())
         self._settings.safety_inset = float(self._safety.value())
+        self._settings.crop = float(self._crop.value())
         self._settings.shared_faca = self._shared.isChecked()
         self._settings.reg_marks = self._regmarks.isChecked()
         self._store.save(self._settings)
@@ -232,6 +242,14 @@ class MainWindow(QMainWindow):
     def _effective_offset(self) -> float:
         """Sangria (p/ fora) menos recuo de seguranca (p/ dentro)."""
         return float(self._offset.value()) - float(self._safety.value())
+
+    @staticmethod
+    def _cropped(art, crop: float):
+        """Reduz a arte cortando 'crop' mm de cada borda (remove faixa branca)."""
+        if crop <= 0:
+            return art
+        size = Size(art.size.width - 2 * crop, art.size.height - 2 * crop)
+        return replace(art, size=size, cut_contour=None)
 
     # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
@@ -332,12 +350,16 @@ class MainWindow(QMainWindow):
         if not self._loaded:
             return
         offset = self._effective_offset()
+        crop = float(self._crop.value())
         material = self._material()
         sheet_height = float(self._height.value())
         try:
-            artworks = [self._faca_uc.execute(art, offset) for art in self._base_artworks]
+            artworks = [
+                self._faca_uc.execute(self._cropped(art, crop), offset)
+                for art in self._base_artworks
+            ]
         except ValidationError:
-            self._status.setText("Recuo de seguranca grande demais para a peca.")
+            self._status.setText("Recorte/recuo grande demais para a peca.")
             return
         sheets = self._nesting_uc.execute_sheets(artworks, material, sheet_height)
         self._result = ProductionResult(sheets=sheets, artworks=artworks, sources=self._sources)
@@ -361,6 +383,8 @@ class MainWindow(QMainWindow):
 
         shared = self._shared.isChecked()
         regmarks = self._regmarks.isChecked()
+        crop = float(self._crop.value())
+        cropped_cache: dict = {}
 
         for index, layout in enumerate(result.sheets):
             dx = index * (layout.material.width + SHEET_GAP_MM)
@@ -376,10 +400,12 @@ class MainWindow(QMainWindow):
                 base_x = dx + item.position.x - fp.min_x
                 base_y = item.position.y - fp.min_y
 
-                pixmap = self._pixmaps.get(self._sources.get(item.artwork_id))
+                key = self._sources.get(item.artwork_id)
+                pixmap = self._pixmaps.get(key)
                 if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
-                    pm_item = self._scene.addPixmap(pixmap)
-                    pm_item.setScale(art.size.width / pixmap.width())
+                    display = self._crop_pixmap(pixmap, crop, art.size, cropped_cache, key)
+                    pm_item = self._scene.addPixmap(display)
+                    pm_item.setScale(art.size.width / display.width())
                     pm_item.setPos(base_x, base_y)
                 else:
                     self._scene.addRect(
@@ -412,6 +438,23 @@ class MainWindow(QMainWindow):
                     )
         self._view.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
 
+    @staticmethod
+    def _crop_pixmap(pixmap, crop, cropped_size, cache, key):
+        """Recorta o pixmap para refletir o recorte da arte (cache por origem)."""
+        if crop <= 0:
+            return pixmap
+        if key in cache:
+            return cache[key]
+        orig_w = cropped_size.width + 2 * crop
+        orig_h = cropped_size.height + 2 * crop
+        x = round(pixmap.width() * crop / orig_w)
+        y = round(pixmap.height() * crop / orig_h)
+        w = pixmap.width() - 2 * x
+        h = pixmap.height() - 2 * y
+        out = pixmap.copy(QRect(x, y, w, h)) if w > 0 and h > 0 else pixmap
+        cache[key] = out
+        return out
+
     # ---- exportacao ----
     def export_pdf(self, path: str | None = None) -> None:
         if self._result is None:
@@ -429,6 +472,7 @@ class MainWindow(QMainWindow):
             reg_marks=self._regmarks.isChecked(),
             reg_margin_mm=self._settings.reg_margin,
             reg_diameter_mm=self._settings.reg_diameter,
+            crop_mm=float(self._crop.value()),
         )
         if interactive:
             QMessageBox.information(self, "PrintNest", f"PDF gerado:\n{path}")
