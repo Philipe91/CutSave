@@ -12,6 +12,9 @@ class IPdfImporter(ABC):
     """
 
     @abstractmethod
-    def import_artworks(self, path: str) -> list[Artwork]:
-        """Importa o PDF e retorna uma Artwork por pagina."""
+    def import_artworks(self, path: str, box: str = "auto") -> list[Artwork]:
+        """Importa o PDF e retorna uma Artwork por pagina.
+
+        box: 'media' (Caixa de Midia/sangria) ou 'trim'/'auto' (Caixa de Apara/corte).
+        """
         raise NotImplementedError

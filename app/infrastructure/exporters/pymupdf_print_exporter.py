@@ -6,6 +6,7 @@ import fitz
 
 from app.application.dto.print_placement import PrintSheet
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
+from app.infrastructure.pdf_boxes import box_clip_rect
 from app.shared.errors import PrintExportError
 
 MM2PT = 72.0 / 25.4
@@ -36,7 +37,7 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                         (pl.position.x + pl.size.width) * MM2PT,
                         (pl.position.y + pl.size.height) * MM2PT,
                     )
-                    clip = self._crop_clip(src, pl.source_page, pl.crop_mm)
+                    clip = self._source_clip(src, pl.source_page, pl.box, pl.crop_mm)
                     page.show_pdf_page(
                         rect, src, pl.source_page, clip=clip, rotate=pl.rotate
                     )
@@ -66,15 +67,15 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
             out.close()
 
     @staticmethod
-    def _crop_clip(src, page_index: int, crop_mm: float):
-        """Sub-retangulo da pagina de origem, recuado crop_mm de cada borda."""
-        if crop_mm <= 0:
-            return None
-        crop_pt = crop_mm * MM2PT
-        rect = src[page_index].rect
-        if rect.width <= 2 * crop_pt or rect.height <= 2 * crop_pt:
-            return None
-        return fitz.Rect(
-            rect.x0 + crop_pt, rect.y0 + crop_pt,
-            rect.x1 - crop_pt, rect.y1 - crop_pt,
-        )
+    def _source_clip(src, page_index: int, box: str, crop_mm: float):
+        """Recorte da origem: caixa escolhida (media/apara) menos o recorte de borda."""
+        page = src[page_index]
+        rect = box_clip_rect(src, page, box) or page.rect
+        if crop_mm > 0:
+            crop_pt = crop_mm * MM2PT
+            if rect.width > 2 * crop_pt and rect.height > 2 * crop_pt:
+                rect = fitz.Rect(
+                    rect.x0 + crop_pt, rect.y0 + crop_pt,
+                    rect.x1 - crop_pt, rect.y1 - crop_pt,
+                )
+        return rect

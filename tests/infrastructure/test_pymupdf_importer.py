@@ -69,6 +69,23 @@ def test_prioridade_trimbox(tmp_path):
     assert art.size.height == pytest.approx(200 * PT2MM, abs=0.1)
 
 
+def test_caixa_de_midia_usa_mediabox(tmp_path):
+    doc = fitz.open()
+    page = _vec_page(doc, 600, 400)
+    doc.xref_set_key(page.xref, "TrimBox", "[50 50 350 250]")  # apara menor
+    art = PyMuPdfImporter().import_artworks(_save(doc, tmp_path), box="media")[0]
+    # box=media ignora o TrimBox -> usa MediaBox (600x400)
+    assert art.size.width == pytest.approx(600 * PT2MM, abs=0.1)
+
+
+def test_caixa_de_apara_usa_trimbox(tmp_path):
+    doc = fitz.open()
+    page = _vec_page(doc, 600, 400)
+    doc.xref_set_key(page.xref, "TrimBox", "[50 50 350 250]")  # 300x200
+    art = PyMuPdfImporter().import_artworks(_save(doc, tmp_path), box="trim")[0]
+    assert art.size.width == pytest.approx(300 * PT2MM, abs=0.1)
+
+
 def test_fallback_cropbox(tmp_path):
     doc = fitz.open()
     page = _vec_page(doc, 600, 400)

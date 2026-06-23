@@ -4,7 +4,18 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QPointF, QRect, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QTransform
+from PySide6.QtGui import (
+    QAction,
+    QBrush,
+    QColor,
+    QKeySequence,
+    QPainter,
+    QPen,
+    QPixmap,
+    QTransform,
+    QUndoCommand,
+    QUndoStack,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -12,10 +23,15 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
+    QGraphicsItem,
+    QGraphicsItemGroup,
+    QGraphicsPixmapItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -50,29 +66,131 @@ from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
 )
-from app.domain.geometry import Size
+from app.domain.geometry import Point2D, Size
+from app.domain.model.layout import Layout
 from app.domain.model.material import Material
+from app.domain.model.placement import PlacedItem
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ValidationError
 
 RULER_SIZE = 24
+
+# Empurrar com as setas (nudge), estilo CorelDRAW: normal, micro (Ctrl), super (Shift).
+NUDGE_MM = 1.0
+NUDGE_MICRO_MM = 0.1
+NUDGE_SUPER_MM = 10.0
+SNAP_THRESHOLD_MM = 2.0  # distancia (mm) para o encaixe "grudar"
+
+
+class SnapConfig:
+    """Estado compartilhado do encaixe (snap) ao arrastar pecas."""
+
+    def __init__(self, enabled: bool = True, threshold_mm: float = SNAP_THRESHOLD_MM) -> None:
+        self.enabled = enabled
+        self.threshold_mm = threshold_mm
+        self.dragging = False  # snap so age durante o arraste com o mouse
 
 
 class ZoomableGraphicsView(QGraphicsView):
     """Preview estilo CorelDRAW: zoom (roda), pan (arrastar), fundo cinza."""
 
     view_changed = Signal()
+    drag_started = Signal()
+    drag_finished = Signal()
+    nudge = Signal(float, float)  # deslocamento (dx, dy) em mm, via setas
 
     def __init__(self, scene: QGraphicsScene) -> None:
         super().__init__(scene)
-        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        # esquerdo: seleciona item / move; em area vazia faz laco de selecao.
+        # meio faz pan; roda da zoom.
+        self.setDragMode(QGraphicsView.NoDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(170, 170, 170))  # mesa cinza
+        self._panning = False
+        self._pan_last = None
+        self._left_drag = False
 
     def wheelEvent(self, event) -> None:
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         self.scale(factor, factor)
         self.view_changed.emit()
+
+    def keyPressEvent(self, event) -> None:
+        deltas = {
+            Qt.Key_Left: (-1.0, 0.0),
+            Qt.Key_Right: (1.0, 0.0),
+            Qt.Key_Up: (0.0, -1.0),
+            Qt.Key_Down: (0.0, 1.0),
+        }
+        unit = deltas.get(event.key())
+        if unit is not None:
+            mods = event.modifiers()
+            if mods & Qt.ControlModifier:
+                step = NUDGE_MICRO_MM
+            elif mods & Qt.ShiftModifier:
+                step = NUDGE_SUPER_MM
+            else:
+                step = NUDGE_MM
+            self.nudge.emit(unit[0] * step, unit[1] * step)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MiddleButton:
+            self._panning = True
+            self._pan_last = event.position()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        if event.button() == Qt.LeftButton:
+            item = self.itemAt(event.position().toPoint())
+            if item is not None:
+                self.setDragMode(QGraphicsView.NoDrag)
+                self._left_drag = True
+                self.drag_started.emit()
+            else:
+                self.setDragMode(QGraphicsView.RubberBandDrag)
+                self._left_drag = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._panning and self._pan_last is not None:
+            delta = event.position() - self._pan_last
+            self._pan_last = event.position()
+            hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+            hbar.setValue(hbar.value() - int(delta.x()))
+            vbar.setValue(vbar.value() - int(delta.y()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MiddleButton and self._panning:
+            self._panning = False
+            self.setCursor(Qt.ArrowCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.LeftButton and self._left_drag:
+            self._left_drag = False
+            self.drag_finished.emit()
+
+
+class MoveCommand(QUndoCommand):
+    """Desfazer/refazer de movimento de pecas/grupos na area de trabalho."""
+
+    def __init__(self, moves) -> None:
+        super().__init__("mover")
+        self._moves = moves  # lista de (item, pos_antiga, pos_nova)
+
+    def undo(self) -> None:
+        for item, old, _ in self._moves:
+            item.setPos(old)
+
+    def redo(self) -> None:
+        for item, _, new in self._moves:
+            item.setPos(new)
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
         super().scrollContentsBy(dx, dy)
@@ -81,6 +199,66 @@ class ZoomableGraphicsView(QGraphicsView):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.view_changed.emit()
+
+
+class PieceItem(QGraphicsRectItem):
+    """Peca na area de trabalho: selecionavel e movel (arte + faca como filhos)."""
+
+    def __init__(self, width, height, *, artwork_id, name, art_size, sheet_index, dx, dy):
+        super().__init__(0.0, 0.0, width, height)
+        self.artwork_id = artwork_id
+        self.piece_name = name
+        self.art_size = art_size
+        self.sheet_index = sheet_index
+        self.dx = dx
+        self.dy = dy
+        self.snap: SnapConfig | None = None
+        self.sheet_rect: tuple[float, float, float, float] | None = None
+        self.setPen(QPen(Qt.NoPen))
+
+    @staticmethod
+    def _snap_axis(start: float, size: float, lines, threshold: float) -> float:
+        """Encaixa a borda esquerda/direita/centro na linha mais proxima (mm)."""
+        best, best_dist = start, threshold
+        for anchor in (start, start + size, start + size / 2.0):
+            offset = anchor - start
+            for line in lines:
+                dist = abs(anchor - line)
+                if dist < best_dist:
+                    best_dist = dist
+                    best = line - offset
+        return best
+
+    def itemChange(self, change, value):
+        if (
+            change == QGraphicsItem.GraphicsItemChange.ItemPositionChange
+            and self.snap is not None
+            and self.snap.enabled
+            and self.snap.dragging
+            and self.scene() is not None
+        ):
+            value = self._snapped(value)
+        return super().itemChange(change, value)
+
+    def _snapped(self, pos: QPointF) -> QPointF:
+        rect = self.rect()
+        width, height = rect.width(), rect.height()
+        xlines: list[float] = []
+        ylines: list[float] = []
+        if self.sheet_rect is not None:
+            sx, sy, sw, sl = self.sheet_rect
+            xlines += [sx, sx + sw]
+            ylines += [sy, sy + sl]
+        for other in self.scene().items():
+            if other is self or not isinstance(other, PieceItem) or other.isSelected():
+                continue
+            r = other.sceneBoundingRect()
+            xlines += [r.left(), r.right(), r.center().x()]
+            ylines += [r.top(), r.bottom(), r.center().y()]
+        th = self.snap.threshold_mm
+        nx = self._snap_axis(pos.x(), width, xlines, th)
+        ny = self._snap_axis(pos.y(), height, ylines, th)
+        return QPointF(nx, ny)
 
 
 class Ruler(QWidget):
@@ -149,7 +327,7 @@ class ProductionWorker(QObject):
     finished = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, pipeline, renderer, paths, material, offset, sheet_height):
+    def __init__(self, pipeline, renderer, paths, material, offset, sheet_height, box):
         super().__init__()
         self._pipeline = pipeline
         self._renderer = renderer
@@ -157,17 +335,18 @@ class ProductionWorker(QObject):
         self._material = material
         self._offset = offset
         self._sheet_height = sheet_height
+        self._box = box
 
     def run(self) -> None:
         try:
             result = self._pipeline.execute(
-                self._paths, self._material, self._offset, self._sheet_height,
+                self._paths, self._material, self._offset, self._sheet_height, self._box,
                 on_progress=lambda done, total: self.progress.emit(done, total),
             )
             unique = sorted(set(result.sources.values()))
             png_map = {}
             for index, (path, page) in enumerate(unique, start=1):
-                png_map[(path, page)] = self._renderer.render_png(path, page)
+                png_map[(path, page)] = self._renderer.render_png(path, page, box=self._box)
                 self.progress.emit(index, len(unique))
         except Exception as exc:  # reportado a UI
             self.failed.emit(str(exc))
@@ -179,6 +358,59 @@ def _spin(minimum, maximum, decimals=None):
     box = QSpinBox() if decimals is None else QDoubleSpinBox()
     box.setRange(minimum, maximum)
     return box
+
+
+class QuantityStepper(QWidget):
+    """Seletor de quantidade moderno: botoes - / + ladeando o numero centralizado.
+
+    Expoe value()/setValue()/valueChanged como um QSpinBox para o restante do
+    codigo (e os testes) usarem sem saber que e um widget composto.
+    """
+
+    valueChanged = Signal(int)
+
+    def __init__(self, minimum: int = 1, maximum: int = 100000, value: int = 1) -> None:
+        super().__init__()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._minus = QPushButton("−")  # minus sign
+        self._minus.setObjectName("qtyMinus")
+        self._spin = QSpinBox()
+        self._spin.setRange(minimum, maximum)
+        self._spin.setValue(value)
+        self._spin.setButtonSymbols(QSpinBox.NoButtons)
+        self._spin.setAlignment(Qt.AlignCenter)
+        self._plus = QPushButton("+")
+        self._plus.setObjectName("qtyPlus")
+        for btn in (self._minus, self._plus):
+            btn.setFixedWidth(24)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFocusPolicy(Qt.NoFocus)
+            btn.setAutoRepeat(True)
+        lay.addWidget(self._minus)
+        lay.addWidget(self._spin, 1)
+        lay.addWidget(self._plus)
+        self._minus.clicked.connect(lambda: self._spin.stepBy(-1))
+        self._plus.clicked.connect(lambda: self._spin.stepBy(1))
+        self._spin.valueChanged.connect(self.valueChanged)
+        self.setStyleSheet(
+            "QuantityStepper{background:white; border:1px solid #cfd6dd; border-radius:6px;}"
+            "QSpinBox{border:none; background:transparent; font-weight:bold;"
+            " font-size:13px; color:#2c3e50;}"
+            "QPushButton{border:none; background:#34495e; color:white; font-weight:bold;"
+            " font-size:15px; padding:3px 0;}"
+            "QPushButton:hover{background:#41617d;}"
+            "QPushButton:pressed{background:#2c3e50;}"
+            "QPushButton#qtyMinus{border-top-left-radius:5px; border-bottom-left-radius:5px;}"
+            "QPushButton#qtyPlus{border-top-right-radius:5px; border-bottom-right-radius:5px;}"
+        )
+
+    def value(self) -> int:
+        return self._spin.value()
+
+    def setValue(self, value: int) -> None:
+        self._spin.setValue(value)
 
 
 class MainWindow(QMainWindow):
@@ -212,10 +444,120 @@ class MainWindow(QMainWindow):
         self._result: ProductionResult | None = None
         self._thread: QThread | None = None
         self._worker: ProductionWorker | None = None
+        self._piece_items: list = []
+        self._undo = QUndoStack(self)
+        self._move_snapshot: dict = {}
+        self._fit_next = True  # ajusta o zoom so apos gerar; preserva no relayout
+        self._snap = SnapConfig()
 
         self.setWindowTitle("PrintNest MVP")
         self._build_ui()
         self._load_settings()
+        self._build_menu_toolbar()
+
+    def _act(self, text, slot, shortcut=None, tip=None) -> QAction:
+        action = QAction(text, self)
+        action.triggered.connect(lambda *_: slot())
+        if shortcut:
+            action.setShortcut(QKeySequence(shortcut))
+        if tip:
+            action.setToolTip(tip)
+            action.setStatusTip(tip)
+        return action
+
+    def _build_menu_toolbar(self) -> None:
+        add = self._act("Adicionar PDFs...", self.add_pdfs, "Ctrl+O",
+                        "Adiciona arquivos PDF a lista")
+        gerar = self._act("Gerar Producao", self.generate, "F5",
+                          "Importa, gera a faca e organiza o nesting")
+        fit = self._act("Ajustar a tela", self._fit_view, "Ctrl+0",
+                        "Enquadra todo o trabalho na tela")
+        undo = self._act("Desfazer", self._undo.undo, "Ctrl+Z", "Desfaz o ultimo movimento")
+        redo = self._act("Refazer", self._undo.redo, "Ctrl+Y", "Refaz o movimento")
+        grp = self._act("Agrupar", self._group_selected, "Ctrl+G",
+                        "Agrupa as pecas selecionadas")
+        ungrp = self._act("Desagrupar", self._ungroup_selected, "Ctrl+Shift+G",
+                          "Desagrupa as pecas")
+        sel_all = self._act("Selecionar tudo", self._select_all, "Ctrl+A",
+                            "Seleciona todas as pecas na area de trabalho")
+        excluir = self._act("Excluir selecionado", self._delete_selected, "Del",
+                            "Exclui as pecas selecionadas do arranjo")
+        reset = self._act("Resetar arranjo", self._reset_arrangement, None,
+                          "Refaz o nesting do zero (descarta ajustes manuais)")
+        rem = self._act("Remover PDF selecionado", self.remove_selected, None,
+                        "Remove o PDF selecionado da lista")
+        dup = self._act("Duplicar", self._duplicate_selected, "Ctrl+D",
+                        "Duplica as pecas selecionadas com um pequeno deslocamento")
+        step = self._act("Repetir em grade...", self._step_repeat_dialog, "Ctrl+Shift+D",
+                         "Cria varias copias em linhas e colunas (step and repeat)")
+        al_l = self._act("Alinhar a esquerda", lambda: self._align("left"), None,
+                         "Alinha as bordas esquerdas das pecas selecionadas")
+        al_r = self._act("Alinhar a direita", lambda: self._align("right"), None,
+                         "Alinha as bordas direitas")
+        al_t = self._act("Alinhar ao topo", lambda: self._align("top"), None,
+                         "Alinha as bordas superiores")
+        al_b = self._act("Alinhar a base", lambda: self._align("bottom"), None,
+                         "Alinha as bordas inferiores")
+        al_cx = self._act("Centralizar na vertical", lambda: self._align("hcenter"), None,
+                          "Alinha os centros numa mesma linha vertical")
+        al_cy = self._act("Centralizar na horizontal", lambda: self._align("vcenter"), None,
+                          "Alinha os centros numa mesma linha horizontal")
+        dist_h = self._act("Distribuir na horizontal", lambda: self._distribute("h"), None,
+                           "Espaca as pecas igualmente na horizontal")
+        dist_v = self._act("Distribuir na vertical", lambda: self._distribute("v"), None,
+                           "Espaca as pecas igualmente na vertical")
+        snap_act = QAction("Encaixar (snap)", self)
+        snap_act.setCheckable(True)
+        snap_act.setChecked(self._snap.enabled)
+        snap_act.setShortcut(QKeySequence("Alt+Q"))
+        snap_act.setToolTip("Liga/desliga o encaixe ao arrastar pecas")
+        snap_act.toggled.connect(self._set_snap)
+        self._snap_action = snap_act
+        exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, None,
+                            "Gera o PDF de impressao")
+        exp_dxf = self._act("Exportar DXF (unico)...", self.export_dxf, None,
+                            "Gera um DXF com todas as chapas")
+        exp_dxf_n = self._act("Exportar DXF por chapa...", self.export_dxf_per_sheet, None,
+                              "Gera um arquivo DXF para cada chapa")
+        sair = self._act("Sair", self.close, None, "Fecha o programa")
+        sobre = self._act("Sobre", self._show_about, None, "Sobre o PrintNest")
+
+        bar = self.menuBar()
+        m_arq = bar.addMenu("&Arquivo")
+        m_arq.addAction(add)
+        m_arq.addSeparator()
+        m_arq.addAction(exp_pdf)
+        m_arq.addAction(exp_dxf)
+        m_arq.addAction(exp_dxf_n)
+        m_arq.addSeparator()
+        m_arq.addAction(sair)
+        m_edit = bar.addMenu("&Editar")
+        for action in (undo, redo, None, sel_all, dup, step, grp, ungrp,
+                       None, excluir, reset, rem):
+            m_edit.addSeparator() if action is None else m_edit.addAction(action)
+        m_org = bar.addMenu("&Organizar")
+        for action in (al_l, al_r, al_t, al_b, al_cx, al_cy,
+                       None, dist_h, dist_v, None, snap_act):
+            m_org.addSeparator() if action is None else m_org.addAction(action)
+        m_exib = bar.addMenu("E&xibir")
+        m_exib.addAction(fit)
+        m_ferr = bar.addMenu("&Ferramentas")
+        m_ferr.addAction(gerar)
+        bar.addMenu("A&juda").addAction(sobre)
+
+        toolbar = self.addToolBar("Principal")
+        toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        for action in (add, gerar, reset, fit, None, undo, redo,
+                       sel_all, dup, grp, ungrp, excluir,
+                       None, exp_pdf, exp_dxf, exp_dxf_n):
+            toolbar.addSeparator() if action is None else toolbar.addAction(action)
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self, "PrintNest",
+            "PrintNest - preparacao de producao grafica.\nV1.1 (prototipo).",
+        )
 
     # ---- construcao da UI ----
     def _build_ui(self) -> None:
@@ -232,6 +574,10 @@ class MainWindow(QMainWindow):
         self._btn_generate = QPushButton("Gerar Producao")
         self._btn_generate.clicked.connect(lambda: self.generate())
         panel.addWidget(self._btn_generate)
+
+        self._btn_fit = QPushButton("Ajustar a tela (zoom)")
+        self._btn_fit.clicked.connect(lambda: self._fit_view())
+        panel.addWidget(self._btn_fit)
 
         self._btn_pdf = QPushButton("Exportar PDF")
         self._btn_pdf.clicked.connect(lambda: self.export_pdf())
@@ -258,6 +604,9 @@ class MainWindow(QMainWindow):
 
         self._scene = QGraphicsScene()
         self._view = ZoomableGraphicsView(self._scene)
+        self._view.drag_started.connect(self._begin_move)
+        self._view.drag_finished.connect(self._end_move)
+        self._view.nudge.connect(self._nudge)
 
         # area de trabalho estilo Corel: reguas no topo e a esquerda
         work = QWidget()
@@ -279,6 +628,30 @@ class MainWindow(QMainWindow):
         root.addWidget(scroll, 0)
         root.addWidget(work, 1)
         self.setCentralWidget(central)
+        self._apply_tooltips()
+
+    def _apply_tooltips(self) -> None:
+        self._table.setToolTip("Arquivos e a quantidade de copias de cada um")
+        self._import_box.setToolTip(
+            "Caixa de Midia mantem a sangria; Caixa de Apara corta no traco de corte do PDF"
+        )
+        self._rotation.setToolTip("Gira todos os arquivos (graus)")
+        self._width.setToolTip("Largura da chapa de material (mm)")
+        self._height.setToolTip("Altura da chapa (mm). 0 = chapa unica (comprimento aberto)")
+        self._spacing.setToolTip("Espaco entre as pecas (mm)")
+        self._offset.setToolTip("Sangria: aumenta a faca para fora da arte (mm)")
+        self._safety.setToolTip("Recuo: faca para dentro, para nao cortar informacao (mm)")
+        self._crop.setToolTip("Corta as bordas da arte (remove faixa branca) (mm)")
+        self._shared.setToolTip("Faca por peca (quadrados) ou compartilhada (grade fora a fora)")
+        self._reg_type.setToolTip("Tipo de marca de registro para a mesa de corte")
+        self._mk_distance.setToolTip("Mimaki: distancia do quadro ate o conteudo (mm)")
+        self._mk_size.setToolTip("Mimaki: tamanho das marcas em L (mm)")
+        self._mk_thickness.setToolTip("Mimaki: espessura das marcas (mm)")
+        self._view_mode.setToolTip("O que mostrar: impressao, corte, ambos ou tela dividida")
+        self._show_rulers.setToolTip("Mostra/esconde as reguas (mm)")
+        self._snap_check.setToolTip(
+            "Encaixe magnetico: a peca gruda nas bordas/centro das outras e da chapa (Alt+Q)"
+        )
 
     def _section(self, title: str, color: str) -> tuple[QFrame, QVBoxLayout]:
         """Faixa moderna recolhivel: clicar no cabecalho abre/fecha a secao."""
@@ -324,12 +697,17 @@ class MainWindow(QMainWindow):
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Arquivo", "Qtd"])
         self._table.verticalHeader().setVisible(False)
-        self._table.setColumnWidth(0, 175)
-        self._table.setColumnWidth(1, 70)
+        self._table.setColumnWidth(0, 165)
+        self._table.setColumnWidth(1, 92)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.itemSelectionChanged.connect(self._update_selection_info)
         lay.addWidget(self._table)
+        lay.addWidget(QLabel("Cortar para (caixa do PDF)"))
+        self._import_box = QComboBox()
+        self._import_box.addItem("Caixa de Midia (sangria)", "media")
+        self._import_box.addItem("Caixa de Apara (corte)", "trim")
+        lay.addWidget(self._import_box)
         self._btn_remove = QPushButton("Remover PDF selecionado")
         self._btn_remove.clicked.connect(lambda: self.remove_selected())
         lay.addWidget(self._btn_remove)
@@ -424,6 +802,9 @@ class MainWindow(QMainWindow):
         self._show_rulers = QCheckBox("Mostrar reguas (mm)")
         self._show_rulers.toggled.connect(lambda _: self._apply_rulers_visibility())
         lay.addWidget(self._show_rulers)
+        self._snap_check = QCheckBox("Encaixar pecas ao arrastar (snap)")
+        self._snap_check.toggled.connect(self._set_snap)
+        lay.addWidget(self._snap_check)
         return group
 
     def _apply_rulers_visibility(self) -> None:
@@ -452,7 +833,10 @@ class MainWindow(QMainWindow):
         self._mk_thickness.setValue(s.mimaki_thickness)
         self._show_rulers.setChecked(s.show_rulers)
         self._apply_rulers_visibility()
+        self._snap_check.setChecked(s.snap_enabled)
+        self._set_snap(s.snap_enabled)
         self._view_mode.setCurrentIndex(max(0, self._view_mode.findData(s.view_mode)))
+        self._import_box.setCurrentIndex(max(0, self._import_box.findData(s.import_box)))
 
     def _save_settings(self) -> None:
         s = self._settings
@@ -472,6 +856,8 @@ class MainWindow(QMainWindow):
         s.mimaki_thickness = float(self._mk_thickness.value())
         s.show_rulers = self._show_rulers.isChecked()
         s.view_mode = self._view_mode.currentData()
+        s.import_box = self._import_box.currentData()
+        s.snap_enabled = self._snap.enabled
         self._store.save(s)
 
     # ---- helpers de leitura ----
@@ -508,11 +894,10 @@ class MainWindow(QMainWindow):
             row = self._table.rowCount()
             self._table.insertRow(row)
             self._table.setItem(row, 0, QTableWidgetItem(Path(path).name))
-            spin = QSpinBox()
-            spin.setRange(1, 100000)
-            spin.setValue(1)
+            spin = QuantityStepper(1, 100000, 1)
             spin.valueChanged.connect(lambda _: self._relayout())
             self._table.setCellWidget(row, 1, spin)
+            self._table.setRowHeight(row, 34)
             self._paths.append(path)
 
     def remove_selected(self) -> None:
@@ -570,18 +955,21 @@ class MainWindow(QMainWindow):
         material = self._material()
         offset = self._effective_offset()
         sheet_height = float(self._height.value())
+        box = self._import_box.currentData()
+        self._fit_next = True  # ajusta o zoom uma vez apos gerar
 
         if blocking:
-            result = self._pipeline.execute(self._paths, material, offset, sheet_height)
+            result = self._pipeline.execute(self._paths, material, offset, sheet_height, box)
             unique = sorted(set(result.sources.values()))
-            png_map = {key: self._renderer.render_png(*key) for key in unique}
+            png_map = {key: self._renderer.render_png(key[0], key[1], box=box) for key in unique}
             self._load_production(result, png_map)
             return
 
         self._set_busy(True)
         self._thread = QThread()
         self._worker = ProductionWorker(
-            self._pipeline, self._renderer, list(self._paths), material, offset, sheet_height
+            self._pipeline, self._renderer, list(self._paths),
+            material, offset, sheet_height, box,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -662,26 +1050,33 @@ class MainWindow(QMainWindow):
             self._draw_preview()
 
     def _draw_preview(self) -> None:
+        self._piece_items = []
+        self._undo.clear()  # arranjo regenerado: zera historico de movimentos
         self._scene.clear()
         if self._result is None:
             return
         mode = self._view_mode.currentData()
         if mode == "split":
-            self._draw_sheets(draw_art=True, draw_cut=False, dy=0.0)
+            self._draw_sheets(draw_art=True, draw_cut=False, dy=0.0, interactive=False)
             total_h = max((s.used_length for s in self._result.sheets), default=0.0)
             self._draw_sheets(
-                draw_art=False, draw_cut=True, dy=total_h + max(50.0, total_h * 0.15)
+                draw_art=False, draw_cut=True, dy=total_h + max(50.0, total_h * 0.15),
+                interactive=False,
             )
         else:
             self._draw_sheets(
                 draw_art=mode in ("both", "print"),
                 draw_cut=mode in ("both", "cut"),
                 dy=0.0,
+                interactive=mode in ("both", "print"),
             )
-        self._view.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
-        self._view.view_changed.emit()
+        if self._fit_next:
+            self._fit_view()
+            self._fit_next = False
+        else:
+            self._view.view_changed.emit()  # mantem o zoom; atualiza reguas
 
-    def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float) -> None:
+    def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float, interactive: bool) -> None:
         result = self._result
         by_id = {a.id: a for a in result.artworks}
         sheet_brush = QBrush(QColor(255, 255, 255))  # chapa = pagina branca
@@ -710,9 +1105,21 @@ class MainWindow(QMainWindow):
                 if art is None:
                     continue
                 fp = artwork_footprint(art)
-                base_x = dx + item.position.x - fp.min_x
-                base_y = dy + item.position.y - fp.min_y
+                piece = PieceItem(
+                    fp.max_x - fp.min_x, fp.max_y - fp.min_y,
+                    artwork_id=item.artwork_id, name=art.name, art_size=art.size,
+                    sheet_index=index, dx=dx, dy=dy,
+                )
+                piece.setPos(dx + item.position.x, dy + item.position.y)
+                if interactive:
+                    piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                    piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+                    piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+                    piece.snap = self._snap
+                    piece.sheet_rect = (dx, dy, layout.material.width, layout.used_length)
+                    self._piece_items.append(piece)
 
+                ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
                 if draw_art:
                     key = self._sources.get(item.artwork_id)
                     pixmap = self._pixmaps.get(key)
@@ -720,20 +1127,21 @@ class MainWindow(QMainWindow):
                         display = self._display_pixmap(
                             pixmap, crop, rotation, art.size, cropped_cache, key
                         )
-                        pm_item = self._scene.addPixmap(display)
-                        pm_item.setScale(art.size.width / display.width())
-                        pm_item.setPos(base_x, base_y)
+                        child = QGraphicsPixmapItem(display, piece)
+                        child.setScale(art.size.width / display.width())
+                        child.setPos(ax, ay)
                     else:
-                        self._scene.addRect(
-                            base_x, base_y, art.size.width, art.size.height,
-                            material_pen, empty_brush,
-                        )
+                        rect = QGraphicsRectItem(ax, ay, art.size.width, art.size.height, piece)
+                        rect.setBrush(empty_brush)
+                        rect.setPen(material_pen)
                 if draw_cut and art.has_cut and not shared:
                     faca = art.cut_contour
-                    self._scene.addRect(
-                        base_x + faca.origin.x, base_y + faca.origin.y,
-                        faca.size.width, faca.size.height, faca_pen,
+                    rect = QGraphicsRectItem(
+                        ax + faca.origin.x, ay + faca.origin.y,
+                        faca.size.width, faca.size.height, piece,
                     )
+                    rect.setPen(faca_pen)
+                self._scene.addItem(piece)
 
             if draw_cut and shared:
                 for seg in shared_cut_segments(layout, result.artworks):
@@ -745,6 +1153,272 @@ class MainWindow(QMainWindow):
                 self._draw_marks(
                     layout, result.artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen
                 )
+
+    def _fit_view(self) -> None:
+        rect = self._scene.itemsBoundingRect()
+        if not rect.isEmpty():
+            self._view.fitInView(rect, Qt.KeepAspectRatio)
+            self._view.view_changed.emit()
+
+    # ---- edicao na area de trabalho (mover / agrupar / desfazer) ----
+    def _begin_move(self) -> None:
+        self._snap.dragging = True  # ativa o encaixe so durante o arraste
+        self._move_snapshot = {
+            it: it.pos()
+            for it in self._scene.selectedItems()
+            if it.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        }
+
+    def _end_move(self) -> None:
+        self._snap.dragging = False
+        moves = []
+        for item, old in self._move_snapshot.items():
+            new = item.pos()
+            if abs(new.x() - old.x()) > 0.01 or abs(new.y() - old.y()) > 0.01:
+                moves.append((item, old, new))
+        if moves:
+            self._undo.push(MoveCommand(moves))
+        self._move_snapshot = {}
+
+    def _group_selected(self) -> None:
+        items = [it for it in self._scene.selectedItems() if isinstance(it, PieceItem)]
+        if len(items) < 2:
+            return
+        group = self._scene.createItemGroup(items)
+        group.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        group.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+
+    def _ungroup_selected(self) -> None:
+        for item in list(self._scene.selectedItems()):
+            if isinstance(item, QGraphicsItemGroup):
+                self._scene.destroyItemGroup(item)
+
+    # ---- snap / nudge / alinhar / distribuir / duplicar ----
+    def _set_snap(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        self._snap.enabled = enabled
+        if hasattr(self, "_snap_check") and self._snap_check.isChecked() != enabled:
+            self._snap_check.setChecked(enabled)
+        if hasattr(self, "_snap_action") and self._snap_action.isChecked() != enabled:
+            self._snap_action.setChecked(enabled)
+
+    def _selected_movable(self) -> list:
+        return [
+            it for it in self._scene.selectedItems()
+            if it.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        ]
+
+    def _selected_pieces(self) -> list:
+        """Pecas selecionadas, abrindo grupos selecionados."""
+        out: list = []
+        for it in self._scene.selectedItems():
+            if isinstance(it, QGraphicsItemGroup):
+                out.extend(c for c in it.childItems() if isinstance(c, PieceItem))
+            elif isinstance(it, PieceItem):
+                out.append(it)
+        return out
+
+    def _nudge(self, dx: float, dy: float) -> None:
+        """Empurra as pecas selecionadas com as setas (mm), com desfazer."""
+        items = self._selected_movable()
+        if not items:
+            return
+        moves = []
+        for it in items:
+            old = it.pos()
+            moves.append((it, old, QPointF(old.x() + dx, old.y() + dy)))
+        self._undo.push(MoveCommand(moves))
+
+    def _align(self, mode: str) -> None:
+        items = self._selected_movable()
+        if len(items) < 2:
+            return
+        rects = {it: it.sceneBoundingRect() for it in items}
+        left = min(r.left() for r in rects.values())
+        right = max(r.right() for r in rects.values())
+        top = min(r.top() for r in rects.values())
+        bottom = max(r.bottom() for r in rects.values())
+        cx, cy = (left + right) / 2.0, (top + bottom) / 2.0
+        moves = []
+        for it, r in rects.items():
+            dx = dy = 0.0
+            if mode == "left":
+                dx = left - r.left()
+            elif mode == "right":
+                dx = right - r.right()
+            elif mode == "hcenter":
+                dx = cx - r.center().x()
+            elif mode == "top":
+                dy = top - r.top()
+            elif mode == "bottom":
+                dy = bottom - r.bottom()
+            elif mode == "vcenter":
+                dy = cy - r.center().y()
+            if abs(dx) > 0.001 or abs(dy) > 0.001:
+                old = it.pos()
+                moves.append((it, old, QPointF(old.x() + dx, old.y() + dy)))
+        if moves:
+            self._undo.push(MoveCommand(moves))
+
+    def _distribute(self, axis: str) -> None:
+        items = self._selected_movable()
+        if len(items) < 3:
+            return
+        horizontal = axis == "h"
+        rects = {it: it.sceneBoundingRect() for it in items}
+        ordered = sorted(items, key=lambda it: rects[it].left() if horizontal else rects[it].top())
+        if horizontal:
+            span = rects[ordered[-1]].right() - rects[ordered[0]].left()
+            sizes = sum(rects[it].width() for it in ordered)
+        else:
+            span = rects[ordered[-1]].bottom() - rects[ordered[0]].top()
+            sizes = sum(rects[it].height() for it in ordered)
+        gap = (span - sizes) / (len(ordered) - 1)
+        cursor = rects[ordered[0]].left() if horizontal else rects[ordered[0]].top()
+        moves = []
+        for it in ordered:
+            r = rects[it]
+            if horizontal:
+                dx, dy = cursor - r.left(), 0.0
+                cursor += r.width() + gap
+            else:
+                dx, dy = 0.0, cursor - r.top()
+                cursor += r.height() + gap
+            if abs(dx) > 0.001 or abs(dy) > 0.001:
+                old = it.pos()
+                moves.append((it, old, QPointF(old.x() + dx, old.y() + dy)))
+        if moves:
+            self._undo.push(MoveCommand(moves))
+
+    def _add_placed(self, add_by_sheet: dict) -> None:
+        """Acrescenta PlacedItems por chapa e redesenha (estende o comprimento usado)."""
+        if not add_by_sheet:
+            return
+        by_id = {a.id: a for a in self._result.artworks}
+        sheets = []
+        for index, layout in enumerate(self._effective_sheets()):
+            items = list(layout.items) + add_by_sheet.get(index, [])
+            used = layout.used_length
+            for placed in items:
+                art = by_id.get(placed.artwork_id)
+                if art is None:
+                    continue
+                fp = artwork_footprint(art)
+                used = max(used, placed.position.y + (fp.max_y - fp.min_y))
+            sheets.append(Layout(layout.material, items, used))
+        self._result = ProductionResult(
+            sheets=sheets, artworks=self._result.artworks, sources=self._sources
+        )
+        self._draw_preview()
+        total = sum(s.item_count for s in sheets)
+        self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
+
+    def _duplicate_selected(self) -> None:
+        """Duplica as pecas selecionadas com deslocamento diagonal (Corel: Ctrl+D)."""
+        if self._result is None:
+            return
+        sel = self._selected_pieces()
+        if not sel:
+            return
+        off = NUDGE_SUPER_MM
+        add: dict[int, list] = {}
+        for piece in sel:
+            px = piece.scenePos().x() - piece.dx + off
+            py = piece.scenePos().y() - piece.dy + off
+            add.setdefault(piece.sheet_index, []).append(
+                PlacedItem(piece.artwork_id, Point2D(px, py))
+            )
+        self._add_placed(add)
+
+    def _step_repeat(self, cols: int, rows: int, gap: float) -> None:
+        """Cria copias em grade das pecas selecionadas (step and repeat)."""
+        if self._result is None:
+            return
+        sel = self._selected_pieces()
+        if not sel or cols < 1 or rows < 1 or (cols == 1 and rows == 1):
+            return
+        by_id = {a.id: a for a in self._result.artworks}
+        add: dict[int, list] = {}
+        for piece in sel:
+            art = by_id.get(piece.artwork_id)
+            if art is None:
+                continue
+            fp = artwork_footprint(art)
+            width, height = fp.max_x - fp.min_x, fp.max_y - fp.min_y
+            bx = piece.scenePos().x() - piece.dx
+            by = piece.scenePos().y() - piece.dy
+            for col in range(cols):
+                for row in range(rows):
+                    if col == 0 and row == 0:
+                        continue
+                    px = bx + col * (width + gap)
+                    py = by + row * (height + gap)
+                    add.setdefault(piece.sheet_index, []).append(
+                        PlacedItem(piece.artwork_id, Point2D(px, py))
+                    )
+        self._add_placed(add)
+
+    def _step_repeat_dialog(self) -> None:
+        if self._result is None or not self._selected_pieces():
+            QMessageBox.information(self, "PrintNest", "Selecione ao menos uma peca.")
+            return
+        cols, ok = QInputDialog.getInt(self, "Repetir em grade", "Colunas:", 2, 1, 200)
+        if not ok:
+            return
+        rows, ok = QInputDialog.getInt(self, "Repetir em grade", "Linhas:", 1, 1, 200)
+        if not ok:
+            return
+        gap, ok = QInputDialog.getDouble(
+            self, "Repetir em grade", "Espacamento entre copias (mm):", 5.0, 0.0, 1000.0, 1
+        )
+        if not ok:
+            return
+        self._step_repeat(cols, rows, gap)
+
+    def _effective_sheets(self) -> list:
+        """Sheets refletindo movimentos manuais das pecas (ou o nesting original)."""
+        if not self._piece_items:
+            return self._result.sheets
+        moved: dict[int, list] = {}
+        for piece in self._piece_items:
+            # scenePos funciona mesmo se a peca estiver dentro de um grupo
+            pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
+            moved.setdefault(piece.sheet_index, []).append(PlacedItem(piece.artwork_id, pos))
+        sheets = []
+        for index, layout in enumerate(self._result.sheets):
+            items = moved.get(index, [])  # vazio = todas as pecas excluidas
+            sheets.append(Layout(layout.material, items, layout.used_length))
+        return sheets
+
+    def _select_all(self) -> None:
+        for piece in self._piece_items:
+            piece.setSelected(True)
+
+    def _delete_selected(self) -> None:
+        if not self._piece_items:
+            return
+        to_remove = set()
+        for item in list(self._scene.selectedItems()):
+            if isinstance(item, QGraphicsItemGroup):
+                to_remove.update(c for c in item.childItems() if isinstance(c, PieceItem))
+            elif isinstance(item, PieceItem):
+                to_remove.add(item)
+        if not to_remove:
+            return
+        self._piece_items = [p for p in self._piece_items if p not in to_remove]
+        self._result = ProductionResult(
+            sheets=self._effective_sheets(),
+            artworks=self._result.artworks,
+            sources=self._sources,
+        )
+        self._draw_preview()
+        total = sum(s.item_count for s in self._result.sheets)
+        self._status.setText(f"{len(self._result.sheets)} chapa(s) | {total} peca(s)")
+
+    def _reset_arrangement(self) -> None:
+        """Refaz o nesting do zero (descarta movimentos/exclusoes manuais)."""
+        self._fit_next = True
+        self._relayout()
 
     def _draw_marks(self, layout, artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen) -> None:
         if reg == "circles":
@@ -801,10 +1475,19 @@ class MainWindow(QMainWindow):
         return out
 
     # ---- exportacao ----
-    def export_pdf(self, path: str | None = None) -> None:
+    def export_pdf(self, path: str | None = None, pages=None) -> None:
         if self._result is None:
             return
         interactive = not isinstance(path, str) or not path
+        sheets = self._select_export_sheets(
+            self._effective_sheets(), pages, interactive, "Exportar PDF de impressao"
+        )
+        if sheets is None:
+            return
+        if not sheets:
+            if interactive:
+                QMessageBox.warning(self, "PrintNest", "Nenhuma chapa selecionada.")
+            return
         if interactive:
             path, _ = QFileDialog.getSaveFileName(
                 self, "Exportar PDF", str(Path(self._settings.last_dir) / "IMPRESSAO.pdf"),
@@ -813,7 +1496,7 @@ class MainWindow(QMainWindow):
             if not path:
                 return
         self._print_export.execute(
-            self._result.sheets, self._result.artworks, self._result.sources, path,
+            sheets, self._result.artworks, self._result.sources, path,
             reg_type=self._reg(),
             reg_margin_mm=float(self._reg_margin.value()),
             reg_diameter_mm=float(self._reg_diameter.value()),
@@ -822,35 +1505,61 @@ class MainWindow(QMainWindow):
             mimaki_thickness_mm=float(self._mk_thickness.value()),
             crop_mm=float(self._crop.value()),
             rotate=self._rotation_value(),
+            box=self._import_box.currentData(),
         )
         if interactive:
             QMessageBox.information(self, "PrintNest", f"PDF gerado:\n{path}")
 
-    def export_dxf(self, path: str | None = None) -> None:
-        if self._result is None:
-            return
-        interactive = not isinstance(path, str) or not path
-        if interactive:
-            path, _ = QFileDialog.getSaveFileName(
-                self, "Exportar DXF", str(Path(self._settings.last_dir) / "CORTE.dxf"),
-                "DXF (*.dxf)",
-            )
-            if not path:
-                return
-        sheets = self._result.sheets
+    @staticmethod
+    def _parse_pages(spec: str, total: int) -> list[int]:
+        """Converte '1,3-5' em indices 0-based; vazio = todas as chapas."""
+        spec = (spec or "").strip()
+        if not spec:
+            return list(range(total))
+        result: set[int] = set()
+        for part in spec.replace(" ", "").split(","):
+            if "-" in part:
+                a, _, b = part.partition("-")
+                if a.isdigit() and b.isdigit():
+                    for i in range(int(a), int(b) + 1):
+                        if 1 <= i <= total:
+                            result.add(i - 1)
+            elif part.isdigit() and 1 <= int(part) <= total:
+                result.add(int(part) - 1)
+        return sorted(result)
+
+    def _select_export_sheets(self, sheets_all, pages, interactive, title):
+        """Escolhe quais chapas exportar. Retorna None se o usuario cancelar."""
+        total = len(sheets_all)
+        if pages is None:
+            if interactive and total > 1:
+                spec, ok = QInputDialog.getText(
+                    self, title,
+                    f"Chapas a exportar (1-{total}). Vazio = todas. Ex.: 1,3-5",
+                )
+                if not ok:
+                    return None
+                idxs = self._parse_pages(spec, total)
+            else:
+                idxs = list(range(total))
+        elif isinstance(pages, str):
+            idxs = self._parse_pages(pages, total)
+        else:
+            idxs = [i for i in pages if 0 <= i < total]
+        return [sheets_all[i] for i in idxs]
+
+    def _dxf_payload(self, sheets):
+        """Monta (contornos, segmentos, marcas, marcas-em-L) de um conjunto de chapas."""
         artworks = self._result.artworks
         sheet_width = sheets[0].material.width
         reg = self._reg()
-
         if self._shared.currentIndex() == 1:
             contours = []
             segments = shared_cut_segments_sheets(sheets, artworks, sheet_width)
         else:
             contours = positioned_cut_contours_sheets(sheets, artworks, sheet_width)
             segments = []
-
-        marks = []
-        mark_segments = []
+        marks, mark_segments = [], []
         if reg == "circles":
             marks = registration_marks_sheets(
                 sheets, artworks, sheet_width,
@@ -866,9 +1575,59 @@ class MainWindow(QMainWindow):
             contours = list(contours) + mimaki_frame_contours(mk_list)
             for mk in mk_list:
                 mark_segments.extend(mk.segments)
+        return contours, segments, marks, mark_segments
 
+    def export_dxf(self, path: str | None = None, pages=None) -> None:
+        if self._result is None:
+            return
+        interactive = not isinstance(path, str) or not path
+        sheets = self._select_export_sheets(
+            self._effective_sheets(), pages, interactive, "Exportar DXF"
+        )
+        if sheets is None:
+            return
+        if not sheets:
+            if interactive:
+                QMessageBox.warning(self, "PrintNest", "Nenhuma chapa selecionada.")
+            return
+        if interactive:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar DXF", str(Path(self._settings.last_dir) / "CORTE.dxf"),
+                "DXF (*.dxf)",
+            )
+            if not path:
+                return
+        contours, segments, marks, mark_segments = self._dxf_payload(sheets)
         self._dxf_export.execute(
             contours, path, segments=segments, marks=marks, mark_segments=mark_segments
         )
         if interactive:
             QMessageBox.information(self, "PrintNest", f"DXF gerado:\n{path}")
+
+    def export_dxf_per_sheet(self, base_path: str | None = None) -> None:
+        """Exporta um DXF por chapa: CORTE_01.dxf, CORTE_02.dxf, ..."""
+        if self._result is None:
+            return
+        interactive = not isinstance(base_path, str) or not base_path
+        if interactive:
+            base_path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar DXF por chapa",
+                str(Path(self._settings.last_dir) / "CORTE.dxf"), "DXF (*.dxf)",
+            )
+            if not base_path:
+                return
+        sheets = self._effective_sheets()
+        stem = str(Path(base_path).with_suffix(""))
+        ext = Path(base_path).suffix or ".dxf"
+        gerados = []
+        for i, sheet in enumerate(sheets, start=1):
+            contours, segments, marks, mark_segments = self._dxf_payload([sheet])
+            out = f"{stem}_{i:02d}{ext}"
+            self._dxf_export.execute(
+                contours, out, segments=segments, marks=marks, mark_segments=mark_segments
+            )
+            gerados.append(out)
+        if interactive:
+            QMessageBox.information(
+                self, "PrintNest", f"{len(gerados)} arquivo(s) DXF gerado(s)."
+            )

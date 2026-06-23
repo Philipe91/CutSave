@@ -177,6 +177,189 @@ def test_medida_do_arquivo_selecionado(qapp, tmp_path):
     assert "mm" in texto and "x" in texto  # mostra a medida do arquivo
 
 
+def test_undo_de_movimento(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    piece = window._piece_items[0]
+    old = piece.pos()
+    piece.setSelected(True)
+    window._begin_move()
+    piece.setPos(piece.x() + 100, piece.y() + 30)
+    window._end_move()
+    assert window._undo.count() == 1
+    window._undo.undo()
+    assert abs(piece.pos().x() - old.x()) < 0.01
+    assert abs(piece.pos().y() - old.y()) < 0.01
+
+
+def test_agrupar_move_em_conjunto(qapp, tmp_path):
+    from PySide6.QtWidgets import QGraphicsItemGroup
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    for p in window._piece_items:
+        p.setSelected(True)
+    window._group_selected()
+
+    groups = [it for it in window._scene.items() if isinstance(it, QGraphicsItemGroup)]
+    assert len(groups) == 1
+    antes = window._piece_items[0].scenePos().x()
+    groups[0].setPos(groups[0].x() + 50, groups[0].y())
+    assert abs((window._piece_items[0].scenePos().x() - antes) - 50) < 0.01
+
+
+def test_mover_peca_reflete_no_export(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    piece = window._piece_items[0]
+    piece.setPos(piece.x() + 100, piece.y() + 30)
+    sheets = window._effective_sheets()
+    xs = [it.position.x for s in sheets for it in s.items]
+    assert any(abs(x - 100) < 0.001 for x in xs)  # peca movida 100mm em x
+
+
+def test_zoom_preservado_ao_mudar_parametro(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    # simula zoom do usuario
+    window._view.scale(3.0, 3.0)
+    antes = window._view.transform().m11()
+    window._offset.setValue(window._offset.value() + 2)  # mexe na faca -> relayout
+    depois = window._view.transform().m11()
+    assert abs(depois - antes) < 1e-6  # zoom mantido
+
+
+def test_caixa_importacao_passada_ao_pipeline(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._import_box.setCurrentIndex(window._import_box.findData("trim"))
+    window.generate(blocking=True)
+    # so valida que gerou sem erro com a caixa selecionada
+    assert window._result is not None
+
+
+def test_menu_e_toolbar_existem(qapp, tmp_path):
+    from PySide6.QtWidgets import QToolBar
+
+    window = _window(tmp_path)
+    titulos = [a.text() for a in window.menuBar().actions()]
+    assert "&Arquivo" in titulos and "E&xibir" in titulos
+    assert len(window.findChildren(QToolBar)) >= 1
+
+
+def test_parse_pages():
+    from app.presentation.main_window import MainWindow
+
+    assert MainWindow._parse_pages("", 4) == [0, 1, 2, 3]
+    assert MainWindow._parse_pages("1,3", 4) == [0, 2]
+    assert MainWindow._parse_pages("2-4", 5) == [1, 2, 3]
+    assert MainWindow._parse_pages("9", 4) == []  # fora do intervalo
+
+
+def _multi_sheet_window(qapp, tmp_path):
+    import fitz
+
+    doc = fitz.open()
+    for _ in range(8):
+        pg = doc.new_page(width=283.46, height=170.08)  # 100x60mm
+        pg.draw_rect(pg.rect, color=(0, 0, 0), fill=(0, 0, 0))
+    src = tmp_path / "multi.pdf"
+    doc.save(str(src))
+    doc.close()
+    window = _window(tmp_path)
+    window.add_paths([str(src)])
+    window._width.setValue(120)
+    window._height.setValue(150)
+    window.generate(blocking=True)
+    return window
+
+
+def test_exportar_pdf_chapa_escolhida(qapp, tmp_path):
+    import fitz
+
+    window = _multi_sheet_window(qapp, tmp_path)
+    assert len(window._result.sheets) >= 2
+    out = tmp_path / "IMP.pdf"
+    window.export_pdf(str(out), pages="1")  # so a chapa 1
+    assert fitz.open(str(out)).page_count == 1
+
+
+def test_exportar_dxf_chapa_escolhida(qapp, tmp_path):
+    window = _multi_sheet_window(qapp, tmp_path)
+    out = tmp_path / "COR.dxf"
+    window.export_dxf(str(out), pages=[0])  # indice 0-based
+    assert out.exists()
+
+
+def test_exportar_dxf_por_chapa(qapp, tmp_path):
+    import fitz
+
+    # PDF com pecas suficientes para 2 chapas (altura pequena)
+    doc = fitz.open()
+    for _ in range(8):
+        pg = doc.new_page(width=283.46, height=170.08)  # 100x60mm
+        pg.draw_rect(pg.rect, color=(0, 0, 0), fill=(0, 0, 0))
+    src = tmp_path / "multi.pdf"
+    doc.save(str(src))
+    doc.close()
+
+    window = _window(tmp_path)
+    window.add_paths([str(src)])
+    window._width.setValue(120)   # 1 peca por linha
+    window._height.setValue(150)  # 2 linhas por chapa
+    window.generate(blocking=True)
+    n_chapas = len(window._result.sheets)
+    assert n_chapas >= 2
+
+    base = tmp_path / "CORTE.dxf"
+    window.export_dxf_per_sheet(str(base))
+    gerados = list(tmp_path.glob("CORTE_*.dxf"))
+    assert len(gerados) == n_chapas
+
+
+def test_excluir_peca_selecionada(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 2
+    window._piece_items[0].setSelected(True)
+    window._delete_selected()
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+
+def test_resetar_restaura_arranjo(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+    window._delete_selected()
+    assert sum(s.item_count for s in window._result.sheets) == 1
+    window._reset_arrangement()
+    assert sum(s.item_count for s in window._result.sheets) == 2
+
+
+def test_selecionar_tudo(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._select_all()
+    selecionadas = [p for p in window._piece_items if p.isSelected()]
+    assert len(selecionadas) == 2
+
+
 def test_toggle_reguas(qapp, tmp_path):
     window = _window(tmp_path)
     assert not window._h_ruler.isHidden()  # padrao: reguas ligadas
@@ -185,6 +368,128 @@ def test_toggle_reguas(qapp, tmp_path):
     assert window._v_ruler.isHidden()
     window._show_rulers.setChecked(True)
     assert not window._h_ruler.isHidden()
+
+
+def _n_page_pdf(tmp_path, n, w=120.0, h=120.0, name="multi"):
+    doc = fitz.open()
+    for _ in range(n):
+        pg = doc.new_page(width=w, height=h)
+        pg.draw_rect(pg.rect, color=(0, 0, 0), fill=(0, 0, 0))
+    src = tmp_path / f"{name}.pdf"
+    doc.save(str(src))
+    doc.close()
+    return str(src)
+
+
+def test_nudge_move_pecas_com_setas(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    piece = window._piece_items[0]
+    piece.setSelected(True)
+    x0, y0 = piece.pos().x(), piece.pos().y()
+    window._nudge(5.0, -3.0)
+    assert abs(piece.pos().x() - (x0 + 5.0)) < 0.01
+    assert abs(piece.pos().y() - (y0 - 3.0)) < 0.01
+    assert window._undo.count() == 1
+    window._undo.undo()
+    assert abs(piece.pos().x() - x0) < 0.01
+
+
+def test_alinhar_a_esquerda(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    a, b = window._piece_items[0], window._piece_items[1]
+    b.setPos(b.x() + 80, b.y() + 40)
+    a.setSelected(True)
+    b.setSelected(True)
+    window._align("left")
+    assert abs(a.sceneBoundingRect().left() - b.sceneBoundingRect().left()) < 0.1
+
+
+def test_distribuir_horizontal_iguala_espacos(qapp, tmp_path):
+    src = _n_page_pdf(tmp_path, 3)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._width.setValue(3000)  # tudo em uma linha
+    window.generate(blocking=True)
+    ps = window._piece_items[:3]
+    ps[0].setPos(0, 0)
+    ps[1].setPos(20, 0)
+    ps[2].setPos(400, 0)
+    for p in ps:
+        p.setSelected(True)
+    window._distribute("h")
+    rects = sorted((p.sceneBoundingRect() for p in ps), key=lambda r: r.left())
+    gap1 = rects[1].left() - rects[0].right()
+    gap2 = rects[2].left() - rects[1].right()
+    assert abs(gap1 - gap2) < 0.5
+
+
+def test_duplicar_cria_copia(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    n0 = sum(s.item_count for s in window._result.sheets)
+    window._piece_items[0].setSelected(True)
+    window._duplicate_selected()
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 1
+
+
+def test_step_repeat_grade_2x2(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.generate(blocking=True)
+    n0 = sum(s.item_count for s in window._result.sheets)
+    window._piece_items[0].setSelected(True)
+    window._step_repeat(2, 2, 5.0)  # 2x2 = 3 copias novas
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 3
+
+
+def test_snap_axis_encaixa_na_borda():
+    from app.presentation.main_window import SNAP_THRESHOLD_MM, PieceItem
+
+    th = SNAP_THRESHOLD_MM
+    # borda esquerda 100.5 perto da linha 100 -> encaixa em 100
+    assert abs(PieceItem._snap_axis(100.5, 10.0, [100.0], th) - 100.0) < 1e-9
+    # borda direita (110.5) perto da linha 110 -> left vira 100.0
+    assert abs(PieceItem._snap_axis(100.5, 10.0, [110.0], th) - 100.0) < 1e-9
+    # nada dentro do limiar -> nao mexe
+    assert PieceItem._snap_axis(100.0, 10.0, [50.0], th) == 100.0
+
+
+def test_snap_so_age_durante_arraste(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    a, b = window._piece_items[0], window._piece_items[1]
+    # alinha 'a' a 1mm da borda esquerda de 'b': fora de arraste nao encaixa
+    target = b.sceneBoundingRect().left() + 1.0
+    window._snap.dragging = False
+    a.setPos(500.0, a.y())
+    a.setPos(target, a.y())
+    assert abs(a.sceneBoundingRect().left() - target) < 0.01
+    # durante o arraste, encaixa na borda de 'b'
+    window._snap.dragging = True
+    a.setPos(500.0, a.y())  # afasta antes (setPos para a mesma pos nao dispara)
+    a.setPos(target, a.y())
+    assert abs(a.sceneBoundingRect().left() - b.sceneBoundingRect().left()) < 0.01
+    window._snap.dragging = False
+
+
+def test_snap_persiste(qapp, tmp_path):
+    window = _window(tmp_path)
+    window._snap_check.setChecked(False)
+    window._save_settings()
+    assert SettingsStore(tmp_path / "config.json").load().snap_enabled is False
 
 
 def test_persiste_configuracoes(qapp, tmp_path):

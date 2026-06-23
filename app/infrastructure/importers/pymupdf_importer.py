@@ -11,8 +11,13 @@ from app.shared.errors import PdfImportError
 
 # Numero minimo de desenhos vetoriais para considerar a arte "vetorial".
 _VECTOR_MIN_DRAWINGS = 2
-# Ordem de prioridade da caixa que define o tamanho real do produto.
-_BOX_PRIORITY = ("TrimBox", "CropBox", "MediaBox")
+# Ordem de prioridade da caixa por tipo de importacao:
+#  - "auto"/"trim": Apara (corte) com fallback; "media": Caixa de Midia (sangria).
+_BOX_ORDER = {
+    "auto": ("TrimBox", "CropBox", "MediaBox"),
+    "trim": ("TrimBox", "CropBox", "MediaBox"),
+    "media": ("MediaBox",),
+}
 _ROTATIONS_THAT_SWAP = (90, 270)
 
 
@@ -33,7 +38,7 @@ def classify_kind(drawings: int, images: int) -> ArtKind:
 class PyMuPdfImporter(IPdfImporter):
     """Importa PDF com PyMuPDF: dimensao real, rotacao e classificacao."""
 
-    def import_artworks(self, path: str) -> list[Artwork]:
+    def import_artworks(self, path: str, box: str = "auto") -> list[Artwork]:
         try:
             document = fitz.open(path)
         except Exception as exc:  # erros do fitz nao sao tipados
@@ -44,14 +49,14 @@ class PyMuPdfImporter(IPdfImporter):
                 raise PdfImportError(f"Arquivo nao e um PDF valido: {path}")
             stem = Path(path).stem
             return [
-                self._page_to_artwork(document, document[i], stem, i)
+                self._page_to_artwork(document, document[i], stem, i, box)
                 for i in range(document.page_count)
             ]
         finally:
             document.close()
 
-    def _page_to_artwork(self, doc, page, stem: str, index: int) -> Artwork:
-        width_pt, height_pt = self._product_box_pt(doc, page)
+    def _page_to_artwork(self, doc, page, stem: str, index: int, box: str) -> Artwork:
+        width_pt, height_pt = self._product_box_pt(doc, page, box)
         if page.rotation in _ROTATIONS_THAT_SWAP:
             width_pt, height_pt = height_pt, width_pt
 
@@ -72,12 +77,12 @@ class PyMuPdfImporter(IPdfImporter):
         )
 
     @staticmethod
-    def _product_box_pt(doc, page) -> tuple[float, float]:
-        """Dimensao do produto em points, na prioridade Trim -> Crop -> Media."""
-        for key in _BOX_PRIORITY:
-            box = PyMuPdfImporter._read_box(doc, page, key)
-            if box is not None:
-                return box
+    def _product_box_pt(doc, page, box: str = "auto") -> tuple[float, float]:
+        """Dimensao em points conforme o tipo de caixa (media/apara)."""
+        for key in _BOX_ORDER.get(box, _BOX_ORDER["auto"]):
+            dims = PyMuPdfImporter._read_box(doc, page, key)
+            if dims is not None:
+                return dims
         # Fallback: caixa resolvida pelo fitz (cobre boxes herdadas do pai).
         rect = page.rect
         return rect.width, rect.height

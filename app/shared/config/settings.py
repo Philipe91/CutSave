@@ -33,6 +33,8 @@ class AppSettings:
     mimaki_thickness: float = 1.0
     show_rulers: bool = True
     view_mode: str = "both"  # both | print | cut | split
+    import_box: str = "media"  # media (Caixa de Midia) | trim (Caixa de Apara)
+    snap_enabled: bool = True  # encaixe (snap) ao arrastar pecas
 
     def to_dict(self) -> dict:
         return asdict(self)

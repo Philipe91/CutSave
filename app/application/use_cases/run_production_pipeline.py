@@ -42,13 +42,14 @@ class RunProductionPipelineUseCase:
         material: Material,
         offset_mm: float,
         sheet_height: float = 0.0,
+        box: str = "auto",
         on_progress: Callable[[int, int], None] | None = None,
     ) -> ProductionResult:
         artworks: list[Artwork] = []
         sources: dict[str, tuple[str, int]] = {}
         total = len(pdf_paths)
         for index, path in enumerate(pdf_paths, start=1):
-            for page_index, art in enumerate(self._import.execute(path)):
+            for page_index, art in enumerate(self._import.execute(path, box)):
                 with_faca = self._faca.execute(art, offset_mm)
                 artworks.append(with_faca)
                 sources[with_faca.id] = (path, page_index)

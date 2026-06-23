@@ -45,6 +45,7 @@ class ExportPrintPdfUseCase:
         mimaki_thickness_mm: float = 1.0,
         crop_mm: float = 0.0,
         rotate: int = 0,
+        box: str = "media",
     ) -> str:
         layouts = [layout for layout in sheets if layout.items]
         if not layouts:
@@ -74,7 +75,7 @@ class ExportPrintPdfUseCase:
                     item.position.y - footprint.min_y + pad,
                 )
                 placements.append(
-                    PrintPlacement(source[0], source[1], position, art.size, crop_mm, rotate)
+                    PrintPlacement(source[0], source[1], position, art.size, crop_mm, rotate, box)
                 )
 
             circles, lines = self._marks(

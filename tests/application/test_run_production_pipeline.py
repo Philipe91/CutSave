@@ -15,7 +15,7 @@ class _FakeImport:
     def __init__(self, by_path):
         self._by_path = by_path
 
-    def execute(self, path):
+    def execute(self, path, box="auto"):
         return self._by_path[path]
 
 

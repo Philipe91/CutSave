@@ -18,6 +18,7 @@ class PrintPlacement:
     size: Size
     crop_mm: float = 0.0  # recorta esse tanto de cada borda da pagina de origem
     rotate: int = 0  # rotacao da arte em graus (0/90/180/270)
+    box: str = "media"  # caixa de origem: 'media' (sangria) ou 'trim'/'auto' (apara)
 
 
 @dataclass(frozen=True, slots=True)

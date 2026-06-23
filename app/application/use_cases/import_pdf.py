@@ -15,5 +15,5 @@ class ImportPdfUseCase:
     def __init__(self, importer: IPdfImporter) -> None:
         self._importer = importer
 
-    def execute(self, path: str) -> list[Artwork]:
-        return self._importer.import_artworks(path)
+    def execute(self, path: str, box: str = "auto") -> list[Artwork]:
+        return self._importer.import_artworks(path, box)

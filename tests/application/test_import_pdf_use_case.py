@@ -9,8 +9,8 @@ class _FakeImporter(IPdfImporter):
         self._artworks = artworks
         self.called_with = None
 
-    def import_artworks(self, path):
-        self.called_with = path
+    def import_artworks(self, path, box="auto"):
+        self.called_with = (path, box)
         return self._artworks
 
 
@@ -32,4 +32,4 @@ def test_use_case_delega_para_importer():
     result = use_case.execute("arquivo.pdf")
 
     assert result == [art]
-    assert fake.called_with == "arquivo.pdf"
+    assert fake.called_with == ("arquivo.pdf", "auto")
