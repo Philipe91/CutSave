@@ -3,16 +3,18 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRect, Qt, QThread, Signal
-from PySide6.QtGui import QBrush, QColor, QPen, QPixmap, QTransform
+from PySide6.QtCore import QObject, QPointF, QRect, Qt, QThread, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen, QPixmap, QTransform
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGraphicsScene,
     QGraphicsView,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -53,18 +55,91 @@ from app.domain.model.material import Material
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ValidationError
 
+RULER_SIZE = 24
+
 
 class ZoomableGraphicsView(QGraphicsView):
-    """Preview com zoom (roda do mouse) e arrastar (segurar e mover)."""
+    """Preview estilo CorelDRAW: zoom (roda), pan (arrastar), fundo cinza."""
+
+    view_changed = Signal()
 
     def __init__(self, scene: QGraphicsScene) -> None:
         super().__init__(scene)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setBackgroundBrush(QColor(170, 170, 170))  # mesa cinza
 
     def wheelEvent(self, event) -> None:
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         self.scale(factor, factor)
+        self.view_changed.emit()
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)
+        self.view_changed.emit()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.view_changed.emit()
+
+
+class Ruler(QWidget):
+    """Regua (mm) sincronizada com o view, no estilo de softwares de pre-impressao."""
+
+    def __init__(self, view: ZoomableGraphicsView, horizontal: bool) -> None:
+        super().__init__()
+        self._view = view
+        self._h = horizontal
+        if horizontal:
+            self.setFixedHeight(RULER_SIZE)
+        else:
+            self.setFixedWidth(RULER_SIZE)
+
+    @staticmethod
+    def _nice_step(px_per_mm: float) -> float:
+        raw = 60.0 / px_per_mm  # alvo ~60px entre marcas
+        for step in (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000):
+            if step >= raw:
+                return float(step)
+        return 10000.0
+
+    def paintEvent(self, event) -> None:  # noqa: ARG002
+        import math
+
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(245, 245, 245))
+        painter.setPen(QColor(110, 110, 110))
+
+        view = self._view
+        vp = view.viewport()
+        if self._h:
+            length = vp.width()
+            lo = view.mapToScene(0, 0).x()
+            hi = view.mapToScene(length, 0).x()
+        else:
+            length = vp.height()
+            lo = view.mapToScene(0, 0).y()
+            hi = view.mapToScene(0, length).y()
+        span = hi - lo
+        if length <= 0 or span <= 0:
+            return
+
+        step = self._nice_step(length / span)
+        value = math.floor(lo / step) * step
+        while value <= hi:
+            if self._h:
+                pos = view.mapFromScene(QPointF(value, 0.0)).x()
+                painter.drawLine(pos, RULER_SIZE - 6, pos, RULER_SIZE)
+                painter.drawText(pos + 2, RULER_SIZE - 8, f"{value:.0f}")
+            else:
+                pos = view.mapFromScene(QPointF(0.0, value)).y()
+                painter.drawLine(RULER_SIZE - 6, pos, RULER_SIZE, pos)
+                painter.save()
+                painter.translate(RULER_SIZE - 9, pos - 2)
+                painter.rotate(-90)
+                painter.drawText(0, 0, f"{value:.0f}")
+                painter.restore()
+            value += step
 
 
 class ProductionWorker(QObject):
@@ -152,6 +227,7 @@ class MainWindow(QMainWindow):
         panel.addWidget(self._build_chapa_group())
         panel.addWidget(self._build_faca_group())
         panel.addWidget(self._build_registro_group())
+        panel.addWidget(self._build_exibicao_group())
 
         self._btn_generate = QPushButton("Gerar Producao")
         self._btn_generate.clicked.connect(lambda: self.generate())
@@ -183,8 +259,25 @@ class MainWindow(QMainWindow):
         self._scene = QGraphicsScene()
         self._view = ZoomableGraphicsView(self._scene)
 
+        # area de trabalho estilo Corel: reguas no topo e a esquerda
+        work = QWidget()
+        grid = QGridLayout(work)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(0)
+        self._corner = QWidget()
+        self._corner.setFixedSize(RULER_SIZE, RULER_SIZE)
+        self._corner.setStyleSheet("background:#e0e0e0;")
+        self._h_ruler = Ruler(self._view, horizontal=True)
+        self._v_ruler = Ruler(self._view, horizontal=False)
+        grid.addWidget(self._corner, 0, 0)
+        grid.addWidget(self._h_ruler, 0, 1)
+        grid.addWidget(self._v_ruler, 1, 0)
+        grid.addWidget(self._view, 1, 1)
+        self._view.view_changed.connect(self._h_ruler.update)
+        self._view.view_changed.connect(self._v_ruler.update)
+
         root.addWidget(scroll, 0)
-        root.addWidget(self._view, 1)
+        root.addWidget(work, 1)
         self.setCentralWidget(central)
 
     def _section(self, title: str, color: str) -> tuple[QFrame, QVBoxLayout]:
@@ -235,10 +328,17 @@ class MainWindow(QMainWindow):
         self._table.setColumnWidth(1, 70)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.itemSelectionChanged.connect(self._update_selection_info)
         lay.addWidget(self._table)
         self._btn_remove = QPushButton("Remover PDF selecionado")
         self._btn_remove.clicked.connect(lambda: self.remove_selected())
         lay.addWidget(self._btn_remove)
+        self._sel_info = QLabel("Selecione um arquivo")
+        self._sel_info.setWordWrap(True)
+        self._sel_info.setStyleSheet(
+            "border:1px solid #34495e; border-radius:4px; padding:6px; background:white;"
+        )
+        lay.addWidget(self._sel_info)
         lay.addWidget(QLabel("Rotacionar arquivo (graus)"))
         self._rotation = QComboBox()
         self._rotation.addItems(["0", "90", "180", "270"])
@@ -311,6 +411,27 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._mk_thickness)
         return group
 
+    def _build_exibicao_group(self) -> QFrame:
+        group, lay = self._section("Exibicao", "#2c3e50")
+        lay.addWidget(QLabel("Modo de visualizacao"))
+        self._view_mode = QComboBox()
+        self._view_mode.addItem("Impressao + Corte", "both")
+        self._view_mode.addItem("So Impressao", "print")
+        self._view_mode.addItem("So Corte", "cut")
+        self._view_mode.addItem("Tela dividida (impressao / corte)", "split")
+        self._view_mode.currentIndexChanged.connect(lambda _: self._refresh_preview())
+        lay.addWidget(self._view_mode)
+        self._show_rulers = QCheckBox("Mostrar reguas (mm)")
+        self._show_rulers.toggled.connect(lambda _: self._apply_rulers_visibility())
+        lay.addWidget(self._show_rulers)
+        return group
+
+    def _apply_rulers_visibility(self) -> None:
+        visible = self._show_rulers.isChecked()
+        self._h_ruler.setVisible(visible)
+        self._v_ruler.setVisible(visible)
+        self._corner.setVisible(visible)
+
     # ---- settings ----
     def _load_settings(self) -> None:
         s = self._settings
@@ -329,6 +450,9 @@ class MainWindow(QMainWindow):
         self._mk_distance.setValue(s.mimaki_distance)
         self._mk_size.setValue(s.mimaki_size)
         self._mk_thickness.setValue(s.mimaki_thickness)
+        self._show_rulers.setChecked(s.show_rulers)
+        self._apply_rulers_visibility()
+        self._view_mode.setCurrentIndex(max(0, self._view_mode.findData(s.view_mode)))
 
     def _save_settings(self) -> None:
         s = self._settings
@@ -346,6 +470,8 @@ class MainWindow(QMainWindow):
         s.mimaki_distance = float(self._mk_distance.value())
         s.mimaki_size = float(self._mk_size.value())
         s.mimaki_thickness = float(self._mk_thickness.value())
+        s.show_rulers = self._show_rulers.isChecked()
+        s.view_mode = self._view_mode.currentData()
         self._store.save(s)
 
     # ---- helpers de leitura ----
@@ -396,6 +522,31 @@ class MainWindow(QMainWindow):
         self._table.removeRow(row)
         del self._paths[row]
         self._relayout()
+
+    @staticmethod
+    def _fmt_mm(value: float) -> str:
+        return f"{value:.0f}" if abs(value - round(value)) < 0.05 else f"{value:.1f}"
+
+    def _update_selection_info(self) -> None:
+        """Mostra a medida do arquivo selecionado numa caixa (sem poluir o preview)."""
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._paths):
+            self._sel_info.setText("Selecione um arquivo")
+            return
+        path = self._paths[row]
+        name = Path(path).name
+        sizes, seen = [], set()
+        for art in self._base_artworks:
+            if self._sources.get(art.id, (None,))[0] != path:
+                continue
+            key = (round(art.size.width, 1), round(art.size.height, 1))
+            if key not in seen:
+                seen.add(key)
+                sizes.append(f"{self._fmt_mm(art.size.width)} x {self._fmt_mm(art.size.height)} mm")
+        if sizes:
+            self._sel_info.setText(f"{name}\n" + " | ".join(sizes))
+        else:
+            self._sel_info.setText(f"{name}\n(gere a producao para ver a medida)")
 
     def _quantities(self) -> dict[str, int]:
         """Quantidade por arquivo, lida da tabela (path -> qtd)."""
@@ -474,6 +625,7 @@ class MainWindow(QMainWindow):
         self._btn_pdf.setEnabled(True)
         self._btn_dxf.setEnabled(True)
         self._relayout()
+        self._update_selection_info()
 
     def _relayout(self) -> None:
         """Recalcula faca + nesting com os parametros atuais (tempo real)."""
@@ -505,13 +657,34 @@ class MainWindow(QMainWindow):
         total = sum(s.item_count for s in sheets)
         self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
 
+    def _refresh_preview(self) -> None:
+        if self._result is not None:
+            self._draw_preview()
+
     def _draw_preview(self) -> None:
         self._scene.clear()
-        result = self._result
-        if result is None:
+        if self._result is None:
             return
-        by_id = {a.id: a for a in result.artworks}
+        mode = self._view_mode.currentData()
+        if mode == "split":
+            self._draw_sheets(draw_art=True, draw_cut=False, dy=0.0)
+            total_h = max((s.used_length for s in self._result.sheets), default=0.0)
+            self._draw_sheets(
+                draw_art=False, draw_cut=True, dy=total_h + max(50.0, total_h * 0.15)
+            )
+        else:
+            self._draw_sheets(
+                draw_art=mode in ("both", "print"),
+                draw_cut=mode in ("both", "cut"),
+                dy=0.0,
+            )
+        self._view.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+        self._view.view_changed.emit()
 
+    def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float) -> None:
+        result = self._result
+        by_id = {a.id: a for a in result.artworks}
+        sheet_brush = QBrush(QColor(255, 255, 255))  # chapa = pagina branca
         material_pen = QPen(QColor(40, 40, 40))
         material_pen.setCosmetic(True)
         faca_pen = QPen(QColor(220, 0, 0))
@@ -530,7 +703,7 @@ class MainWindow(QMainWindow):
         for index, layout in enumerate(result.sheets):
             dx = index * (layout.material.width + SHEET_GAP_MM)
             self._scene.addRect(
-                dx, 0, layout.material.width, layout.used_length, material_pen
+                dx, dy, layout.material.width, layout.used_length, material_pen, sheet_brush
             )
             for item in layout.items:
                 art = by_id.get(item.artwork_id)
@@ -538,38 +711,42 @@ class MainWindow(QMainWindow):
                     continue
                 fp = artwork_footprint(art)
                 base_x = dx + item.position.x - fp.min_x
-                base_y = item.position.y - fp.min_y
+                base_y = dy + item.position.y - fp.min_y
 
-                key = self._sources.get(item.artwork_id)
-                pixmap = self._pixmaps.get(key)
-                if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
-                    display = self._display_pixmap(
-                        pixmap, crop, rotation, art.size, cropped_cache, key
-                    )
-                    pm_item = self._scene.addPixmap(display)
-                    pm_item.setScale(art.size.width / display.width())
-                    pm_item.setPos(base_x, base_y)
-                else:
-                    self._scene.addRect(
-                        base_x, base_y, art.size.width, art.size.height,
-                        material_pen, empty_brush,
-                    )
-                if art.has_cut and not shared:
+                if draw_art:
+                    key = self._sources.get(item.artwork_id)
+                    pixmap = self._pixmaps.get(key)
+                    if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
+                        display = self._display_pixmap(
+                            pixmap, crop, rotation, art.size, cropped_cache, key
+                        )
+                        pm_item = self._scene.addPixmap(display)
+                        pm_item.setScale(art.size.width / display.width())
+                        pm_item.setPos(base_x, base_y)
+                    else:
+                        self._scene.addRect(
+                            base_x, base_y, art.size.width, art.size.height,
+                            material_pen, empty_brush,
+                        )
+                if draw_cut and art.has_cut and not shared:
                     faca = art.cut_contour
                     self._scene.addRect(
                         base_x + faca.origin.x, base_y + faca.origin.y,
                         faca.size.width, faca.size.height, faca_pen,
                     )
 
-            if shared:
+            if draw_cut and shared:
                 for seg in shared_cut_segments(layout, result.artworks):
                     self._scene.addLine(
-                        dx + seg.start.x, seg.start.y, dx + seg.end.x, seg.end.y, faca_pen
+                        dx + seg.start.x, dy + seg.start.y,
+                        dx + seg.end.x, dy + seg.end.y, faca_pen,
                     )
-            self._draw_marks(layout, result.artworks, dx, reg, mark_pen, mark_brush, faca_pen)
-        self._view.fitInView(self._scene.itemsBoundingRect(), Qt.KeepAspectRatio)
+            if draw_cut:
+                self._draw_marks(
+                    layout, result.artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen
+                )
 
-    def _draw_marks(self, layout, artworks, dx, reg, mark_pen, mark_brush, faca_pen) -> None:
+    def _draw_marks(self, layout, artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen) -> None:
         if reg == "circles":
             for mark in registration_marks(
                 layout, artworks,
@@ -577,7 +754,7 @@ class MainWindow(QMainWindow):
                 diameter_mm=float(self._reg_diameter.value()),
             ):
                 self._scene.addEllipse(
-                    dx + mark.center.x - mark.radius, mark.center.y - mark.radius,
+                    dx + mark.center.x - mark.radius, dy + mark.center.y - mark.radius,
                     mark.diameter, mark.diameter, mark_pen, mark_brush,
                 )
         elif reg == "mimaki":
@@ -590,11 +767,12 @@ class MainWindow(QMainWindow):
                 return
             f = marks.frame
             self._scene.addRect(
-                dx + f.min_x, f.min_y, f.max_x - f.min_x, f.max_y - f.min_y, faca_pen
+                dx + f.min_x, dy + f.min_y, f.max_x - f.min_x, f.max_y - f.min_y, faca_pen
             )
             for seg in marks.segments:
                 self._scene.addLine(
-                    dx + seg.start.x, seg.start.y, dx + seg.end.x, seg.end.y, mark_pen
+                    dx + seg.start.x, dy + seg.start.y,
+                    dx + seg.end.x, dy + seg.end.y, mark_pen,
                 )
 
     @staticmethod

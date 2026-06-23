@@ -148,6 +148,45 @@ def test_recorte_reduz_tamanho_da_arte(qapp, tmp_path):
     assert window._result.artworks[0].size.width == largura_cheia - 6
 
 
+def test_modos_de_visualizacao(qapp, tmp_path):
+    from PySide6.QtWidgets import QGraphicsPixmapItem
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    def _pixmaps():
+        return [it for it in window._scene.items() if isinstance(it, QGraphicsPixmapItem)]
+
+    window._view_mode.setCurrentIndex(window._view_mode.findData("print"))
+    assert len(_pixmaps()) == 2  # so impressao -> 2 artes
+    window._view_mode.setCurrentIndex(window._view_mode.findData("cut"))
+    assert len(_pixmaps()) == 0  # so corte -> sem imagens
+    window._view_mode.setCurrentIndex(window._view_mode.findData("split"))
+    assert len(_pixmaps()) == 2  # dividida desenha a impressao uma vez
+
+
+def test_medida_do_arquivo_selecionado(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._table.setCurrentCell(0, 0)
+    texto = window._sel_info.text()
+    assert "mm" in texto and "x" in texto  # mostra a medida do arquivo
+
+
+def test_toggle_reguas(qapp, tmp_path):
+    window = _window(tmp_path)
+    assert not window._h_ruler.isHidden()  # padrao: reguas ligadas
+    window._show_rulers.setChecked(False)
+    assert window._h_ruler.isHidden()
+    assert window._v_ruler.isHidden()
+    window._show_rulers.setChecked(True)
+    assert not window._h_ruler.isHidden()
+
+
 def test_persiste_configuracoes(qapp, tmp_path):
     window = _window(tmp_path)
     window._width.setValue(1500)

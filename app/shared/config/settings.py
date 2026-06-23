@@ -31,6 +31,8 @@ class AppSettings:
     mimaki_distance: float = 15.0
     mimaki_size: float = 15.0
     mimaki_thickness: float = 1.0
+    show_rulers: bool = True
+    view_mode: str = "both"  # both | print | cut | split
 
     def to_dict(self) -> dict:
         return asdict(self)
