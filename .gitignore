@@ -15,3 +15,8 @@ data/
 # Artes de clientes e arquivos gerados (nao versionar)
 *.pdf
 *.dxf
+
+# Build / distribuicao (gerados pelo PyInstaller / build.bat)
+PrintNest_Build/
+*.exe
+assets/printnest.ico
