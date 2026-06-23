@@ -24,3 +24,7 @@ class DxfExportError(PrintNestError):
 
 class PrintExportError(PrintNestError):
     """Falha ao gerar o PDF de impressao."""
+
+
+class ProjectError(PrintNestError):
+    """Falha ao salvar, abrir ou interpretar um projeto .printnest."""

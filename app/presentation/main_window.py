@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
 from pathlib import Path
 
@@ -58,6 +59,13 @@ from app.application.positioning import (
     shared_cut_segments,
     shared_cut_segments_sheets,
 )
+from app.application.project_io import (
+    PROJECT_EXTENSION,
+    PROJECT_SETTING_KEYS,
+    ProjectDocument,
+    ProjectFile,
+    ProjectStore,
+)
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase
 from app.application.use_cases.generate_rectangular_cut import GenerateRectangularCutUseCase
@@ -71,7 +79,7 @@ from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
 from app.shared.config.settings import AppSettings, SettingsStore
-from app.shared.errors import ValidationError
+from app.shared.errors import ProjectError, ValidationError
 
 RULER_SIZE = 24
 
@@ -449,11 +457,15 @@ class MainWindow(QMainWindow):
         self._move_snapshot: dict = {}
         self._fit_next = True  # ajusta o zoom so apos gerar; preserva no relayout
         self._snap = SnapConfig()
+        self._project_store = ProjectStore()
+        self._project_path: str | None = None
 
         self.setWindowTitle("PrintNest MVP")
         self._build_ui()
         self._load_settings()
         self._build_menu_toolbar()
+        self._update_title()
+        self._maybe_reopen_last()
 
     def _act(self, text, slot, shortcut=None, tip=None) -> QAction:
         action = QAction(text, self)
@@ -466,8 +478,18 @@ class MainWindow(QMainWindow):
         return action
 
     def _build_menu_toolbar(self) -> None:
+        novo = self._act("Novo Projeto", self.new_project, "Ctrl+N",
+                         "Comeca um projeto vazio")
+        abrir = self._act("Abrir Projeto...", self.open_project, "Ctrl+Shift+O",
+                          "Abre um projeto .printnest salvo")
+        salvar = self._act("Salvar Projeto", self.save_project, "Ctrl+S",
+                           "Salva o projeto atual")
+        salvar_como = self._act("Salvar Como...", self.save_project_as, "Ctrl+Shift+S",
+                                "Salva o projeto em um novo arquivo")
         add = self._act("Adicionar PDFs...", self.add_pdfs, "Ctrl+O",
                         "Adiciona arquivos PDF a lista")
+        substituir = self._act("Substituir arquivo selecionado...", self.replace_selected, None,
+                               "Troca o arquivo da linha selecionada (ex.: arquivo nao encontrado)")
         gerar = self._act("Gerar Producao", self.generate, "F5",
                           "Importa, gera a faca e organiza o nesting")
         fit = self._act("Ajustar a tela", self._fit_view, "Ctrl+0",
@@ -526,14 +548,11 @@ class MainWindow(QMainWindow):
 
         bar = self.menuBar()
         m_arq = bar.addMenu("&Arquivo")
-        m_arq.addAction(add)
-        m_arq.addSeparator()
-        m_arq.addAction(exp_pdf)
-        m_arq.addAction(exp_dxf)
-        m_arq.addAction(exp_dxf_n)
-        m_arq.addAction(exp_img)
-        m_arq.addSeparator()
-        m_arq.addAction(sair)
+        for action in (novo, abrir, salvar, salvar_como,
+                       None, add, substituir,
+                       None, exp_pdf, exp_dxf, exp_dxf_n, exp_img,
+                       None, sair):
+            m_arq.addSeparator() if action is None else m_arq.addAction(action)
         m_edit = bar.addMenu("&Editar")
         for action in (undo, redo, None, sel_all, dup, step, grp, ungrp,
                        None, excluir, reset, rem):
@@ -561,6 +580,161 @@ class MainWindow(QMainWindow):
             self, "PrintNest",
             "PrintNest - preparacao de producao grafica.\nV1.1 (prototipo).",
         )
+
+    # ---- projeto (.printnest) ----
+    def _update_title(self) -> None:
+        name = Path(self._project_path).name if self._project_path else "Sem titulo"
+        self.setWindowTitle(f"PrintNest - {name}")
+
+    def _collect_project(self) -> ProjectDocument:
+        """Captura o estado atual (arquivos + parametros) como ProjectDocument."""
+        self._save_settings()  # sincroniza os widgets -> self._settings
+        quantities = self._quantities()
+        rotation = self._rotation_value()
+        files = [
+            ProjectFile(path=path, quantity=quantities.get(path, 1), rotation=rotation)
+            for path in self._paths
+        ]
+        settings = {key: getattr(self._settings, key) for key in PROJECT_SETTING_KEYS}
+        return ProjectDocument(files=files, settings=settings)
+
+    def _apply_project(self, doc: ProjectDocument) -> None:
+        """Restaura o estado do projeto SEM gerar producao (regra do projeto)."""
+        for key, value in doc.settings.items():
+            if key in PROJECT_SETTING_KEYS and hasattr(self._settings, key):
+                setattr(self._settings, key, value)
+        self._load_settings()  # empurra os parametros para os widgets
+        self._reset_project_state()
+        self._populate_files(doc.files)
+
+    def _reset_project_state(self) -> None:
+        """Descarta a producao carregada (mantem parametros e widgets)."""
+        self._loaded = False
+        self._result = None
+        self._base_artworks = []
+        self._sources = {}
+        self._pixmaps = {}
+        self._piece_items = []
+        self._scene.clear()
+        self._undo.clear()
+        self._btn_pdf.setEnabled(False)
+        self._btn_dxf.setEnabled(False)
+        self._btn_img.setEnabled(False)
+        self._status.setText("")
+
+    def _populate_files(self, files: list[ProjectFile]) -> None:
+        """Recria a tabela de arquivos a partir do projeto, marcando os ausentes."""
+        self._table.setRowCount(0)
+        self._paths = []
+        for pfile in files:
+            self.add_paths([pfile.path])
+            row = self._table.rowCount() - 1
+            spin = self._table.cellWidget(row, 1)
+            if spin is not None:
+                spin.setValue(max(1, int(pfile.quantity)))
+            if not Path(pfile.path).exists():
+                self._mark_missing(row)
+
+    def _mark_missing(self, row: int) -> None:
+        item = self._table.item(row, 0)
+        if item is None:
+            return
+        item.setForeground(QColor(192, 57, 43))
+        item.setText(f"⚠ {item.text()}")
+        item.setToolTip("Arquivo nao encontrado. Use 'Substituir arquivo' ou remova a linha.")
+
+    def replace_selected(self) -> None:
+        """Troca o arquivo da linha selecionada (sem perder o resto do projeto)."""
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._paths):
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Substituir arquivo", self._settings.last_dir, "PDF (*.pdf)"
+        )
+        if not path:
+            return
+        self._paths[row] = path
+        self._table.setItem(row, 0, QTableWidgetItem(Path(path).name))
+        if self._loaded:
+            self._relayout()
+
+    def new_project(self) -> None:
+        self._project_path = None
+        self._reset_project_state()
+        self._table.setRowCount(0)
+        self._paths = []
+        self._settings.last_project = ""
+        self._store.save(self._settings)
+        self._update_title()
+
+    def open_project(self, path: str | None = None) -> bool:
+        interactive = not isinstance(path, str) or not path
+        if interactive:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Abrir projeto", self._settings.last_dir,
+                f"Projeto PrintNest (*{PROJECT_EXTENSION})",
+            )
+            if not path:
+                return False
+        try:
+            doc = self._project_store.load(path)
+        except ProjectError as exc:
+            if interactive:
+                QMessageBox.critical(self, "PrintNest", str(exc))
+            return False
+        self._apply_project(doc)
+        self._project_path = path
+        self._settings.last_project = path
+        self._store.save(self._settings)
+        self._update_title()
+        missing = [f.path for f in doc.files if not Path(f.path).exists()]
+        if interactive and missing:
+            QMessageBox.warning(
+                self, "PrintNest",
+                f"{len(missing)} arquivo(s) nao encontrado(s) (marcados em vermelho).\n"
+                "Use 'Substituir arquivo' ou remova as linhas para continuar.",
+            )
+        return True
+
+    def save_project(self, path: str | None = None) -> bool:
+        interactive = not isinstance(path, str) or not path
+        if interactive:
+            path = self._project_path
+        if not path:
+            return self.save_project_as()
+        doc = self._collect_project()
+        try:
+            self._project_store.save(path, doc)
+        except ProjectError as exc:
+            QMessageBox.critical(self, "PrintNest", str(exc))
+            return False
+        self._project_path = path
+        self._settings.last_project = path
+        self._store.save(self._settings)
+        self._update_title()
+        return True
+
+    def save_project_as(self) -> bool:
+        start = self._project_path or str(
+            Path(self._settings.last_dir or "") / f"projeto{PROJECT_EXTENSION}"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salvar projeto como", start,
+            f"Projeto PrintNest (*{PROJECT_EXTENSION})",
+        )
+        if not path:
+            return False
+        if not path.lower().endswith(PROJECT_EXTENSION):
+            path += PROJECT_EXTENSION
+        return self.save_project(path)
+
+    def _maybe_reopen_last(self) -> None:
+        """Reabre o ultimo projeto ao iniciar (silencioso; nao quebra se faltar)."""
+        last = self._settings.last_project
+        if last and Path(last).exists():
+            # nunca impedir a abertura do programa por causa de um projeto ruim
+            with contextlib.suppress(Exception):
+                self.open_project(last)
 
     # ---- construcao da UI ----
     def _build_ui(self) -> None:

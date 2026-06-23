@@ -17,6 +17,7 @@ class AppSettings:
     language: str = DEFAULT_LANGUAGE
     log_level: str = DEFAULT_LOG_LEVEL
     last_dir: str = ""
+    last_project: str = ""  # ultimo .printnest aberto (reabre ao iniciar)
     material_width: float = 1300.0
     material_height: float = 1500.0
     spacing: float = 5.0

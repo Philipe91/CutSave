@@ -535,3 +535,88 @@ def test_persiste_configuracoes(qapp, tmp_path):
     assert recarregado.spacing == 8
     assert recarregado.offset == 2
     assert recarregado.safety_inset == 1
+
+
+# ---- projeto (.printnest) ----
+def _window_cfg(tmp_path, name):
+    """Janela com um diretorio de config proprio (config.json isolado por 'name')."""
+    folder = tmp_path / name
+    folder.mkdir(exist_ok=True)
+    store = SettingsStore(folder / "config.json")
+    settings = store.load_or_create()
+    pipeline = RunProductionPipelineUseCase(ImportPdfUseCase(PyMuPdfImporter()))
+    return MainWindow(
+        pipeline,
+        ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
+        ExportDxfUseCase(DxfExporter()),
+        PyMuPdfPageRenderer(),
+        store,
+        settings,
+    )
+
+
+def test_salvar_e_abrir_projeto_restaura_arquivos_e_parametros(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    w1 = _window_cfg(tmp_path, "w1")
+    w1.add_paths([src])
+    w1._table.cellWidget(0, 1).setValue(4)
+    w1._width.setValue(1234)
+    w1._offset.setValue(7)
+    proj = tmp_path / "trabalho.printnest"
+    assert w1.save_project(str(proj)) is True
+    assert proj.exists()
+
+    w2 = _window_cfg(tmp_path, "w2")
+    assert w2.open_project(str(proj)) is True
+    assert w2._paths == [src]
+    assert w2._table.cellWidget(0, 1).value() == 4
+    assert w2._width.value() == 1234
+    assert w2._offset.value() == 7
+    # REGRA 1: abrir o projeto NAO gera producao automaticamente
+    assert w2._loaded is False
+    assert w2._result is None
+
+
+def test_abrir_projeto_com_arquivo_ausente_nao_quebra(qapp, tmp_path):
+    from app.application.project_io import ProjectDocument, ProjectFile, ProjectStore
+
+    proj = tmp_path / "p.printnest"
+    ProjectStore().save(
+        proj,
+        ProjectDocument(
+            files=[ProjectFile(str(tmp_path / "sumiu.pdf"), quantity=2)],
+            settings={},
+        ),
+    )
+    w = _window_cfg(tmp_path, "w")
+    assert w.open_project(str(proj)) is True  # REGRA 2: nao impede a abertura
+    assert w._table.rowCount() == 1
+    assert w._paths == [str(tmp_path / "sumiu.pdf")]
+    assert "⚠" in w._table.item(0, 0).text()  # linha marcada como ausente
+
+
+def test_reabrir_ultimo_projeto_ao_iniciar(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    w1 = _window_cfg(tmp_path, "shared")
+    w1.add_paths([src])
+    proj = tmp_path / "ultimo.printnest"
+    w1.save_project(str(proj))
+
+    # nova janela com a MESMA config -> reabre o ultimo projeto sozinha
+    w2 = _window_cfg(tmp_path, "shared")
+    assert w2._paths == [src]
+    assert w2._project_path == str(proj)
+
+
+def test_novo_projeto_limpa_a_lista(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    w = _window_cfg(tmp_path, "w")
+    w.add_paths([src])
+    w.generate(blocking=True)
+    assert w._loaded is True
+
+    w.new_project()
+    assert w._paths == []
+    assert w._table.rowCount() == 0
+    assert w._result is None
+    assert w._loaded is False
