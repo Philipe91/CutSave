@@ -4,7 +4,7 @@ import contextlib
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, QObject, QPoint, QPointF, QRect, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QLocale, QObject, QPointF, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtGui import (
     QAction,
     QBrush,
@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -54,6 +55,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
+    QWidgetAction,
 )
 
 from app.application.footprint import artwork_footprint
@@ -466,42 +468,6 @@ class MeasureOverlay(QFrame):
         self.raise_()
 
 
-class DragHandle(QWidget):
-    """Faixa de titulo que arrasta o painel flutuante pai pela area de trabalho.
-
-    Os controles dentro do painel continuam clicaveis: so o arraste a partir do
-    cabecalho (titulo/area vazia) move a janela.
-    """
-
-    def __init__(self, panel: QWidget, on_moved) -> None:
-        super().__init__()
-        self._panel = panel
-        self._on_moved = on_moved
-        self._grab: QPoint | None = None
-        self.setCursor(Qt.SizeAllCursor)
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:
-            gp = event.globalPosition().toPoint()
-            self._grab = gp - self._panel.mapToGlobal(QPoint(0, 0))
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event) -> None:
-        if self._grab is not None:
-            target = event.globalPosition().toPoint() - self._grab
-            parent = self._panel.parentWidget()
-            self._on_moved(parent.mapFromGlobal(target))
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event) -> None:
-        self._grab = None
-        super().mouseReleaseEvent(event)
-
-
 class GuideItem(QGraphicsLineItem):
     """Guia pontilhada (estilo CorelDRAW): selecionavel e arrastavel, presa ao
     eixo perpendicular. 'record' e a entrada mutavel [is_h, valor_mm] guardada
@@ -854,12 +820,26 @@ class MainWindow(QMainWindow):
         for action in self._export_actions:
             action.setEnabled(False)
 
-        # toggle de reguas espelhando o checkbox da aba Exibicao
+        # toggle de reguas espelhando o checkbox de Exibicao
         reguas = QAction("Reguas", self)
         reguas.setCheckable(True)
         reguas.setChecked(self._show_rulers.isChecked())
         reguas.setIcon(icons.icon("ruler"))
         reguas.toggled.connect(self._show_rulers.setChecked)
+
+        # botao "Exibicao" na barra: abre um popup com os controles de exibicao
+        disp_btn = QToolButton()
+        disp_btn.setText("Exibicao")
+        disp_btn.setIcon(icons.icon("eye", theme.ICON, 18))
+        disp_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        disp_btn.setPopupMode(QToolButton.InstantPopup)
+        disp_btn.setCursor(Qt.PointingHandCursor)
+        disp_btn.setToolTip("Unidade, modo de visualizacao, reguas e encaixe")
+        disp_menu = QMenu(disp_btn)
+        disp_action = QWidgetAction(disp_menu)
+        disp_action.setDefaultWidget(self._display_panel)
+        disp_menu.addAction(disp_action)
+        disp_btn.setMenu(disp_menu)
 
         tb = ribbon_panel
         rb = QToolBar("Ribbon")
@@ -895,6 +875,7 @@ class MainWindow(QMainWindow):
             ]),
             ("Exibir", [
                 tb.tool_button(fit, "maximize"),
+                disp_btn,
                 tb.tool_button(reguas, "ruler", show_text=False),
             ]),
         ])
@@ -1141,8 +1122,8 @@ class MainWindow(QMainWindow):
 
         self._overlay = MeasureOverlay(self._view.viewport())
         self._view.view_changed.connect(self._position_overlay)
-        self._build_display_overlay()  # janela flutuante de Exibicao (topo-esquerdo)
-        self._view.view_changed.connect(self._position_display_overlay)
+        # controles de Exibicao: vivem no popup do botao da barra de cima
+        self._display_panel = self._build_display_controls()
 
         for ruler in (self._h_ruler, self._v_ruler):
             ruler.guide_preview.connect(self._on_guide_preview)
@@ -1598,39 +1579,14 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._mk_thickness)
         return group
 
-    def _build_display_overlay(self) -> None:
-        """Janela flutuante no topo-esquerdo do canvas com as configuracoes de
-        exibicao (unidade, modo de visualizacao, reguas, snap). Substitui o
-        antigo grupo 'Exibicao' do painel lateral."""
-        panel = QFrame(self._view.viewport())
-        panel.setObjectName("displayOverlay")
-        outer = QVBoxLayout(panel)
-        outer.setContentsMargins(8, 2, 4, 8)
-        outer.setSpacing(5)
-
-        # cabecalho arrastavel: titulo + botao minimizar/expandir (chevron)
-        header = DragHandle(panel, self._move_display_overlay)
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(4)
-        title = QLabel("Exibicao")
-        title.setObjectName("ovTitle")
-        hl.addWidget(title)
-        hl.addStretch(1)
-        self._display_toggle = QToolButton()
-        self._display_toggle.setObjectName("ovToggle")
-        self._display_toggle.setCursor(Qt.PointingHandCursor)
-        self._display_toggle.setAutoRaise(True)
-        self._display_toggle.setIcon(icons.icon("chevron-down", theme.ICON, 14))
-        self._display_toggle.setToolTip("Minimizar / expandir (arraste o titulo para mover)")
-        self._display_toggle.clicked.connect(self._toggle_display_overlay)
-        hl.addWidget(self._display_toggle)
-        outer.addWidget(header)
-
-        body = QWidget()
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
+    def _build_display_controls(self) -> QWidget:
+        """Painel de Exibicao (unidade, modo de visualizacao, reguas, snap) usado
+        no popup do botao 'Exibicao' da barra de cima."""
+        panel = QWidget()
+        panel.setObjectName("displayPopup")
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(10, 8, 10, 10)
+        lay.setSpacing(5)
 
         cap_u = QLabel("Unidade de medida")
         cap_u.setProperty("role", "caption")
@@ -1661,50 +1617,8 @@ class MainWindow(QMainWindow):
         self._snap_check.toggled.connect(self._set_snap)
         lay.addWidget(self._snap_check)
 
-        outer.addWidget(body)
-        self._display_body = body
-        self._display_collapsed = False
-
-        panel.setStyleSheet(
-            "#displayOverlay{background:rgba(255,255,255,238);"
-            " border:1px solid #cfd6dd; border-radius:8px;}"
-            " QLabel#ovTitle{font-weight:600; font-size:11px; color:#5b6b7d;}"
-            " QToolButton#ovToggle{border:none; border-radius:5px; padding:1px;}"
-            " QToolButton#ovToggle:hover{background:#e7f0ff;}"
-        )
-        panel.setFixedWidth(232)
-        panel.adjustSize()
-        self._display_overlay = panel
-        self._display_pos = QPoint(10, 10)  # topo-esquerdo (pode ser arrastado)
-        self._position_display_overlay()
-        panel.show()
-
-    def _toggle_display_overlay(self) -> None:
-        """Minimiza (so o cabecalho) ou expande a janela de Exibicao."""
-        self._display_collapsed = not self._display_collapsed
-        self._display_body.setVisible(not self._display_collapsed)
-        self._display_toggle.setIcon(
-            icons.icon(
-                "chevron-right" if self._display_collapsed else "chevron-down",
-                theme.ICON, 14,
-            )
-        )
-        self._display_overlay.adjustSize()
-        self._position_display_overlay()
-
-    def _move_display_overlay(self, pos: QPoint) -> None:
-        """Move a janela de Exibicao para 'pos' (coords do canvas), presa dentro
-        da area visivel. Usado pelo arraste do cabecalho e pelo reposicionamento."""
-        if not hasattr(self, "_display_overlay"):
-            return
-        vp = self._view.viewport()
-        x = max(0, min(int(pos.x()), max(0, vp.width() - self._display_overlay.width())))
-        y = max(0, min(int(pos.y()), max(0, vp.height() - self._display_overlay.height())))
-        self._display_pos = QPoint(x, y)
-        self._display_overlay.move(self._display_pos)
-
-    def _position_display_overlay(self) -> None:
-        self._move_display_overlay(getattr(self, "_display_pos", QPoint(10, 10)))
+        panel.setMinimumWidth(232)
+        return panel
 
     def _apply_rulers_visibility(self) -> None:
         visible = self._show_rulers.isChecked()
