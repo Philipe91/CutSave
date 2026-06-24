@@ -20,6 +20,30 @@ def _largest_polygon(geometry):
     return max(polygons, key=lambda g: g.area)
 
 
+def smooth_contour(contour: CutContour, iterations: int, ratio: float = 0.25) -> CutContour:
+    """Suaviza a faca arredondando os cantos (algoritmo de Chaikin, fechado).
+
+    Cada iteracao corta cada canto em dois pontos (a 'ratio' e '1-ratio' da
+    aresta), trocando o vinco reto por uma curva. 1-2 iteracoes ja deixam as
+    curvas macias; mais iteracoes = mais suave (e mais pontos). 0 = sem efeito.
+    """
+    if iterations <= 0:
+        return contour
+    pts = [(p.x, p.y) for p in contour.points]
+    for _ in range(iterations):
+        n = len(pts)
+        if n < 3:
+            break
+        smoothed: list[tuple[float, float]] = []
+        for i in range(n):
+            x0, y0 = pts[i]
+            x1, y1 = pts[(i + 1) % n]
+            smoothed.append((x0 + (x1 - x0) * ratio, y0 + (y1 - y0) * ratio))
+            smoothed.append((x0 + (x1 - x0) * (1 - ratio), y0 + (y1 - y0) * (1 - ratio)))
+        pts = smoothed
+    return CutContour([Point2D(x, y) for x, y in pts])
+
+
 def offset_contour(contour: CutContour, offset_mm: float) -> CutContour:
     """Aplica um offset (mm) ao contorno: positivo cresce, negativo encolhe.
 

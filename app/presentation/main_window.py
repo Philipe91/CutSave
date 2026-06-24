@@ -76,7 +76,7 @@ from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
 )
-from app.domain.cut.contour_ops import offset_contour
+from app.domain.cut.contour_ops import offset_contour, smooth_contour
 from app.domain.geometry import Point2D, Size
 from app.domain.model.image_artwork import ImageArtwork
 from app.domain.model.layout import Layout
@@ -962,7 +962,11 @@ class MainWindow(QMainWindow):
         lay.addWidget(QLabel("Sensibilidade (0-100)"))
         self._auto_sensitivity = _spin(0, 100)
         lay.addWidget(self._auto_sensitivity)
-        self._auto_ignore_white = QCheckBox("Ignorar fundo branco (imagens opacas)")
+        self._auto_ignore_white = QCheckBox("Remover fundo automatico (imagens opacas)")
+        self._auto_ignore_white.setToolTip(
+            "Detecta a cor do fundo pela borda e a remove (branco, escuro ou colorido).\n"
+            "Desmarcado: a faca fica no retangulo da imagem inteira."
+        )
         lay.addWidget(self._auto_ignore_white)
         lay.addWidget(QLabel("Offset externo - sangria p/ fora (mm)"))
         self._auto_offset_ext = _spin(0, 100, decimals=2)
@@ -972,6 +976,10 @@ class MainWindow(QMainWindow):
         self._auto_offset_int = _spin(0, 100, decimals=2)
         self._auto_offset_int.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._auto_offset_int)
+        lay.addWidget(QLabel("Suavizar curvas (0 = reto, 5 = macio)"))
+        self._auto_smooth = _spin(0, 5)
+        self._auto_smooth.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._auto_smooth)
         return group
 
     def _build_registro_group(self) -> QFrame:
@@ -1055,6 +1063,7 @@ class MainWindow(QMainWindow):
         self._auto_ignore_white.setChecked(s.auto_ignore_white)
         self._auto_offset_ext.setValue(s.auto_offset_external)
         self._auto_offset_int.setValue(s.auto_offset_internal)
+        self._auto_smooth.setValue(int(s.auto_smooth))
 
     def _save_settings(self) -> None:
         s = self._settings
@@ -1080,6 +1089,7 @@ class MainWindow(QMainWindow):
         s.auto_ignore_white = self._auto_ignore_white.isChecked()
         s.auto_offset_external = float(self._auto_offset_ext.value())
         s.auto_offset_internal = float(self._auto_offset_int.value())
+        s.auto_smooth = int(self._auto_smooth.value())
         self._store.save(s)
 
     # ---- helpers de leitura ----
@@ -1102,10 +1112,14 @@ class MainWindow(QMainWindow):
         return replace(art, size=Size(width, height), cut_contour=None)
 
     def _image_faca(self, base: ImageArtwork, net_offset: float):
-        """Faca de uma imagem: contorno detectado com o offset externo/interno."""
+        """Faca de uma imagem: contorno detectado, suavizado e com offset."""
         contour = base.raw_contour
-        if contour is not None and net_offset != 0:
-            contour = offset_contour(contour, net_offset)
+        if contour is not None:
+            smooth = int(self._auto_smooth.value())
+            if smooth > 0:
+                contour = smooth_contour(contour, smooth)
+            if net_offset != 0:
+                contour = offset_contour(contour, net_offset)
         return replace(base, cut_contour=contour)
 
     # ---- lista de arquivos ----

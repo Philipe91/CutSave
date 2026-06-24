@@ -41,6 +41,7 @@ class AppSettings:
     auto_ignore_white: bool = True  # imagens opacas: recortar ignorando fundo branco
     auto_offset_external: float = 2.0  # faca de imagem: offset externo (sangria) mm
     auto_offset_internal: float = 0.0  # faca de imagem: offset interno (recuo) mm
+    auto_smooth: int = 0  # faca de imagem: suavizacao das curvas (0 = reto, 1-5 = macio)
 
     def to_dict(self) -> dict:
         return asdict(self)

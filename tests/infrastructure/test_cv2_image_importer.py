@@ -70,6 +70,30 @@ def test_png_irregular_triangulo(tmp_path):
     assert 3 <= len(art.raw_contour.points) <= 8  # triangulo simplificado
 
 
+def test_fundo_escuro_e_removido_traca_o_desenho(tmp_path):
+    # fundo escuro (nao branco) + circulo claro: deve tracar o circulo, nao o retangulo
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", (200, 200), (25, 24, 18))  # fundo escuro
+    ImageDraw.Draw(im).ellipse([60, 60, 140, 140], fill=(230, 220, 200))
+    p = str(tmp_path / "fundo_escuro.jpg")
+    im.save(p, dpi=(150, 150))
+    art = _imp(tmp_path).import_image(p, ignore_white=True).artwork
+    # circulo de 80px -> ~13.5mm, bem menor que a imagem (200px) e nao retangulo
+    assert art.raw_contour.size.width == pytest.approx(80 * MM_PER_PX, abs=2.0)
+    assert len(art.raw_contour.points) >= 8
+
+
+def test_fundo_colorido_e_removido(tmp_path):
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", (200, 200), (30, 90, 200))  # fundo azul
+    ImageDraw.Draw(im).rectangle([70, 70, 130, 130], fill=(240, 240, 0))
+    p = str(tmp_path / "fundo_azul.jpg")
+    im.save(p, dpi=(150, 150))
+    art = _imp(tmp_path).import_image(p, ignore_white=True).artwork
+    assert art.raw_contour.size.width == pytest.approx(60 * MM_PER_PX, abs=3.0)
+    assert art.raw_contour.size.width < art.size.width
+
+
 def test_opaca_sem_ignorar_branco_usa_retangulo_cheio(tmp_path):
     p = si.jpg_white_square(tmp_path)
     art = _imp(tmp_path).import_image(p, ignore_white=False).artwork

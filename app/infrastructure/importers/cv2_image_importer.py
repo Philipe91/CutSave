@@ -123,9 +123,23 @@ class Cv2ImageImporter(IImageImporter):
             return (rgba[:, :, 3] >= cutoff).astype(np.uint8)
         if not ignore_white:
             return np.ones(rgba.shape[:2], dtype=np.uint8)  # arte inteira (retangulo)
-        white_cutoff = 255 - (s / 100.0) * 55.0  # 255 (s=0) .. 200 (s=100)
-        min_channel = rgba[:, :, :3].min(axis=2)
-        return (min_channel < white_cutoff).astype(np.uint8)
+        # Remove o fundo automaticamente: estima a cor de fundo pela borda da
+        # imagem e marca como conteudo todo pixel que se afasta dela. Funciona
+        # para fundo branco, escuro ou colorido (nao so branco). Para fundo
+        # branco e equivalente ao criterio antigo (distancia ao branco).
+        rgb = rgba[:, :, :3].astype(np.int16)
+        bg = self._background_color(rgb)
+        tol = (s / 100.0) * 55.0  # 0 (s=0) .. 55 (s=100)
+        diff = np.abs(rgb - bg).max(axis=2)
+        return (diff > tol).astype(np.uint8)
+
+    @staticmethod
+    def _background_color(rgb: np.ndarray) -> np.ndarray:
+        """Cor de fundo estimada pela mediana dos pixels da borda (1 px)."""
+        border = np.concatenate(
+            [rgb[0, :, :], rgb[-1, :, :], rgb[:, 0, :], rgb[:, -1, :]], axis=0
+        )
+        return np.median(border, axis=0)
 
     # ---- contorno externo ----
     def _contour(self, mask: np.ndarray, width: int, height: int, dpi: float) -> CutContour:
