@@ -4,11 +4,12 @@ import contextlib
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPointF, QRect, Qt, QThread, Signal
+from PySide6.QtCore import QObject, QPointF, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtGui import (
     QAction,
     QBrush,
     QColor,
+    QIcon,
     QKeySequence,
     QPainter,
     QPen,
@@ -42,8 +43,11 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -82,6 +86,10 @@ from app.domain.model.image_artwork import ImageArtwork
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
+from app.presentation import icons, measurements, messages, theme
+from app.presentation.panels import ribbon as ribbon_panel
+from app.presentation.panels.status_bar import StatusBarController
+from app.presentation.widgets import Alert, AlertLevel, CollapsibleCard, MeasureField, ToastManager
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ProjectError, ValidationError
 
@@ -115,6 +123,7 @@ class ZoomableGraphicsView(QGraphicsView):
     drag_started = Signal()
     drag_finished = Signal()
     nudge = Signal(float, float)  # deslocamento (dx, dy) em mm, via setas
+    cursor_moved = Signal(float, float)  # posicao do cursor (x, y) em mm na cena
 
     def __init__(self, scene: QGraphicsScene) -> None:
         super().__init__(scene)
@@ -123,9 +132,14 @@ class ZoomableGraphicsView(QGraphicsView):
         self.setDragMode(QGraphicsView.NoDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(170, 170, 170))  # mesa cinza
+        self.setMouseTracking(True)  # cursor reportado mesmo sem botao pressionado
         self._panning = False
         self._pan_last = None
         self._left_drag = False
+
+    def zoom_factor(self) -> float:
+        """Fator de zoom atual (1.0 = 100%)."""
+        return self.transform().m11()
 
     def wheelEvent(self, event) -> None:
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
@@ -172,6 +186,8 @@ class ZoomableGraphicsView(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
+        scene_pos = self.mapToScene(event.position().toPoint())
+        self.cursor_moved.emit(scene_pos.x(), scene_pos.y())
         if self._panning and self._pan_last is not None:
             delta = event.position() - self._pan_last
             self._pan_last = event.position()
@@ -462,6 +478,7 @@ class MainWindow(QMainWindow):
         self._sources: dict[str, tuple[str, int]] = {}
         self._origins: dict[str, str] = {}  # id da arte -> caminho original (quantidade)
         self._pixmaps: dict[tuple[str, int], QPixmap] = {}
+        self._thumb_cache: dict[str, QIcon] = {}
         self._loaded = False
         self._result: ProductionResult | None = None
         self._thread: QThread | None = None
@@ -581,13 +598,74 @@ class MainWindow(QMainWindow):
         m_ferr.addAction(gerar)
         bar.addMenu("A&juda").addAction(sobre)
 
-        toolbar = self.addToolBar("Principal")
-        toolbar.setMovable(False)
-        toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        for action in (add, gerar, reset, fit, None, undo, redo,
-                       sel_all, dup, grp, ungrp, excluir,
-                       None, exp_pdf, exp_dxf, exp_dxf_n, exp_img):
-            toolbar.addSeparator() if action is None else toolbar.addAction(action)
+        # icones nas acoes (aparecem no menu e na ribbon)
+        for action, name in (
+            (novo, "file-plus"), (abrir, "folder-open"), (salvar, "save"),
+            (salvar_como, "save"), (add, "plus"), (substituir, "replace"),
+            (gerar, "zap"), (fit, "maximize"), (undo, "rotate-ccw"), (redo, "rotate-cw"),
+            (grp, "group"), (ungrp, "ungroup"), (sel_all, "layers"), (excluir, "trash-2"),
+            (reset, "rotate-ccw"), (rem, "trash-2"), (dup, "copy"), (step, "grid-3x3"),
+            (al_l, "align-horizontal-justify-start"), (al_r, "align-horizontal-justify-end"),
+            (al_t, "align-vertical-justify-start"), (al_b, "align-vertical-justify-end"),
+            (al_cx, "align-horizontal-justify-center"), (al_cy, "align-vertical-justify-center"),
+            (dist_h, "align-horizontal-justify-center"),
+            (dist_v, "align-vertical-justify-center"),
+            (exp_pdf, "download"), (exp_dxf, "download"), (exp_dxf_n, "download"),
+            (exp_img, "image"),
+        ):
+            action.setIcon(icons.icon(name))
+
+        # acoes guardadas para habilitar/desabilitar conforme o estado
+        self._act_generate = gerar
+        self._export_actions = [exp_pdf, exp_dxf, exp_dxf_n, exp_img]
+        for action in self._export_actions:
+            action.setEnabled(False)
+
+        # toggle de reguas espelhando o checkbox da aba Exibicao
+        reguas = QAction("Reguas", self)
+        reguas.setCheckable(True)
+        reguas.setChecked(self._show_rulers.isChecked())
+        reguas.setIcon(icons.icon("ruler"))
+        reguas.toggled.connect(self._show_rulers.setChecked)
+
+        tb = ribbon_panel
+        rb = QToolBar("Ribbon")
+        rb.setObjectName("ribbon")
+        rb.setIconSize(QSize(18, 18))
+        ribbon_panel.populate_ribbon(rb, [
+            ("Arquivo", [
+                tb.tool_button(novo, "file-plus", show_text=False),
+                tb.tool_button(abrir, "folder-open", show_text=False),
+                tb.tool_button(salvar, "save", show_text=False),
+                tb.tool_button(add, "plus"),
+            ]),
+            ("Editar", [
+                tb.tool_button(undo, "rotate-ccw", show_text=False),
+                tb.tool_button(redo, "rotate-cw", show_text=False),
+                tb.tool_button(dup, "copy", show_text=False),
+                tb.tool_button(step, "grid-3x3", show_text=False),
+                tb.tool_button(excluir, "trash-2", show_text=False),
+            ]),
+            ("Organizar", [
+                tb.tool_button(grp, "group", show_text=False),
+                tb.tool_button(ungrp, "ungroup", show_text=False),
+                tb.menu_button("Alinhar", "align-horizontal-justify-start",
+                               [al_l, al_r, al_t, al_b, al_cx, al_cy], tip="Alinhar pecas"),
+                tb.menu_button("Distribuir", "align-horizontal-justify-center",
+                               [dist_h, dist_v], tip="Distribuir igualmente"),
+                tb.tool_button(snap_act, "magnet", show_text=False),
+            ]),
+            ("Producao", [
+                tb.tool_button(gerar, "zap", accent=True),
+                tb.menu_button("Exportar", "download",
+                               [exp_pdf, exp_dxf, exp_dxf_n, exp_img], tip="Exportar producao"),
+            ]),
+            ("Exibir", [
+                tb.tool_button(fit, "maximize"),
+                tb.tool_button(reguas, "ruler", show_text=False),
+            ]),
+        ])
+        self.addToolBar(rb)
 
     def _show_about(self) -> None:
         QMessageBox.about(
@@ -631,9 +709,7 @@ class MainWindow(QMainWindow):
         self._piece_items = []
         self._scene.clear()
         self._undo.clear()
-        self._btn_pdf.setEnabled(False)
-        self._btn_dxf.setEnabled(False)
-        self._btn_img.setEnabled(False)
+        self._set_exports_enabled(False)
         self._status.setText("")
 
     def _populate_files(self, files: list[ProjectFile]) -> None:
@@ -668,7 +744,10 @@ class MainWindow(QMainWindow):
         if not path:
             return
         self._paths[row] = path
-        self._table.setItem(row, 0, QTableWidgetItem(Path(path).name))
+        self._thumb_cache.pop(path, None)
+        item = QTableWidgetItem(f"{Path(path).name}\n{self._file_type(path)}")
+        item.setIcon(self._thumbnail(path))
+        self._table.setItem(row, 0, item)
         if self._loaded:
             self._relayout()
 
@@ -726,6 +805,7 @@ class MainWindow(QMainWindow):
         self._settings.last_project = path
         self._store.save(self._settings)
         self._update_title()
+        self._toasts.success("Projeto salvo")
         return True
 
     def save_project_as(self) -> bool:
@@ -752,66 +832,70 @@ class MainWindow(QMainWindow):
 
     # ---- construcao da UI ----
     def _build_ui(self) -> None:
-        central = QWidget()
-        root = QHBoxLayout(central)
+        """Monta a janela: biblioteca | area de trabalho | propriedades, com
+        faixa de aviso no topo e barra de status no rodape. A ribbon (acoes) e
+        montada depois, em _build_menu_toolbar."""
+        self._toasts = ToastManager(self)
+        self._status = QLabel("")  # compat interno (mensagens antigas); nao exibido
+        self._status.hide()
 
-        panel = QVBoxLayout()
-        panel.addWidget(self._build_arquivo_group())
-        panel.addWidget(self._build_chapa_group())
-        panel.addWidget(self._build_faca_group())
-        panel.addWidget(self._build_registro_group())
-        panel.addWidget(self._build_exibicao_group())
+        library = self._build_library_panel()
+        work = self._build_work_area()
+        properties = self._build_properties_panel()
 
-        self._btn_generate = QPushButton("Gerar Producao")
-        self._btn_generate.clicked.connect(lambda: self.generate())
-        panel.addWidget(self._btn_generate)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(library)
+        splitter.addWidget(work)
+        splitter.addWidget(properties)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(2, 0)
+        splitter.setSizes([300, 780, 320])
+        splitter.setChildrenCollapsible(False)
 
-        self._btn_fit = QPushButton("Ajustar a tela (zoom)")
-        self._btn_fit.clicked.connect(lambda: self._fit_view())
-        panel.addWidget(self._btn_fit)
-
-        self._btn_pdf = QPushButton("Exportar PDF")
-        self._btn_pdf.clicked.connect(lambda: self.export_pdf())
-        self._btn_pdf.setEnabled(False)
-        panel.addWidget(self._btn_pdf)
-
-        self._btn_dxf = QPushButton("Exportar DXF")
-        self._btn_dxf.clicked.connect(lambda: self.export_dxf())
-        self._btn_dxf.setEnabled(False)
-        panel.addWidget(self._btn_dxf)
-
-        self._btn_img = QPushButton("Exportar Imagem (PNG/JPEG)")
-        self._btn_img.clicked.connect(lambda: self.export_image())
-        self._btn_img.setEnabled(False)
-        panel.addWidget(self._btn_img)
-
+        self._alert = Alert()
         self._progress = QProgressBar()
-        panel.addWidget(self._progress)
-        self._status = QLabel("")
-        panel.addWidget(self._status)
-        panel.addStretch()
+        self._progress.setMaximumHeight(4)
+        self._progress.setTextVisible(False)
 
-        panel_widget = QWidget()
-        panel_widget.setLayout(panel)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(panel_widget)
-        scroll.setMinimumWidth(320)
+        central = QWidget()
+        root = QVBoxLayout(central)
+        root.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM, 0)
+        root.setSpacing(theme.SPACE_SM)
+        root.addWidget(self._alert)
+        root.addWidget(self._progress)
+        root.addWidget(splitter, 1)
+        self.setCentralWidget(central)
 
+        self._status_ctl = StatusBarController(self.statusBar())
+        self._status_ctl.set_mode(self._view_mode.currentText())
+        self._view_mode.currentIndexChanged.connect(
+            lambda _: self._status_ctl.set_mode(self._view_mode.currentText())
+        )
+        self._scene.selectionChanged.connect(self._on_selection_changed)
+        self._view.cursor_moved.connect(self._status_ctl.set_cursor)
+        self._view.view_changed.connect(
+            lambda: self._status_ctl.set_zoom(self._view.zoom_factor())
+        )
+
+        self._apply_tooltips()
+        self._on_selection_changed()
+
+    def _build_work_area(self) -> QWidget:
+        """Area de trabalho central: canvas com zoom/pan e reguas em mm."""
         self._scene = QGraphicsScene()
         self._view = ZoomableGraphicsView(self._scene)
         self._view.drag_started.connect(self._begin_move)
         self._view.drag_finished.connect(self._end_move)
         self._view.nudge.connect(self._nudge)
 
-        # area de trabalho estilo Corel: reguas no topo e a esquerda
         work = QWidget()
         grid = QGridLayout(work)
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(0)
         self._corner = QWidget()
         self._corner.setFixedSize(RULER_SIZE, RULER_SIZE)
-        self._corner.setStyleSheet("background:#e0e0e0;")
+        self._corner.setStyleSheet(f"background:{theme.SURFACE_ALT};")
         self._h_ruler = Ruler(self._view, horizontal=True)
         self._v_ruler = Ruler(self._view, horizontal=False)
         grid.addWidget(self._corner, 0, 0)
@@ -820,11 +904,138 @@ class MainWindow(QMainWindow):
         grid.addWidget(self._view, 1, 1)
         self._view.view_changed.connect(self._h_ruler.update)
         self._view.view_changed.connect(self._v_ruler.update)
+        return work
 
-        root.addWidget(scroll, 0)
-        root.addWidget(work, 1)
-        self.setCentralWidget(central)
-        self._apply_tooltips()
+    def _build_properties_panel(self) -> QWidget:
+        """Painel contextual: troca entre Documento / Peca / Grupo conforme a
+        selecao no canvas (nunca mostra tudo de uma vez)."""
+        self._props_title = QLabel("Documento")
+        self._props_title.setStyleSheet(f"font-weight:600; color:{theme.TEXT};")
+        self._props_stack = QStackedWidget()
+
+        document = QWidget()
+        dl = QVBoxLayout(document)
+        dl.setContentsMargins(0, 0, 0, 0)
+        dl.setSpacing(theme.SPACE_SM)
+        dl.addWidget(self._build_chapa_group())
+        dl.addWidget(self._build_faca_group())
+        dl.addWidget(self._build_registro_group())
+        dl.addWidget(self._build_exibicao_group())
+        dl.addStretch()
+        doc_scroll = QScrollArea()
+        doc_scroll.setWidgetResizable(True)
+        doc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        doc_scroll.setWidget(document)
+        self._props_stack.addWidget(doc_scroll)         # 0 = documento
+        self._props_stack.addWidget(self._build_piece_page())  # 1 = peca
+        self._props_stack.addWidget(self._build_group_page())  # 2 = grupo
+
+        wrap = QWidget()
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(theme.SPACE_XS, 0, 0, 0)
+        wl.setSpacing(theme.SPACE_SM)
+        wl.addWidget(self._props_title)
+        wl.addWidget(self._props_stack, 1)
+        wrap.setMinimumWidth(280)
+        wrap.setMaximumWidth(400)
+        return wrap
+
+    def _build_piece_page(self) -> QWidget:
+        """Propriedades de uma peca: medidas + acoes."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(theme.SPACE_SM)
+        card = CollapsibleCard("Medidas da peca")
+        self._pm_w = MeasureField("Largura")
+        self._pm_h = MeasureField("Altura")
+        self._pm_area = MeasureField("Area")
+        self._pm_perim = MeasureField("Perimetro")
+        self._pm_pos = MeasureField("Posicao (X, Y)")
+        for field in (self._pm_w, self._pm_h, self._pm_area, self._pm_perim, self._pm_pos):
+            card.body.addWidget(field)
+        lay.addWidget(card)
+        lay.addWidget(self._actions_card([
+            ("copy", "Duplicar", self._duplicate_selected),
+            ("trash-2", "Excluir", self._delete_selected),
+        ]))
+        lay.addStretch()
+        return page
+
+    def _build_group_page(self) -> QWidget:
+        """Propriedades de varias pecas: medidas do grupo + alinhar/distribuir."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(theme.SPACE_SM)
+        card = CollapsibleCard("Medidas do grupo")
+        self._gm_w = MeasureField("Largura total")
+        self._gm_h = MeasureField("Altura total")
+        self._gm_count = MeasureField("Quantidade")
+        for field in (self._gm_w, self._gm_h, self._gm_count):
+            card.body.addWidget(field)
+        lay.addWidget(card)
+        lay.addWidget(self._actions_card([
+            ("align-horizontal-justify-start", "Alinhar esq.", lambda: self._align("left")),
+            ("align-vertical-justify-start", "Alinhar topo", lambda: self._align("top")),
+            ("group", "Agrupar", self._group_selected),
+            ("trash-2", "Excluir", self._delete_selected),
+        ]))
+        lay.addStretch()
+        return page
+
+    def _actions_card(self, actions: list[tuple[str, str, object]]) -> QFrame:
+        """Cartao com botoes de acao (icone + texto)."""
+        card = CollapsibleCard("Acoes")
+        for icon_name, text, slot in actions:
+            btn = QPushButton(f"  {text}")
+            btn.setIcon(icons.icon(icon_name, theme.ICON))
+            btn.clicked.connect(lambda _=False, fn=slot: fn())
+            card.body.addWidget(btn)
+        return card
+
+    def _on_selection_changed(self) -> None:
+        """Troca a pagina de propriedades conforme a selecao do canvas."""
+        if not hasattr(self, "_props_stack"):
+            return
+        try:
+            selected = self._scene.selectedItems()
+        except RuntimeError:  # cena ja destruida (fechando a janela)
+            return
+        pieces = [it for it in selected if isinstance(it, PieceItem)]
+        if not pieces:
+            self._props_stack.setCurrentIndex(0)
+            self._props_title.setText("Documento")
+        elif len(pieces) == 1:
+            self._update_piece_page(pieces[0])
+            self._props_stack.setCurrentIndex(1)
+            self._props_title.setText("Peca selecionada")
+        else:
+            self._update_group_page(pieces)
+            self._props_stack.setCurrentIndex(2)
+            self._props_title.setText(f"Grupo ({len(pieces)} pecas)")
+
+    def _update_piece_page(self, piece: PieceItem) -> None:
+        by_id = {a.id: a for a in self._result.artworks} if self._result else {}
+        art = by_id.get(piece.artwork_id)
+        if art is not None:
+            m = measurements.piece_metrics(art)
+            self._pm_w.set_value(f"{m.width:.1f} mm")
+            self._pm_h.set_value(f"{m.height:.1f} mm")
+            self._pm_area.set_value(f"{m.area / 100:.2f} cm²")
+            self._pm_perim.set_value(f"{m.perimeter:.1f} mm")
+        x = piece.pos().x() - piece.dx
+        y = piece.pos().y() - piece.dy
+        self._pm_pos.set_value(f"{x:.1f}, {y:.1f} mm")
+
+    def _update_group_page(self, pieces: list[PieceItem]) -> None:
+        boxes = [
+            (p.pos().x(), p.pos().y(), p.rect().width(), p.rect().height()) for p in pieces
+        ]
+        g = measurements.group_metrics(boxes)
+        self._gm_w.set_value(f"{g.width:.1f} mm")
+        self._gm_h.set_value(f"{g.height:.1f} mm")
+        self._gm_count.set_value(str(g.count))
 
     def _apply_tooltips(self) -> None:
         self._table.setToolTip("Arquivos e a quantidade de copias de cada um")
@@ -849,76 +1060,71 @@ class MainWindow(QMainWindow):
             "Encaixe magnetico: a peca gruda nas bordas/centro das outras e da chapa (Alt+Q)"
         )
 
-    def _section(self, title: str, color: str) -> tuple[QFrame, QVBoxLayout]:
-        """Faixa moderna recolhivel: clicar no cabecalho abre/fecha a secao."""
-        box = QFrame()
-        box.setObjectName("section")
-        box.setStyleSheet(
-            f"QFrame#section{{background:#fafafa; border:1px solid {color}; border-radius:6px;}}"
-        )
-        outer = QVBoxLayout(box)
-        outer.setContentsMargins(0, 0, 0, 8)
-        outer.setSpacing(6)
+    def _section(self, title: str, color: str = "") -> tuple[CollapsibleCard, QVBoxLayout]:
+        """Cartao moderno recolhivel (CollapsibleCard). 'color' e ignorado (legado)."""
+        card = CollapsibleCard(title)
+        return card, card.body
 
-        header = QPushButton()
-        header.setCheckable(True)
-        header.setChecked(True)
-        header.setCursor(Qt.PointingHandCursor)
-        header.setStyleSheet(
-            f"QPushButton{{background:{color}; color:white; font-weight:bold;"
-            "letter-spacing:1px; text-align:left; padding:7px 12px; border:none;"
-            "border-top-left-radius:5px; border-top-right-radius:5px;}}"
-        )
-        outer.addWidget(header)
+    def _build_library_panel(self) -> QWidget:
+        """Biblioteca de arquivos (esquerda): cada linha tem miniatura, nome,
+        medida, paginas, tipo e quantidade. Dona do _table (contrato dos testes:
+        col 0 = item com nome/⚠, col 1 = QuantityStepper)."""
+        panel = QWidget()
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(0, 0, theme.SPACE_XS, 0)
+        lay.setSpacing(theme.SPACE_SM)
 
-        content_widget = QWidget()
-        content = QVBoxLayout(content_widget)
-        content.setContentsMargins(10, 0, 10, 0)
-        outer.addWidget(content_widget)
+        header = QLabel("Biblioteca")
+        header.setStyleSheet(f"font-weight:600; color:{theme.TEXT};")
+        lay.addWidget(header)
 
-        def _toggle() -> None:
-            arrow = "▾" if header.isChecked() else "▸"  # ▾ / ▸
-            header.setText(f"{arrow}  {title.upper()}")
-            content_widget.setVisible(header.isChecked())
-
-        header.toggled.connect(lambda _: _toggle())
-        _toggle()
-        return box, content
-
-    def _build_arquivo_group(self) -> QFrame:
-        group, lay = self._section("Arquivo", "#34495e")
-        self._btn_add = QPushButton("Adicionar PDFs")
+        self._btn_add = QPushButton("  Adicionar arquivos")
+        self._btn_add.setIcon(icons.icon("plus", theme.ICON_ON_ACCENT))
+        self._btn_add.setProperty("accent", "true")
         self._btn_add.clicked.connect(lambda: self.add_pdfs())
         lay.addWidget(self._btn_add)
+
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Arquivo", "Qtd"])
         self._table.verticalHeader().setVisible(False)
-        self._table.setColumnWidth(0, 165)
-        self._table.setColumnWidth(1, 92)
+        self._table.setColumnWidth(0, 210)
+        self._table.setColumnWidth(1, 84)
+        self._table.setIconSize(QSize(48, 48))
+        self._table.setWordWrap(True)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.itemSelectionChanged.connect(self._update_selection_info)
-        lay.addWidget(self._table)
-        lay.addWidget(QLabel("Cortar para (caixa do PDF)"))
+        lay.addWidget(self._table, 1)
+
+        self._btn_remove = QPushButton("  Remover selecionado")
+        self._btn_remove.setIcon(icons.icon("trash-2", theme.ICON))
+        self._btn_remove.clicked.connect(lambda: self.remove_selected())
+        lay.addWidget(self._btn_remove)
+
+        cap_box = QLabel("Cortar para (caixa do PDF)")
+        cap_box.setProperty("role", "caption")
+        lay.addWidget(cap_box)
         self._import_box = QComboBox()
         self._import_box.addItem("Caixa de Midia (sangria)", "media")
         self._import_box.addItem("Caixa de Apara (corte)", "trim")
         lay.addWidget(self._import_box)
-        self._btn_remove = QPushButton("Remover PDF selecionado")
-        self._btn_remove.clicked.connect(lambda: self.remove_selected())
-        lay.addWidget(self._btn_remove)
-        self._sel_info = QLabel("Selecione um arquivo")
-        self._sel_info.setWordWrap(True)
-        self._sel_info.setStyleSheet(
-            "border:1px solid #34495e; border-radius:4px; padding:6px; background:white;"
-        )
-        lay.addWidget(self._sel_info)
-        lay.addWidget(QLabel("Rotacionar arquivo (graus)"))
+
+        cap_rot = QLabel("Rotacionar arquivo (graus)")
+        cap_rot.setProperty("role", "caption")
+        lay.addWidget(cap_rot)
         self._rotation = QComboBox()
         self._rotation.addItems(["0", "90", "180", "270"])
         self._rotation.currentIndexChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._rotation)
-        return group
+
+        self._sel_info = QLabel("Selecione um arquivo")
+        self._sel_info.setWordWrap(True)
+        self._sel_info.setProperty("role", "caption")
+        lay.addWidget(self._sel_info)
+
+        panel.setMinimumWidth(260)
+        panel.setMaximumWidth(420)
+        return panel
 
     def _build_chapa_group(self) -> QFrame:
         group, lay = self._section("Chapa / Material", "#16a085")
@@ -1137,12 +1343,69 @@ class MainWindow(QMainWindow):
         for path in paths:
             row = self._table.rowCount()
             self._table.insertRow(row)
-            self._table.setItem(row, 0, QTableWidgetItem(Path(path).name))
+            item = QTableWidgetItem(f"{Path(path).name}\n{self._file_type(path)}")
+            item.setIcon(self._thumbnail(path))
+            self._table.setItem(row, 0, item)
             spin = QuantityStepper(1, 100000, 1)
             spin.valueChanged.connect(lambda _: self._relayout())
             self._table.setCellWidget(row, 1, spin)
-            self._table.setRowHeight(row, 34)
+            self._table.setRowHeight(row, 58)
             self._paths.append(path)
+
+    @staticmethod
+    def _file_type(path: str) -> str:
+        return Path(path).suffix.lstrip(".").upper() or "?"
+
+    def _thumbnail(self, path: str) -> QIcon:
+        """Miniatura do arquivo (1a pagina do PDF ou a propria imagem)."""
+        cached = self._thumb_cache.get(path)
+        if cached is not None:
+            return cached
+        pixmap = QPixmap()
+        try:
+            if Path(path).suffix.lower() == ".pdf":
+                data = self._renderer.render_png(
+                    path, 0, dpi=18, box=self._import_box.currentData()
+                )
+                pixmap.loadFromData(data, "PNG")
+            else:
+                pixmap = QPixmap(path)
+        except Exception:  # miniatura e opcional; nunca quebra a importacao
+            pixmap = QPixmap()
+        if pixmap.isNull():
+            result = icons.icon("image", theme.TEXT_MUTED, 40)
+        else:
+            result = QIcon(
+                pixmap.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+        self._thumb_cache[path] = result
+        return result
+
+    def _refresh_library_metadata(self) -> None:
+        """Atualiza a 2a linha de cada arquivo na biblioteca com tipo, medida e
+        paginas (apos gerar a producao). Preserva linhas ausentes (⚠)."""
+        info: dict[str, tuple[set, set]] = {}
+        for art in self._base_artworks:
+            src = self._sources.get(art.id)
+            if src is None:
+                continue
+            pages, dims = info.setdefault(src[0], (set(), set()))
+            pages.add(src[1])
+            dims.add((round(art.size.width, 1), round(art.size.height, 1)))
+        for row in range(min(self._table.rowCount(), len(self._paths))):
+            item = self._table.item(row, 0)
+            if item is None or item.text().startswith("⚠"):
+                continue
+            path = self._paths[row]
+            meta = self._file_type(path)
+            if path in info:
+                pages, dims = info[path]
+                if dims:
+                    w, h = next(iter(dims))
+                    meta += f" · {self._fmt_mm(w)}×{self._fmt_mm(h)} mm"
+                if len(pages) > 1:
+                    meta += f" · {len(pages)} pag"
+            item.setText(f"{Path(path).name}\n{meta}")
 
     def remove_selected(self) -> None:
         row = self._table.currentRow()
@@ -1230,8 +1493,12 @@ class MainWindow(QMainWindow):
         self._thread.start()
 
     def _set_busy(self, busy: bool) -> None:
-        self._btn_generate.setEnabled(not busy)
+        self._act_generate.setEnabled(not busy)
         self._btn_add.setEnabled(not busy)
+
+    def _set_exports_enabled(self, enabled: bool) -> None:
+        for action in getattr(self, "_export_actions", []):
+            action.setEnabled(enabled)
 
     def _on_progress(self, done: int, total: int) -> None:
         self._progress.setRange(0, total)
@@ -1262,11 +1529,11 @@ class MainWindow(QMainWindow):
                 by_bytes[data] = pixmap
             self._pixmaps[key] = pixmap
         self._loaded = True
-        self._btn_pdf.setEnabled(True)
-        self._btn_dxf.setEnabled(True)
-        self._btn_img.setEnabled(True)
+        self._set_exports_enabled(True)
         self._relayout()
         self._update_selection_info()
+        self._refresh_library_metadata()
+        self._toasts.success("Producao gerada")
 
     def _relayout(self) -> None:
         """Recalcula faca + nesting com os parametros atuais (tempo real)."""
@@ -1292,17 +1559,50 @@ class MainWindow(QMainWindow):
                     art = self._faca_uc.execute(self._transform(base), offset)
                 artworks.extend([art] * qty)
         except ValidationError:
-            self._status.setText("Recorte/recuo grande demais para a peca.")
+            self._alert.show_message(
+                AlertLevel.ERROR, "Recorte/recuo grande demais para a peca."
+            )
             return
         if not artworks:
             self._scene.clear()
-            self._status.setText("Nenhuma peca (verifique quantidades).")
+            self._alert.show_message(
+                AlertLevel.WARNING, "Nenhuma peca (verifique as quantidades)."
+            )
+            self._status_ctl.set_production(0, 0)
             return
         sheets = self._nesting_uc.execute_sheets(artworks, material, sheet_height)
         self._result = ProductionResult(sheets=sheets, artworks=artworks, sources=self._sources)
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
         self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
+        self._update_status_and_alerts(sheets, total, artworks, material)
+
+    def _update_status_and_alerts(self, sheets, total, artworks, material) -> None:
+        """Atualiza a barra de status e a faixa de avisos a partir da producao."""
+        self._status_ctl.set_production(total, len(sheets))
+        if sheets:
+            pct = max(measurements.sheet_metrics(s, artworks).used_pct for s in sheets)
+            self._status_ctl.set_area(pct)
+        self._status_ctl.set_mode(self._view_mode.currentText())
+        notices = messages.production_notices(
+            shared_faca=self._shared.currentIndex() == 1,
+            artworks=artworks,
+            material=material,
+        )
+        if notices:
+            first = notices[0]
+            level = {"warning": AlertLevel.WARNING, "error": AlertLevel.ERROR}.get(
+                first.level, AlertLevel.INFO
+            )
+            if first.code == "shared_faca_image":
+                self._alert.show_message(
+                    level, first.text, action_text="Trocar",
+                    on_action=lambda: self._shared.setCurrentIndex(0),
+                )
+            else:
+                self._alert.show_message(level, first.text)
+        else:
+            self._alert.clear()
 
     def _refresh_preview(self) -> None:
         if self._result is not None:
@@ -1570,6 +1870,7 @@ class MainWindow(QMainWindow):
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
         self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
+        self._status_ctl.set_production(total, len(sheets))
 
     def _duplicate_selected(self) -> None:
         """Duplica as pecas selecionadas com deslocamento diagonal (Corel: Ctrl+D)."""
@@ -1672,6 +1973,7 @@ class MainWindow(QMainWindow):
         self._draw_preview()
         total = sum(s.item_count for s in self._result.sheets)
         self._status.setText(f"{len(self._result.sheets)} chapa(s) | {total} peca(s)")
+        self._status_ctl.set_production(total, len(self._result.sheets))
 
     def _reset_arrangement(self) -> None:
         """Refaz o nesting do zero (descarta movimentos/exclusoes manuais)."""
@@ -1771,7 +2073,7 @@ class MainWindow(QMainWindow):
             sheets, self._result.artworks, self._result.sources, path, **self._print_kwargs()
         )
         if interactive:
-            QMessageBox.information(self, "PrintNest", f"PDF gerado:\n{path}")
+            self._toasts.success("PDF de impressao exportado")
 
     def export_image(
         self, path: str | None = None, pages=None, dpi=None, image_format=None
@@ -1815,9 +2117,7 @@ class MainWindow(QMainWindow):
             dpi=int(dpi), image_format=image_format, **self._print_kwargs(),
         )
         if interactive:
-            QMessageBox.information(
-                self, "PrintNest", f"{len(gerados)} imagem(ns) gerada(s) a {int(dpi)} DPI."
-            )
+            self._toasts.success(f"{len(gerados)} imagem(ns) exportada(s) a {int(dpi)} DPI")
 
     @staticmethod
     def _parse_pages(spec: str, total: int) -> list[int]:
@@ -1911,7 +2211,7 @@ class MainWindow(QMainWindow):
             contours, path, segments=segments, marks=marks, mark_segments=mark_segments
         )
         if interactive:
-            QMessageBox.information(self, "PrintNest", f"DXF gerado:\n{path}")
+            self._toasts.success("DXF de corte exportado")
 
     def export_dxf_per_sheet(self, base_path: str | None = None) -> None:
         """Exporta um DXF por chapa: CORTE_01.dxf, CORTE_02.dxf, ..."""
@@ -1937,6 +2237,4 @@ class MainWindow(QMainWindow):
             )
             gerados.append(out)
         if interactive:
-            QMessageBox.information(
-                self, "PrintNest", f"{len(gerados)} arquivo(s) DXF gerado(s)."
-            )
+            self._toasts.success(f"{len(gerados)} DXF de corte exportado(s)")

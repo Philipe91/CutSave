@@ -16,6 +16,7 @@ from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExpo
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
 from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer
+from app.presentation import theme
 from app.presentation.main_window import MainWindow
 from app.shared.config import AppPaths, SettingsStore
 from app.shared.logging import setup_logging
@@ -32,6 +33,7 @@ def main() -> int:
     # Trava o tema em Claro: a interface fica igual em qualquer PC,
     # independente do modo Claro/Escuro do Windows (Qt 6 segue o sistema).
     app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    app.setStyleSheet(theme.build_app_qss())  # folha de estilo global (design system)
     icon_file = resource_path("assets/printnest.ico")
     if icon_file.exists():
         app.setWindowIcon(QIcon(str(icon_file)))
