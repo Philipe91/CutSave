@@ -487,6 +487,43 @@ def test_step_repeat_grade_2x2(qapp, tmp_path):
     assert sum(s.item_count for s in window._result.sheets) == n0 + 3
 
 
+def test_guia_arrastada_cria_seleciona_move_e_exclui(qapp, tmp_path):
+    from PySide6.QtCore import QPointF
+    from app.presentation.main_window import GuideItem
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    window._on_guide_dropped(True, 50.0, inside=True)  # guia horizontal em y=50
+    guides = [it for it in window._scene.items() if isinstance(it, GuideItem)]
+    assert len(guides) == 1
+    g = guides[0]
+    assert g.flags() & GuideItem.GraphicsItemFlag.ItemIsSelectable
+    assert g.flags() & GuideItem.GraphicsItemFlag.ItemIsMovable
+
+    g.setPos(QPointF(0.0, 10.0))  # move 10mm -> valor guardado vira 60
+    assert abs(window._guides[0][1] - 60.0) < 1e-6
+
+    g.setSelected(True)
+    window._delete_selected()
+    assert not [it for it in window._scene.items() if isinstance(it, GuideItem)]
+    assert window._guides == []
+
+
+def test_guia_fora_do_canvas_nao_cria(qapp, tmp_path):
+    from app.presentation.main_window import GuideItem
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._on_guide_dropped(False, 30.0, inside=False)  # soltou fora -> ignora
+    assert not [it for it in window._scene.items() if isinstance(it, GuideItem)]
+    assert window._guides == []
+
+
 def test_snap_axis_encaixa_na_borda():
     from app.presentation.main_window import SNAP_THRESHOLD_MM, PieceItem
 

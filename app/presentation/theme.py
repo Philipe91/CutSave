@@ -82,11 +82,13 @@ def build_app_qss() -> str:
     /* ---- campos numericos e combos ---- */
     QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit {{
         background: {SURFACE};
+        color: {TEXT};
         border: 1px solid {BORDER_STRONG};
         border-radius: {RADIUS_SM}px;
         padding: 4px 8px;
         min-height: 20px;
-        selection-background-color: {ACCENT_SOFT};
+        selection-background-color: {ACCENT};
+        selection-color: {ICON_ON_ACCENT};
     }}
     QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {{
         border-color: {ACCENT};

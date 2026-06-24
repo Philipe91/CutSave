@@ -81,7 +81,9 @@ def offset_contour(contour: CutContour, offset_mm: float) -> CutContour:
     poly = ShapelyPolygon([(p.x, p.y) for p in contour.points])
     if not poly.is_valid:
         poly = poly.buffer(0)
-    grown = poly.buffer(offset_mm, join_style=2)  # join_style=2 (mitre) mantem cantos
+    # join_style=1 (round): cantos arredondados, sem os bicos (spikes) que a
+    # juncao mitre cria em cantos agudos/concavos, principalmente apos suavizar.
+    grown = poly.buffer(offset_mm, join_style=1)
     product = _largest_polygon(grown)
     if product is None or product.is_empty:
         raise ValidationError("Offset interno maior que o contorno da imagem.")

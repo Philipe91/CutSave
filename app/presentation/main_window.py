@@ -12,6 +12,7 @@ from PySide6.QtGui import (
     QIcon,
     QKeySequence,
     QPainter,
+    QPainterPathStroker,
     QPen,
     QPixmap,
     QPolygonF,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGraphicsItem,
     QGraphicsItemGroup,
+    QGraphicsLineItem,
     QGraphicsPixmapItem,
     QGraphicsPolygonItem,
     QGraphicsRectItem,
@@ -461,6 +463,42 @@ class MeasureOverlay(QFrame):
         self.adjustSize()
         self.show()
         self.raise_()
+
+
+class GuideItem(QGraphicsLineItem):
+    """Guia pontilhada (estilo CorelDRAW): selecionavel e arrastavel, presa ao
+    eixo perpendicular. 'record' e a entrada mutavel [is_h, valor_mm] guardada
+    pela janela, atualizada quando a guia e movida."""
+
+    def __init__(self, record, x0, y0, x1, y1, pen: QPen) -> None:
+        super().__init__(x0, y0, x1, y1)
+        self.record = record  # [is_h, valor_mm]
+        self._is_h = bool(record[0])
+        self._base = float(record[1])
+        self.setPen(pen)
+        self.setZValue(1000)  # acima das pecas, para clicar facil
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setCursor(Qt.SizeVerCursor if self._is_h else Qt.SizeHorCursor)
+
+    def shape(self):
+        # area de clique mais larga que a linha fina (facilita selecionar)
+        stroker = QPainterPathStroker()
+        stroker.setWidth(4.0)
+        return stroker.createStroke(super().shape())
+
+    def value(self) -> float:
+        off = self.pos().y() if self._is_h else self.pos().x()
+        return self._base + off
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            # trava no eixo perpendicular (guia sempre reta)
+            return QPointF(0.0, value.y()) if self._is_h else QPointF(value.x(), 0.0)
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self.record[1] = self.value()  # mantem o valor guardado em dia
+        return super().itemChange(change, value)
 
 
 class ProductionWorker(QObject):
@@ -1066,6 +1104,8 @@ class MainWindow(QMainWindow):
 
         self._overlay = MeasureOverlay(self._view.viewport())
         self._view.view_changed.connect(self._position_overlay)
+        self._build_display_overlay()  # janela flutuante de Exibicao (topo-esquerdo)
+        self._view.view_changed.connect(self._position_display_overlay)
 
         for ruler in (self._h_ruler, self._v_ruler):
             ruler.guide_preview.connect(self._on_guide_preview)
@@ -1089,10 +1129,22 @@ class MainWindow(QMainWindow):
         return rect.left() - m, rect.top() - m, rect.right() + m, rect.bottom() + m
 
     def _make_guide_line(self, is_h: bool, value: float, pen: QPen):
+        """Linha simples (usada so na pre-visualizacao do arraste)."""
         x0, y0, x1, y1 = self._guides_extent()
         if is_h:
             return self._scene.addLine(x0, value, x1, value, pen)
         return self._scene.addLine(value, y0, value, y1, pen)
+
+    def _make_guide_item(self, record) -> GuideItem:
+        """Cria a guia permanente (selecionavel/arrastavel) a partir do registro."""
+        is_h, value = record[0], record[1]
+        x0, y0, x1, y1 = self._guides_extent()
+        if is_h:
+            item = GuideItem(record, x0, value, x1, value, self._guide_pen())
+        else:
+            item = GuideItem(record, value, y0, value, y1, self._guide_pen())
+        self._scene.addItem(item)
+        return item
 
     def _on_guide_preview(self, is_h: bool, value: float) -> None:
         if self._guide_preview_item is not None:
@@ -1107,20 +1159,19 @@ class MainWindow(QMainWindow):
             self._scene.removeItem(self._guide_preview_item)
             self._guide_preview_item = None
         if inside and self._result is not None:
-            self._guides.append((is_h, value))
-            self._make_guide_line(is_h, value, self._guide_pen())
+            record = [bool(is_h), float(value)]
+            self._guides.append(record)
+            self._make_guide_item(record)
 
     def _draw_guides(self) -> None:
         """Redesenha as guias guardadas (a cena e limpa a cada preview)."""
-        if not self._guides:
-            return
-        pen = self._guide_pen()
-        for is_h, value in self._guides:
-            self._make_guide_line(is_h, value, pen)
+        for record in self._guides:
+            self._make_guide_item(record)
 
     def _clear_guides(self) -> None:
         self._guides = []
-        self._draw_preview()
+        for item in [it for it in self._scene.items() if isinstance(it, GuideItem)]:
+            self._scene.removeItem(item)
 
     def _position_overlay(self) -> None:
         """Reposiciona a caixinha de medidas no canto superior direito do canvas."""
@@ -1184,7 +1235,6 @@ class MainWindow(QMainWindow):
         dl.addWidget(self._build_chapa_group())
         dl.addWidget(self._build_faca_group())
         dl.addWidget(self._build_registro_group())
-        dl.addWidget(self._build_exibicao_group())
         dl.addStretch()
         doc_scroll = QScrollArea()
         doc_scroll.setWidgetResizable(True)
@@ -1511,9 +1561,23 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._mk_thickness)
         return group
 
-    def _build_exibicao_group(self) -> QFrame:
-        group, lay = self._section("Exibicao", "#2c3e50")
-        lay.addWidget(QLabel("Unidade de medida"))
+    def _build_display_overlay(self) -> None:
+        """Janela flutuante no topo-esquerdo do canvas com as configuracoes de
+        exibicao (unidade, modo de visualizacao, reguas, snap). Substitui o
+        antigo grupo 'Exibicao' do painel lateral."""
+        panel = QFrame(self._view.viewport())
+        panel.setObjectName("displayOverlay")
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(10, 8, 10, 9)
+        lay.setSpacing(4)
+
+        title = QLabel("Exibicao")
+        title.setObjectName("ovTitle")
+        lay.addWidget(title)
+
+        cap_u = QLabel("Unidade de medida")
+        cap_u.setProperty("role", "caption")
+        lay.addWidget(cap_u)
         self._unit_box = QComboBox()
         self._unit_box.addItem("Centimetros (cm)", units.CM)
         self._unit_box.addItem("Milimetros (mm)", units.MM)
@@ -1521,7 +1585,10 @@ class MainWindow(QMainWindow):
             lambda _: self._on_unit_changed(self._unit_box.currentData())
         )
         lay.addWidget(self._unit_box)
-        lay.addWidget(QLabel("Modo de visualizacao"))
+
+        cap_v = QLabel("Modo de visualizacao")
+        cap_v.setProperty("role", "caption")
+        lay.addWidget(cap_v)
         self._view_mode = QComboBox()
         self._view_mode.addItem("Impressao + Corte", "both")
         self._view_mode.addItem("So Impressao", "print")
@@ -1529,13 +1596,28 @@ class MainWindow(QMainWindow):
         self._view_mode.addItem("Tela dividida (impressao / corte)", "split")
         self._view_mode.currentIndexChanged.connect(lambda _: self._refresh_preview())
         lay.addWidget(self._view_mode)
+
         self._show_rulers = QCheckBox("Mostrar reguas")
         self._show_rulers.toggled.connect(lambda _: self._apply_rulers_visibility())
         lay.addWidget(self._show_rulers)
         self._snap_check = QCheckBox("Encaixar pecas ao arrastar (snap)")
         self._snap_check.toggled.connect(self._set_snap)
         lay.addWidget(self._snap_check)
-        return group
+
+        panel.setStyleSheet(
+            "#displayOverlay{background:rgba(255,255,255,238);"
+            " border:1px solid #cfd6dd; border-radius:8px;}"
+            " QLabel#ovTitle{font-weight:600; color:#1f2d3d;}"
+        )
+        panel.setFixedWidth(232)
+        panel.adjustSize()
+        self._display_overlay = panel
+        self._position_display_overlay()
+        panel.show()
+
+    def _position_display_overlay(self) -> None:
+        if hasattr(self, "_display_overlay"):
+            self._display_overlay.move(10, 10)  # topo-esquerdo do canvas
 
     def _apply_rulers_visibility(self) -> None:
         visible = self._show_rulers.isChecked()
@@ -2340,6 +2422,12 @@ class MainWindow(QMainWindow):
         self._undo.push(ArrangementCommand(self, before, after, text))
 
     def _delete_selected(self) -> None:
+        # guias selecionadas saem na hora (sem mexer no arranjo das pecas)
+        guides = [it for it in self._scene.selectedItems() if isinstance(it, GuideItem)]
+        for g in guides:
+            if g.record in self._guides:
+                self._guides.remove(g.record)
+            self._scene.removeItem(g)
         if not self._piece_items:
             return
         to_remove = set()
