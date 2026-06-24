@@ -20,7 +20,8 @@ class AppSettings:
     last_project: str = ""  # ultimo .printnest aberto (reabre ao iniciar)
     material_width: float = 1300.0
     material_height: float = 1500.0
-    spacing: float = 5.0
+    spacing: float = 5.0      # espacamento horizontal (mm)
+    spacing_v: float = 5.0    # espacamento vertical (mm) - pode ser negativo
     offset: float = 3.0
     safety_inset: float = 0.0
     crop: float = 0.0

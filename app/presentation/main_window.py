@@ -223,8 +223,13 @@ class ZoomableGraphicsView(QGraphicsView):
             event.accept()
             return
         if event.button() == Qt.LeftButton:
-            item = self.itemAt(event.position().toPoint())
-            if item is not None:
+            # sobe ate achar um item selecionavel (peca/guia); ignora os filhos
+            # (imagem/faca) e a chapa. Em area "vazia" -> laco de selecao (marquee).
+            target = self.itemAt(event.position().toPoint())
+            sel = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            while target is not None and not (target.flags() & sel):
+                target = target.parentItem()
+            if target is not None:
                 self.setDragMode(QGraphicsView.NoDrag)
                 self._left_drag = True
                 self.drag_started.emit()
@@ -1744,10 +1749,19 @@ class MainWindow(QMainWindow):
         self._height = LengthSpin(0, 20000)
         self._height.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._height)
-        lay.addWidget(QLabel("Espacamento"))
-        self._spacing = LengthSpin(0, 500)
+        lay.addWidget(QLabel("Espacamento horizontal  ( − junta as pecas )"))
+        self._spacing = LengthSpin(-500, 500)
+        self._spacing.setToolTip(
+            "Espaco entre as pecas na MESMA linha. Negativo aproxima/sobrepoe\n"
+            "os retangulos (util p/ peca redonda, fecha o vao branco)."
+        )
         self._spacing.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._spacing)
+        lay.addWidget(QLabel("Espacamento vertical  ( − junta as linhas )"))
+        self._spacing_v = LengthSpin(-500, 500)
+        self._spacing_v.setToolTip("Espaco entre as LINHAS (para cima/baixo). Negativo aproxima.")
+        self._spacing_v.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._spacing_v)
         return group
 
     def _build_faca_group(self) -> QFrame:
@@ -1910,6 +1924,7 @@ class MainWindow(QMainWindow):
         self._width.setValue(int(s.material_width))
         self._height.setValue(int(s.material_height))
         self._spacing.setValue(s.spacing)
+        self._spacing_v.setValue(s.spacing_v)
         # campo unico com sinal: deriva do par antigo (offset - recuo) p/ compat
         self._offset.setValue(s.offset - s.safety_inset)
         self._crop.setValue(s.crop)
@@ -1941,6 +1956,7 @@ class MainWindow(QMainWindow):
         s.material_width = float(self._width.value())
         s.material_height = float(self._height.value())
         s.spacing = float(self._spacing.value())
+        s.spacing_v = float(self._spacing_v.value())
         # campo unico com sinal -> guarda no 'offset' e zera o antigo 'safety_inset'
         s.offset = float(self._offset.value())
         s.safety_inset = 0.0
@@ -2221,7 +2237,9 @@ class MainWindow(QMainWindow):
     # ---- producao ----
     def _material(self) -> Material:
         return Material(
-            name="MVP", width=float(self._width.value()), spacing=float(self._spacing.value())
+            name="MVP", width=float(self._width.value()),
+            spacing=float(self._spacing.value()),
+            spacing_y=float(self._spacing_v.value()),
         )
 
     def generate(self, *, blocking: bool = False) -> None:

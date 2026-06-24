@@ -19,9 +19,9 @@ def test_uma_linha_quando_cabe():
 
 
 def test_quebra_de_linha_automatica():
-    material = Material("UV", width=1300, spacing=5, margin=0)
+    material = Material("UV", width=1300, spacing=5, spacing_y=5, margin=0)
     layout = GridPacker().pack(_pieces(6), material)
-    # 4 cabem na linha 1; as 2 restantes vao para a linha 2 (y = 92 + 5)
+    # 4 cabem na linha 1; as 2 restantes vao para a linha 2 (y = 92 + 5 vertical)
     assert _positions(layout) == [
         (0, 0), (325, 0), (650, 0), (975, 0),
         (0, 97), (325, 97),
@@ -29,10 +29,18 @@ def test_quebra_de_linha_automatica():
 
 
 def test_comprimento_utilizado():
-    material = Material("UV", width=1300, spacing=5, margin=0)
+    material = Material("UV", width=1300, spacing=5, spacing_y=5, margin=0)
     layout = GridPacker().pack(_pieces(6), material)
     # linha 2 em y=97, altura 92 -> 189
     assert layout.used_length == pytest.approx(189)
+
+
+def test_espacamento_vertical_negativo_aproxima_linhas():
+    # espacamento vertical negativo junta as linhas (peca redonda em footprint
+    # quadrado): a 2a linha sobe (y < altura da peca).
+    material = Material("UV", width=1300, spacing=5, spacing_y=-20, margin=0)
+    layout = GridPacker().pack(_pieces(6), material)
+    assert _positions(layout)[4] == (0, 72)  # 92 - 20
 
 
 def test_espacamento_aplicado():
@@ -48,7 +56,7 @@ def test_margem_desloca_inicio():
 
 
 def test_peca_maior_que_largura_e_posicionada_assim_mesmo():
-    material = Material("UV", width=300, spacing=5, margin=0)
+    material = Material("UV", width=300, spacing=5, spacing_y=5, margin=0)
     layout = GridPacker().pack(_pieces(2, w=320, h=92), material)
     # primeira peca (maior que a largura) fica em x=0; a segunda quebra linha
     assert _positions(layout) == [(0, 0), (0, 97)]

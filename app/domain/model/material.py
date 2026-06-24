@@ -12,7 +12,8 @@ class Material:
     name: str
     width: float
     margin: float = 0.0
-    spacing: float = 0.0
+    spacing: float = 0.0       # espacamento horizontal (entre pecas na linha)
+    spacing_y: float = 0.0     # espacamento vertical (entre linhas)
     default_offset: float = 0.0
 
     def __post_init__(self) -> None:
@@ -20,8 +21,10 @@ class Material:
             raise ValidationError("Material requer nome.")
         if self.width <= 0:
             raise ValidationError("Largura do material deve ser positiva (mm).")
-        if self.margin < 0 or self.spacing < 0:
-            raise ValidationError("Margem e espacamento nao podem ser negativos (mm).")
+        if self.margin < 0:
+            raise ValidationError("Margem nao pode ser negativa (mm).")
+        # espacamento pode ser NEGATIVO (aproxima/sobrepoe pecas; util p/ peca
+        # redonda em footprint quadrado, fechando o vao branco entre elas).
         if 2 * self.margin >= self.width:
             raise ValidationError("Margens consomem toda a largura util do material.")
 

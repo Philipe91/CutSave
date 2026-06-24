@@ -26,6 +26,7 @@ PROJECT_SETTING_KEYS = (
     "material_width",
     "material_height",
     "spacing",
+    "spacing_v",
     "offset",
     "safety_inset",
     "crop",

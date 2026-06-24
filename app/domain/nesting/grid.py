@@ -27,6 +27,7 @@ class GridPacker:
     def pack(self, pieces: Sequence[NestingPiece], material: Material) -> Layout:
         margin = material.margin
         spacing = material.spacing
+        spacing_y = material.spacing_y
         usable = material.usable_width
         right_limit = margin + usable
 
@@ -40,7 +41,7 @@ class GridPacker:
             height = piece.size.height
             # Quebra de linha: nao cabe e a linha ja tem alguma peca.
             if x > margin and x + width > right_limit:
-                y += row_height + spacing
+                y += row_height + spacing_y
                 x = margin
                 row_height = 0.0
             placed.append(PlacedItem(piece.artwork_id, Point2D(x, y)))
@@ -66,6 +67,7 @@ class GridPacker:
 
         margin = material.margin
         spacing = material.spacing
+        spacing_y = material.spacing_y
         right_limit = margin + material.usable_width
 
         sheets: list[Layout] = []
@@ -78,7 +80,7 @@ class GridPacker:
             width = piece.size.width
             height = piece.size.height
             if x > margin and x + width > right_limit:  # nova linha
-                y += row_height + spacing
+                y += row_height + spacing_y
                 x = margin
                 row_height = 0.0
             if current and y + height > sheet_length:  # nova chapa
