@@ -547,6 +547,37 @@ def test_aba_objeto_lista_seleciona_e_ordena(qapp, tmp_path):
     assert window._piece_items[0].zValue() < window._piece_items[1].zValue()
 
 
+def test_faca_por_arquivo_so_afeta_aquele_arquivo(qapp, tmp_path):
+    from tests import synth_images as si
+
+    pdf = _two_page_pdf(tmp_path)
+    img = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([pdf, img])
+    window.generate(blocking=True)
+
+    def first_by_path():
+        out = {}
+        for art in window._result.artworks:
+            out.setdefault(window._path_of(art.id), art)
+        return out
+
+    antes = first_by_path()
+    img_w0 = antes[img].cut_contour.size.width
+    pdf_art0 = antes[pdf]
+    pdf_w0 = pdf_art0.cut_contour.size.width
+
+    # override SO na imagem: +5mm de sangria
+    ov = dict(window._params_for(img))
+    ov["auto_offset"] = 5.0
+    window._file_overrides[img] = ov
+    window._relayout()
+
+    depois = first_by_path()
+    assert depois[img].cut_contour.size.width > img_w0   # a imagem cresceu
+    assert abs(depois[pdf].cut_contour.size.width - pdf_w0) < 0.01  # PDF intacto
+
+
 def test_snap_axis_encaixa_na_borda():
     from app.presentation.main_window import SNAP_THRESHOLD_MM, PieceItem
 

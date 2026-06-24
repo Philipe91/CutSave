@@ -671,6 +671,13 @@ class MainWindow(QMainWindow):
         self._suspend_relayout = False  # agrupa varias mudancas num so relayout
         self._guides: list[tuple[bool, float]] = []  # (horizontal, valor_mm)
         self._guide_preview_item = None
+        # faca por arquivo: caminho -> params proprios (override). Sem override,
+        # o arquivo segue o padrao do painel Documento.
+        self._file_overrides: dict[str, dict] = {}
+        self._selected_path: str | None = None
+        self._selected_is_image = False
+        self._pf_loading = False        # carregando controles da peca (nao gravar)
+        self._keep_tab = False          # nao trocar de aba durante reselecao
         self._result: ProductionResult | None = None
         self._thread: QThread | None = None
         self._worker: ProductionWorker | None = None
@@ -980,6 +987,7 @@ class MainWindow(QMainWindow):
     def new_project(self) -> None:
         self._project_path = None
         self._reset_project_state()
+        self._file_overrides = {}  # descarta facas personalizadas por arquivo
         self._table.setRowCount(0)
         self._paths = []
         self._settings.last_project = ""
@@ -1314,6 +1322,34 @@ class MainWindow(QMainWindow):
         for field in (self._pm_w, self._pm_h, self._pm_area, self._pm_perim, self._pm_pos):
             card.body.addWidget(field)
         lay.addWidget(card)
+
+        # ---- faca SO deste arquivo (override) ----
+        faca = CollapsibleCard("Faca deste arquivo")
+        faca.body.addWidget(QLabel("Sangria  ( + fora  /  − dentro )"))
+        self._pf_offset = LengthSpin(-100, 100)
+        self._pf_offset.valueChanged.connect(lambda _: self._on_piece_faca_changed())
+        faca.body.addWidget(self._pf_offset)
+        faca.body.addWidget(QLabel("Recorte da arte - cortar bordas"))
+        self._pf_crop = LengthSpin(0, 100)
+        self._pf_crop.valueChanged.connect(lambda _: self._on_piece_faca_changed())
+        faca.body.addWidget(self._pf_crop)
+        faca.body.addWidget(QLabel("Giro (graus)"))
+        self._pf_rotation = QComboBox()
+        self._pf_rotation.addItems(["0", "90", "180", "270"])
+        self._pf_rotation.currentIndexChanged.connect(lambda _: self._on_piece_faca_changed())
+        faca.body.addWidget(self._pf_rotation)
+        self._pf_smooth_label = QLabel("Suavizar curvas (0 = reto, 5 = macio)")
+        faca.body.addWidget(self._pf_smooth_label)
+        self._pf_smooth = _spin(0, 5)
+        self._pf_smooth.valueChanged.connect(lambda _: self._on_piece_faca_changed())
+        faca.body.addWidget(self._pf_smooth)
+        self._pf_reset = QPushButton("  Usar padrao do documento")
+        self._pf_reset.setIcon(icons.icon("rotate-ccw", theme.ICON))
+        self._pf_reset.setToolTip("Remove a faca personalizada e volta ao padrao do Documento")
+        self._pf_reset.clicked.connect(self._reset_piece_faca)
+        faca.body.addWidget(self._pf_reset)
+        lay.addWidget(faca)
+
         lay.addWidget(self._actions_card([
             ("copy", "Duplicar", self._duplicate_selected),
             ("trash-2", "Excluir", self._delete_selected),
@@ -1401,11 +1437,15 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_obj_list"):
             return
         self._obj_list.blockSignals(True)
-        for row, piece in enumerate(getattr(self, "_obj_rows", [])):
-            item = self._obj_list.item(row)
-            if item is not None:
-                item.setSelected(piece.isSelected())
-        self._obj_list.blockSignals(False)
+        try:
+            for row, piece in enumerate(getattr(self, "_obj_rows", [])):
+                item = self._obj_list.item(row)
+                if item is not None:
+                    item.setSelected(piece.isSelected())
+        except RuntimeError:  # peca ja deletada durante um redraw
+            pass
+        finally:
+            self._obj_list.blockSignals(False)
 
     def _on_object_list_selection(self) -> None:
         """Seleciona no canvas as pecas marcadas na lista."""
@@ -1447,22 +1487,23 @@ class MainWindow(QMainWindow):
             return
         pieces = [it for it in selected if isinstance(it, PieceItem)]
         cur = self._props_tabs.currentIndex()
+        switch = not self._keep_tab  # durante reselecao nao troca de aba
         if not pieces:
             self._sel_stack.setCurrentIndex(0)
             self._props_tabs.setTabText(1, "Selecao")
-            if cur == 1:  # so volta para Documento se estiver na aba Selecao
+            if switch and cur == 1:  # so volta para Documento se estiver na Selecao
                 self._props_tabs.setCurrentIndex(0)
         elif len(pieces) == 1:
             self._update_piece_page(pieces[0])
             self._sel_stack.setCurrentIndex(1)
             self._props_tabs.setTabText(1, "Peca")
-            if cur == 0:  # nao tira o usuario da aba Objeto
+            if switch and cur == 0:  # nao tira o usuario da aba Objeto
                 self._props_tabs.setCurrentIndex(1)
         else:
             self._update_group_page(pieces)
             self._sel_stack.setCurrentIndex(2)
             self._props_tabs.setTabText(1, f"Grupo ({len(pieces)})")
-            if cur == 0:
+            if switch and cur == 0:
                 self._props_tabs.setCurrentIndex(1)
         self._sync_object_list_selection()
         self._update_overlay()
@@ -1479,6 +1520,71 @@ class MainWindow(QMainWindow):
         x = piece.pos().x() - piece.dx
         y = piece.pos().y() - piece.dy
         self._pm_pos.set_value(units.fmt_xy(x, y))
+        self._load_piece_faca(piece)
+
+    def _load_piece_faca(self, piece: PieceItem) -> None:
+        """Carrega no editor a faca do arquivo da peca (override ou padrao)."""
+        path = self._path_of(piece.artwork_id)
+        self._selected_path = path
+        base = next((b for b in self._base_artworks if b.id == piece.artwork_id), None)
+        self._selected_is_image = isinstance(base, ImageArtwork)
+        p = self._params_for(path)
+        self._pf_loading = True
+        try:
+            sangria = p["auto_offset"] if self._selected_is_image else p["offset"]
+            self._pf_offset.setValue(sangria)
+            self._pf_crop.setValue(p["crop"])
+            self._pf_rotation.setCurrentText(str(p["rotation"]))
+            self._pf_smooth.setValue(int(p["smooth"]))
+        finally:
+            self._pf_loading = False
+        # suavizar so faz sentido para imagem
+        self._pf_smooth.setEnabled(self._selected_is_image)
+        self._pf_smooth_label.setEnabled(self._selected_is_image)
+        self._pf_reset.setVisible(path in self._file_overrides)
+
+    def _on_piece_faca_changed(self) -> None:
+        """Grava a faca personalizada do arquivo selecionado e recalcula."""
+        if self._pf_loading or not self._selected_path:
+            return
+        path = self._selected_path
+        p = dict(self._params_for(path))
+        sangria = float(self._pf_offset.value())
+        if self._selected_is_image:
+            p["auto_offset"] = sangria
+        else:
+            p["offset"] = sangria
+        p["crop"] = float(self._pf_crop.value())
+        p["rotation"] = int(self._pf_rotation.currentText())
+        p["smooth"] = int(self._pf_smooth.value())
+        self._file_overrides[path] = p
+        self._keep_tab = True
+        try:
+            self._relayout()
+            self._reselect_path(path)
+        finally:
+            self._keep_tab = False
+
+    def _reset_piece_faca(self) -> None:
+        """Remove a faca personalizada do arquivo: volta ao padrao do Documento."""
+        if not self._selected_path:
+            return
+        path = self._selected_path
+        self._file_overrides.pop(path, None)
+        self._keep_tab = True
+        try:
+            self._relayout()
+            self._reselect_path(path)
+        finally:
+            self._keep_tab = False
+
+    def _reselect_path(self, path) -> None:
+        """Reseleciona a 1a peca do arquivo (mantem a aba Selecao apos relayout)."""
+        self._scene.clearSelection()
+        for piece in self._piece_items:
+            if self._path_of(piece.artwork_id) == path:
+                piece.setSelected(True)
+                break
 
     def _update_group_page(self, pieces: list[PieceItem]) -> None:
         boxes = [
@@ -1806,12 +1912,30 @@ class MainWindow(QMainWindow):
         # campo unico com sinal: +fora (sangria), -dentro (recuo)
         return float(self._offset.value())
 
-    def _transform(self, art):
+    def _global_faca_params(self) -> dict:
+        """Parametros de faca do painel Documento (padrao para arquivos novos)."""
+        return {
+            "offset": float(self._offset.value()),       # faca PDF (retangular)
+            "auto_offset": float(self._auto_offset.value()),  # faca de imagem
+            "crop": float(self._crop.value()),
+            "rotation": self._rotation_value(),
+            "smooth": int(self._auto_smooth.value()),
+        }
+
+    def _params_for(self, path) -> dict:
+        """Params de faca efetivos do arquivo: override proprio ou o padrao."""
+        override = self._file_overrides.get(path)
+        return dict(override) if override else self._global_faca_params()
+
+    def _path_of(self, art_id) -> str | None:
+        return self._origins.get(art_id) or self._sources.get(art_id, (None,))[0]
+
+    def _transform(self, art, params: dict):
         """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
-        crop = float(self._crop.value())
+        crop = params["crop"]
         width = art.size.width - 2 * crop
         height = art.size.height - 2 * crop
-        if self._rotation_value() in (90, 270):
+        if params["rotation"] % 360 in (90, 270):
             width, height = height, width
         return replace(art, size=Size(width, height), cut_contour=None)
 
@@ -1836,7 +1960,7 @@ class MainWindow(QMainWindow):
             self._suspend_relayout = False
         self._relayout()
 
-    def _image_faca(self, base: ImageArtwork, net_offset: float):
+    def _image_faca(self, base: ImageArtwork, params: dict):
         """Faca de uma imagem: contorno detectado, recortado/rotacionado igual a
         arte exibida (crop + rotacao), depois suavizado e com offset.
 
@@ -1844,14 +1968,15 @@ class MainWindow(QMainWindow):
         e girado/cortado em _display_pixmap); senao a faca fica desalinhada e o
         tamanho usado no nesting/exportacao nao bate com a imagem girada.
         """
-        crop = float(self._crop.value())
-        rotation = self._rotation_value()
+        crop = params["crop"]
+        rotation = params["rotation"]
+        net_offset = params["auto_offset"]
         contour = base.raw_contour
         if contour is not None:
             contour, w, h = crop_and_rotate_contour(
                 contour, crop, rotation, base.size.width, base.size.height
             )
-            smooth = int(self._auto_smooth.value())
+            smooth = int(params["smooth"])
             if smooth > 0:
                 contour = smooth_contour(contour, smooth)
             if net_offset != 0:
@@ -2081,22 +2206,21 @@ class MainWindow(QMainWindow):
         """Recalcula faca + nesting com os parametros atuais (tempo real)."""
         if not self._loaded or self._suspend_relayout:
             return
-        offset = self._effective_offset()
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
-        net_image_offset = float(self._auto_offset.value())
         try:
             artworks = []
             for base in self._base_artworks:
-                path = self._origins.get(base.id) or self._sources.get(base.id, (None,))[0]
+                path = self._path_of(base.id)
                 qty = quantities.get(path, 0)  # arquivo removido da tabela -> 0
                 if qty <= 0:
                     continue
+                params = self._params_for(path)  # faca do arquivo (ou padrao)
                 if isinstance(base, ImageArtwork):
-                    art = self._image_faca(base, net_image_offset)
+                    art = self._image_faca(base, params)
                 else:
-                    art = self._faca_uc.execute(self._transform(base), offset)
+                    art = self._faca_uc.execute(self._transform(base, params), params["offset"])
                 artworks.extend([art] * qty)
         except ValidationError:
             self._alert.show_message(
@@ -2150,6 +2274,7 @@ class MainWindow(QMainWindow):
 
     def _draw_preview(self) -> None:
         self._piece_items = []
+        self._obj_rows = []  # evita referenciar pecas deletadas no scene.clear()
         self._guide_preview_item = None  # invalidado pelo scene.clear()
         self._undo.clear()  # arranjo regenerado: zera historico de movimentos
         self._scene.clear()
@@ -2194,8 +2319,6 @@ class MainWindow(QMainWindow):
 
         shared = self._shared.currentIndex() == 1
         reg = self._reg()
-        crop = float(self._crop.value())
-        rotation = self._rotation_value()
         cropped_cache: dict = {}
 
         for index, layout in enumerate(result.sheets):
@@ -2224,11 +2347,12 @@ class MainWindow(QMainWindow):
 
                 ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
                 if draw_art:
+                    p = self._params_for(self._path_of(item.artwork_id))
                     key = self._sources.get(item.artwork_id)
                     pixmap = self._pixmaps.get(key)
                     if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
                         display = self._display_pixmap(
-                            pixmap, crop, rotation, art.size, cropped_cache, key
+                            pixmap, p["crop"], p["rotation"], art.size, cropped_cache, key
                         )
                         child = QGraphicsPixmapItem(display, piece)
                         child.setScale(art.size.width / display.width())
