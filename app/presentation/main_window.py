@@ -1399,8 +1399,6 @@ class MainWindow(QMainWindow):
         self._width.setToolTip("Largura da chapa de material (mm)")
         self._height.setToolTip("Altura da chapa (mm). 0 = chapa unica (comprimento aberto)")
         self._spacing.setToolTip("Espaco entre as pecas (mm)")
-        self._offset.setToolTip("Sangria: aumenta a faca para fora da arte (mm)")
-        self._safety.setToolTip("Recuo: faca para dentro, para nao cortar informacao (mm)")
         self._crop.setToolTip("Corta as bordas da arte (remove faixa branca) (mm)")
         self._shared.setToolTip("Faca por peca (quadrados) ou compartilhada (grade fora a fora)")
         self._reg_type.setToolTip("Tipo de marca de registro para a mesa de corte")
@@ -1497,14 +1495,14 @@ class MainWindow(QMainWindow):
 
     def _build_faca_group(self) -> QFrame:
         group, lay = self._section("Faca", "#c0392b")
-        lay.addWidget(QLabel("Offset - sangria p/ fora"))
+        lay.addWidget(QLabel("Sangria da faca  ( + fora  /  − dentro )"))
         self._offset = LengthSpin(-100, 100)
+        self._offset.setToolTip(
+            "Um campo so: valor positivo afasta a faca para FORA da arte (sangria);\n"
+            "valor negativo recolhe a faca para DENTRO (recuo de seguranca)."
+        )
         self._offset.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._offset)
-        lay.addWidget(QLabel("Recuo de seguranca - faca p/ dentro"))
-        self._safety = LengthSpin(0, 100)
-        self._safety.valueChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._safety)
         lay.addWidget(QLabel("Recorte da arte - cortar bordas"))
         self._crop = LengthSpin(0, 100)
         self._crop.valueChanged.connect(lambda _: self._relayout())
@@ -1527,14 +1525,14 @@ class MainWindow(QMainWindow):
             "Desmarcado: a faca fica no retangulo da imagem inteira."
         )
         lay.addWidget(self._auto_ignore_white)
-        lay.addWidget(QLabel("Offset externo - sangria p/ fora"))
-        self._auto_offset_ext = LengthSpin(0, 100)
-        self._auto_offset_ext.valueChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._auto_offset_ext)
-        lay.addWidget(QLabel("Offset interno - recuo p/ dentro"))
-        self._auto_offset_int = LengthSpin(0, 100)
-        self._auto_offset_int.valueChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._auto_offset_int)
+        lay.addWidget(QLabel("Sangria da faca  ( + fora  /  − dentro )"))
+        self._auto_offset = LengthSpin(-100, 100)
+        self._auto_offset.setToolTip(
+            "Um campo so: positivo afasta a faca para FORA do desenho (sangria);\n"
+            "negativo recolhe para DENTRO (recuo)."
+        )
+        self._auto_offset.valueChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._auto_offset)
         lay.addWidget(QLabel("Suavizar curvas (0 = reto, 5 = macio)"))
         self._auto_smooth = _spin(0, 5)
         self._auto_smooth.valueChanged.connect(lambda _: self._relayout())
@@ -1644,8 +1642,8 @@ class MainWindow(QMainWindow):
         self._width.setValue(int(s.material_width))
         self._height.setValue(int(s.material_height))
         self._spacing.setValue(s.spacing)
-        self._offset.setValue(s.offset)
-        self._safety.setValue(s.safety_inset)
+        # campo unico com sinal: deriva do par antigo (offset - recuo) p/ compat
+        self._offset.setValue(s.offset - s.safety_inset)
         self._crop.setValue(s.crop)
         self._rotation.setCurrentText(str(s.rotation))
         self._shared.setCurrentIndex(1 if s.shared_faca else 0)
@@ -1666,8 +1664,7 @@ class MainWindow(QMainWindow):
         self._import_box.setCurrentIndex(max(0, self._import_box.findData(s.import_box)))
         self._auto_sensitivity.setValue(int(s.auto_sensitivity))
         self._auto_ignore_white.setChecked(s.auto_ignore_white)
-        self._auto_offset_ext.setValue(s.auto_offset_external)
-        self._auto_offset_int.setValue(s.auto_offset_internal)
+        self._auto_offset.setValue(s.auto_offset_external - s.auto_offset_internal)
         self._auto_smooth.setValue(int(s.auto_smooth))
 
     def _save_settings(self) -> None:
@@ -1675,8 +1672,9 @@ class MainWindow(QMainWindow):
         s.material_width = float(self._width.value())
         s.material_height = float(self._height.value())
         s.spacing = float(self._spacing.value())
+        # campo unico com sinal -> guarda no 'offset' e zera o antigo 'safety_inset'
         s.offset = float(self._offset.value())
-        s.safety_inset = float(self._safety.value())
+        s.safety_inset = 0.0
         s.crop = float(self._crop.value())
         s.rotation = self._rotation_value()
         s.shared_faca = self._shared.currentIndex() == 1
@@ -1693,8 +1691,8 @@ class MainWindow(QMainWindow):
         s.snap_enabled = self._snap.enabled
         s.auto_sensitivity = float(self._auto_sensitivity.value())
         s.auto_ignore_white = self._auto_ignore_white.isChecked()
-        s.auto_offset_external = float(self._auto_offset_ext.value())
-        s.auto_offset_internal = float(self._auto_offset_int.value())
+        s.auto_offset_external = float(self._auto_offset.value())
+        s.auto_offset_internal = 0.0
         s.auto_smooth = int(self._auto_smooth.value())
         self._store.save(s)
 
@@ -1706,7 +1704,8 @@ class MainWindow(QMainWindow):
         return self._reg_type.currentData()
 
     def _effective_offset(self) -> float:
-        return float(self._offset.value()) - float(self._safety.value())
+        # campo unico com sinal: +fora (sangria), -dentro (recuo)
+        return float(self._offset.value())
 
     def _transform(self, art):
         """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
@@ -1728,10 +1727,8 @@ class MainWindow(QMainWindow):
         self._suspend_relayout = True
         try:
             self._offset.setValue(0)
-            self._safety.setValue(0)
             self._crop.setValue(0)
-            self._auto_offset_ext.setValue(0)
-            self._auto_offset_int.setValue(0)
+            self._auto_offset.setValue(0)
             self._auto_smooth.setValue(0)
             self._auto_sensitivity.setValue(50)
             self._auto_ignore_white.setChecked(True)
@@ -1989,9 +1986,7 @@ class MainWindow(QMainWindow):
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
-        net_image_offset = (
-            float(self._auto_offset_ext.value()) - float(self._auto_offset_int.value())
-        )
+        net_image_offset = float(self._auto_offset.value())
         try:
             artworks = []
             for base in self._base_artworks:

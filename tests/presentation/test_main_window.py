@@ -130,12 +130,11 @@ def test_recuo_de_seguranca_deixa_faca_menor_que_a_arte(qapp, tmp_path):
     window = _window(tmp_path)
     window.add_paths([src])
     window._offset.setValue(0)
-    window._safety.setValue(0)
     window.generate(blocking=True)
 
     art = window._result.artworks[0]
-    # com recuo 5 e offset 0, a faca fica menor que a arte
-    window._safety.setValue(5)
+    # campo unico com sinal: valor negativo recolhe a faca para dentro (recuo)
+    window._offset.setValue(-5)
     faca = window._result.artworks[0].cut_contour
     assert faca.size.width == art.size.width - 10
     assert faca.size.height == art.size.height - 10
@@ -569,7 +568,6 @@ def test_persiste_configuracoes(qapp, tmp_path):
     window._height.setValue(1000)
     window._spacing.setValue(8)
     window._offset.setValue(2)
-    window._safety.setValue(1)
     window._save_settings()
 
     recarregado = SettingsStore(tmp_path / "config.json").load()
@@ -577,7 +575,7 @@ def test_persiste_configuracoes(qapp, tmp_path):
     assert recarregado.material_height == 1000
     assert recarregado.spacing == 8
     assert recarregado.offset == 2
-    assert recarregado.safety_inset == 1
+    assert recarregado.safety_inset == 0  # campo unico zera o antigo recuo
 
 
 # ---- projeto (.printnest) ----
@@ -718,12 +716,11 @@ def test_offset_externo_de_imagem_aumenta_a_faca(qapp, tmp_path):
     img = si.png_alpha_disc(tmp_path)
     window = _window(tmp_path)
     window.add_paths([img])
-    window._auto_offset_ext.setValue(0)
-    window._auto_offset_int.setValue(0)
+    window._auto_offset.setValue(0)
     window.generate(blocking=True)
     antes = window._result.artworks[0].cut_contour.size.width
 
-    window._auto_offset_ext.setValue(5)  # dispara _relayout
+    window._auto_offset.setValue(5)  # campo unico: +5 = sangria para fora
     depois = window._result.artworks[0].cut_contour.size.width
     assert depois > antes
 
