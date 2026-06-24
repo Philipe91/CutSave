@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -1567,13 +1568,32 @@ class MainWindow(QMainWindow):
         antigo grupo 'Exibicao' do painel lateral."""
         panel = QFrame(self._view.viewport())
         panel.setObjectName("displayOverlay")
-        lay = QVBoxLayout(panel)
-        lay.setContentsMargins(10, 8, 10, 9)
-        lay.setSpacing(4)
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(10, 8, 10, 9)
+        outer.setSpacing(6)
 
+        # cabecalho com titulo + botao minimizar/expandir (chevron)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(6)
         title = QLabel("Exibicao")
         title.setObjectName("ovTitle")
-        lay.addWidget(title)
+        header.addWidget(title)
+        header.addStretch(1)
+        self._display_toggle = QToolButton()
+        self._display_toggle.setObjectName("ovToggle")
+        self._display_toggle.setCursor(Qt.PointingHandCursor)
+        self._display_toggle.setAutoRaise(True)
+        self._display_toggle.setIcon(icons.icon("chevron-down", theme.ICON, 16))
+        self._display_toggle.setToolTip("Minimizar / expandir")
+        self._display_toggle.clicked.connect(self._toggle_display_overlay)
+        header.addWidget(self._display_toggle)
+        outer.addLayout(header)
+
+        body = QWidget()
+        lay = QVBoxLayout(body)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
 
         cap_u = QLabel("Unidade de medida")
         cap_u.setProperty("role", "caption")
@@ -1604,16 +1624,35 @@ class MainWindow(QMainWindow):
         self._snap_check.toggled.connect(self._set_snap)
         lay.addWidget(self._snap_check)
 
+        outer.addWidget(body)
+        self._display_body = body
+        self._display_collapsed = False
+
         panel.setStyleSheet(
             "#displayOverlay{background:rgba(255,255,255,238);"
             " border:1px solid #cfd6dd; border-radius:8px;}"
             " QLabel#ovTitle{font-weight:600; color:#1f2d3d;}"
+            " QToolButton#ovToggle{border:none; border-radius:5px; padding:2px;}"
+            " QToolButton#ovToggle:hover{background:#e7f0ff;}"
         )
         panel.setFixedWidth(232)
         panel.adjustSize()
         self._display_overlay = panel
         self._position_display_overlay()
         panel.show()
+
+    def _toggle_display_overlay(self) -> None:
+        """Minimiza (so o cabecalho) ou expande a janela de Exibicao."""
+        self._display_collapsed = not self._display_collapsed
+        self._display_body.setVisible(not self._display_collapsed)
+        self._display_toggle.setIcon(
+            icons.icon(
+                "chevron-right" if self._display_collapsed else "chevron-down",
+                theme.ICON, 16,
+            )
+        )
+        self._display_overlay.adjustSize()
+        self._position_display_overlay()
 
     def _position_display_overlay(self) -> None:
         if hasattr(self, "_display_overlay"):
