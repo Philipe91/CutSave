@@ -46,6 +46,8 @@ PROJECT_SETTING_KEYS = (
     "auto_ignore_white",
     "auto_offset_external",
     "auto_offset_internal",
+    "auto_smooth",
+    "faca_mode",
 )
 
 

@@ -599,6 +599,28 @@ def test_arrastar_arquivo_da_biblioteca_para_producao(qapp, tmp_path):
     assert sum(s.item_count for s in window._result.sheets) == n0 + 1
 
 
+def test_faca_pdf_pelo_contorno_nao_e_retangulo(qapp, tmp_path):
+    # PDF com um circulo preenchido sobre fundo branco
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=200)  # ~70mm
+    page.draw_circle(fitz.Point(100, 100), 90, color=(0, 0.5, 0), fill=(0, 0.5, 0))
+    src = tmp_path / "circulo.pdf"
+    doc.save(str(src))
+    doc.close()
+
+    window = _window(tmp_path)
+    window.add_paths([str(src)])
+    # modo retangulo (padrao): faca e um retangulo (4 cantos)
+    window.generate(blocking=True)
+    rect_pts = len(window._result.artworks[0].cut_contour.points)
+    assert rect_pts <= 5
+
+    # modo "pelo contorno": rasteriza e corta no formato do circulo
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("contour"))
+    contour_pts = len(window._result.artworks[0].cut_contour.points)
+    assert contour_pts > 8  # circulo -> muitos pontos, nao um retangulo
+
+
 def test_snap_axis_encaixa_na_borda():
     from app.presentation.main_window import SNAP_THRESHOLD_MM, PieceItem
 

@@ -62,8 +62,9 @@ class Cv2ImageImporter(IImageImporter):
 
         has_alpha = bool(rgba[:, :, 3].min() < _ALPHA_OPAQUE)
         image_kind = ImageKind.IMAGE_ALPHA if has_alpha else ImageKind.IMAGE_OPAQUE
-        mask = self._mask(rgba, has_alpha, sensitivity, ignore_white)
-        contour = self._contour(mask, width, height, dpi)
+        contour = self.detect_contour(
+            rgba, dpi, sensitivity=sensitivity, ignore_white=ignore_white
+        )
 
         stem = Path(path).stem or "imagem"
         art_id = f"{stem}#{self._short_hash(path)}"
@@ -111,6 +112,34 @@ class Cv2ImageImporter(IImageImporter):
         else:
             value = 0.0
         return value if value > 1.0 else DEFAULT_DPI
+
+    def detect_contour_from_png(
+        self, data: bytes, dpi: float, *, sensitivity: float = 50.0, ignore_white: bool = True
+    ) -> CutContour:
+        """Detecta o contorno a partir de um PNG em bytes (ex.: pagina de PDF
+        rasterizada). Reaproveita a mesma deteccao das imagens."""
+        import io
+
+        with Image.open(io.BytesIO(data)) as im:
+            rgba = np.array(im.convert("RGBA"))
+        return self.detect_contour(
+            rgba, dpi, sensitivity=sensitivity, ignore_white=ignore_white
+        )
+
+    def detect_contour(
+        self,
+        rgba: np.ndarray,
+        dpi: float,
+        *,
+        sensitivity: float = 50.0,
+        ignore_white: bool = True,
+    ) -> CutContour:
+        """Detecta o contorno externo de um array RGBA (reutilizavel: imagem ou
+        pagina de PDF rasterizada). Devolve a faca em milimetros."""
+        height, width = rgba.shape[:2]
+        has_alpha = bool(rgba[:, :, 3].min() < _ALPHA_OPAQUE)
+        mask = self._mask(rgba, has_alpha, sensitivity, ignore_white)
+        return self._contour(mask, width, height, dpi)
 
     # ---- mascara de conteudo ----
     def _mask(

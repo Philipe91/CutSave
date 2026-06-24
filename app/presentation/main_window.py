@@ -91,6 +91,7 @@ from app.application.use_cases.run_production_pipeline import (
 from app.domain.cut.contour_ops import crop_and_rotate_contour, offset_contour, smooth_contour
 from app.domain.geometry import Point2D, Size
 from app.domain.model.image_artwork import ImageArtwork
+from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
@@ -112,6 +113,8 @@ RULER_SIZE = 24
 NUDGE_MM = 1.0
 NUDGE_MICRO_MM = 0.1
 NUDGE_SUPER_MM = 10.0
+# DPI para rasterizar a pagina de PDF ao detectar a faca "pelo contorno".
+PDF_CONTOUR_DPI = 150
 SNAP_THRESHOLD_MM = 2.0  # distancia (mm) para o encaixe "grudar"
 
 
@@ -703,6 +706,9 @@ class MainWindow(QMainWindow):
         # faca por arquivo: caminho -> params proprios (override). Sem override,
         # o arquivo segue o padrao do painel Documento.
         self._file_overrides: dict[str, dict] = {}
+        # faca "pelo contorno" de PDF: detecta o contorno da pagina rasterizada.
+        self._contour_detector = Cv2ImageImporter()
+        self._pdf_contours: dict = {}  # (caminho, pagina) -> contorno detectado
         self._selected_path: str | None = None
         self._selected_is_image = False
         self._pf_loading = False        # carregando controles da peca (nao gravar)
@@ -1355,6 +1361,13 @@ class MainWindow(QMainWindow):
 
         # ---- faca SO deste arquivo (override) ----
         faca = CollapsibleCard("Faca deste arquivo")
+        self._pf_mode_label = QLabel("Faca de PDF")
+        faca.body.addWidget(self._pf_mode_label)
+        self._pf_mode = QComboBox()
+        self._pf_mode.addItem("Retangulo (por fora)", "rect")
+        self._pf_mode.addItem("Pelo contorno (rasteriza)", "contour")
+        self._pf_mode.currentIndexChanged.connect(lambda _: self._on_piece_faca_changed())
+        faca.body.addWidget(self._pf_mode)
         faca.body.addWidget(QLabel("Sangria  ( + fora  /  − dentro )"))
         self._pf_offset = LengthSpin(-100, 100)
         self._pf_offset.valueChanged.connect(lambda _: self._on_piece_faca_changed())
@@ -1566,11 +1579,16 @@ class MainWindow(QMainWindow):
             self._pf_crop.setValue(p["crop"])
             self._pf_rotation.setCurrentText(str(p["rotation"]))
             self._pf_smooth.setValue(int(p["smooth"]))
+            self._pf_mode.setCurrentIndex(max(0, self._pf_mode.findData(p.get("mode", "rect"))))
         finally:
             self._pf_loading = False
-        # suavizar so faz sentido para imagem
-        self._pf_smooth.setEnabled(self._selected_is_image)
-        self._pf_smooth_label.setEnabled(self._selected_is_image)
+        # modo da faca so vale para PDF (imagem ja corta pelo contorno)
+        self._pf_mode.setEnabled(not self._selected_is_image)
+        self._pf_mode_label.setEnabled(not self._selected_is_image)
+        # suavizar vale para imagem e para PDF cortado pelo contorno
+        contour_cut = self._selected_is_image or p.get("mode") == "contour"
+        self._pf_smooth.setEnabled(contour_cut)
+        self._pf_smooth_label.setEnabled(contour_cut)
         self._pf_reset.setVisible(path in self._file_overrides)
 
     def _on_piece_faca_changed(self) -> None:
@@ -1587,6 +1605,7 @@ class MainWindow(QMainWindow):
         p["crop"] = float(self._pf_crop.value())
         p["rotation"] = int(self._pf_rotation.currentText())
         p["smooth"] = int(self._pf_smooth.value())
+        p["mode"] = self._pf_mode.currentData()
         self._file_overrides[path] = p
         self._keep_tab = True
         try:
@@ -1745,6 +1764,17 @@ class MainWindow(QMainWindow):
         self._crop = LengthSpin(0, 100)
         self._crop.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._crop)
+        lay.addWidget(QLabel("Faca de PDF"))
+        self._faca_mode = QComboBox()
+        self._faca_mode.addItem("Retangulo (por fora)", "rect")
+        self._faca_mode.addItem("Pelo contorno (rasteriza)", "contour")
+        self._faca_mode.setToolTip(
+            "Retangulo: corta a caixa do PDF (por fora).\n"
+            "Pelo contorno: rasteriza a pagina e corta no formato do desenho\n"
+            "(ex.: circulo), removendo o fundo branco."
+        )
+        self._faca_mode.currentIndexChanged.connect(lambda _: self._relayout())
+        lay.addWidget(self._faca_mode)
         self._shared = QComboBox()
         self._shared.addItems(["Faca por peca (quadrados)", "Faca compartilhada (grade)"])
         self._shared.currentIndexChanged.connect(lambda _: self._relayout())
@@ -1883,6 +1913,7 @@ class MainWindow(QMainWindow):
         # campo unico com sinal: deriva do par antigo (offset - recuo) p/ compat
         self._offset.setValue(s.offset - s.safety_inset)
         self._crop.setValue(s.crop)
+        self._faca_mode.setCurrentIndex(max(0, self._faca_mode.findData(s.faca_mode)))
         self._rotation.setCurrentText(str(s.rotation))
         self._shared.setCurrentIndex(1 if s.shared_faca else 0)
         idx = max(0, self._reg_type.findData(s.reg_type))
@@ -1914,6 +1945,7 @@ class MainWindow(QMainWindow):
         s.offset = float(self._offset.value())
         s.safety_inset = 0.0
         s.crop = float(self._crop.value())
+        s.faca_mode = self._faca_mode.currentData()
         s.rotation = self._rotation_value()
         s.shared_faca = self._shared.currentIndex() == 1
         s.reg_type = self._reg_type.currentData()
@@ -1953,6 +1985,7 @@ class MainWindow(QMainWindow):
             "crop": float(self._crop.value()),
             "rotation": self._rotation_value(),
             "smooth": int(self._auto_smooth.value()),
+            "mode": self._faca_mode.currentData(),  # "rect" | "contour" (PDF)
         }
 
     def _params_for(self, path) -> dict:
@@ -1968,7 +2001,56 @@ class MainWindow(QMainWindow):
         params = self._params_for(self._path_of(base.id))
         if isinstance(base, ImageArtwork):
             return self._image_faca(base, params)
+        if params.get("mode") == "contour":  # PDF cortado pelo contorno (rasteriza)
+            return self._contour_faca(base, self._pdf_raster_contour(base), params)
         return self._faca_uc.execute(self._transform(base, params), params["offset"])
+
+    def _pdf_raster_contour(self, base):
+        """Contorno de uma pagina de PDF: rasteriza e detecta (igual imagem).
+        Cacheado por (caminho, pagina); recomputado a cada nova producao."""
+        key = self._sources.get(base.id)
+        if key is None:
+            return None
+        cached = self._pdf_contours.get(key)
+        if cached is not None:
+            return cached
+        path, page = key
+        try:
+            data = self._renderer.render_png(
+                path, page, dpi=PDF_CONTOUR_DPI, box=self._import_box.currentData()
+            )
+            contour = self._contour_detector.detect_contour_from_png(
+                data, PDF_CONTOUR_DPI,
+                sensitivity=float(self._auto_sensitivity.value()),
+                ignore_white=self._auto_ignore_white.isChecked(),
+            )
+        except Exception:  # se falhar a deteccao, cai no retangulo
+            contour = None
+        self._pdf_contours[key] = contour
+        return contour
+
+    def _contour_faca(self, base, raw_contour, params):
+        """Monta a faca a partir de um contorno (imagem ou PDF rasterizado):
+        aplica recorte + giro + suavizar + sangria. Sem contorno, usa o retangulo
+        do proprio tamanho (recortado/girado)."""
+        crop = params["crop"]
+        rotation = params["rotation"]
+        net_offset = params["auto_offset"]
+        if raw_contour is not None:
+            contour, w, h = crop_and_rotate_contour(
+                raw_contour, crop, rotation, base.size.width, base.size.height
+            )
+            smooth = int(params["smooth"])
+            if smooth > 0:
+                contour = smooth_contour(contour, smooth)
+            if net_offset != 0:
+                contour = offset_contour(contour, net_offset)
+            return replace(base, size=Size(w, h), cut_contour=contour)
+        w = base.size.width - 2 * crop
+        h = base.size.height - 2 * crop
+        if rotation % 360 in (90, 270):
+            w, h = h, w
+        return replace(base, size=Size(w, h), cut_contour=None)
 
     def _transform(self, art, params: dict):
         """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
@@ -1996,6 +2078,7 @@ class MainWindow(QMainWindow):
             self._auto_sensitivity.setValue(50)
             self._auto_ignore_white.setChecked(True)
             self._rotation.setCurrentIndex(0)  # 0 graus
+            self._faca_mode.setCurrentIndex(0)  # retangulo (padrao)
         finally:
             self._suspend_relayout = False
         self._relayout()
@@ -2008,27 +2091,7 @@ class MainWindow(QMainWindow):
         e girado/cortado em _display_pixmap); senao a faca fica desalinhada e o
         tamanho usado no nesting/exportacao nao bate com a imagem girada.
         """
-        crop = params["crop"]
-        rotation = params["rotation"]
-        net_offset = params["auto_offset"]
-        contour = base.raw_contour
-        if contour is not None:
-            contour, w, h = crop_and_rotate_contour(
-                contour, crop, rotation, base.size.width, base.size.height
-            )
-            smooth = int(params["smooth"])
-            if smooth > 0:
-                contour = smooth_contour(contour, smooth)
-            if net_offset != 0:
-                contour = offset_contour(contour, net_offset)
-            size = Size(w, h)
-        else:
-            w = base.size.width - 2 * crop
-            h = base.size.height - 2 * crop
-            if rotation % 360 in (90, 270):
-                w, h = h, w
-            size = Size(w, h)
-        return replace(base, size=size, cut_contour=contour)
+        return self._contour_faca(base, base.raw_contour, params)
 
     # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
@@ -2222,6 +2285,7 @@ class MainWindow(QMainWindow):
 
     def _load_production(self, result: ProductionResult, png_map: dict) -> None:
         self._base_artworks = result.artworks
+        self._pdf_contours = {}  # recomputa contornos de PDF na nova producao
         self._sources = result.sources
         self._origins = dict(result.origins) or {
             art_id: src[0] for art_id, src in result.sources.items()
