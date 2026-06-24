@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -28,6 +29,9 @@ def main() -> int:
     setup_logging(settings.log_level, paths.logs_dir)
 
     app = QApplication(sys.argv)
+    # Trava o tema em Claro: a interface fica igual em qualquer PC,
+    # independente do modo Claro/Escuro do Windows (Qt 6 segue o sistema).
+    app.styleHints().setColorScheme(Qt.ColorScheme.Light)
     icon_file = resource_path("assets/printnest.ico")
     if icon_file.exists():
         app.setWindowIcon(QIcon(str(icon_file)))
