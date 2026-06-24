@@ -146,6 +146,8 @@ class ZoomableGraphicsView(QGraphicsView):
         self.setBackgroundBrush(QColor(170, 170, 170))  # mesa cinza
         self.setMouseTracking(True)  # cursor reportado mesmo sem botao pressionado
         self.setAcceptDrops(True)  # aceita arquivos arrastados da biblioteca
+        # laco seleciona tudo que ele TOCAR (nao precisa envolver por inteiro)
+        self.setRubberBandSelectionMode(Qt.IntersectsItemShape)
         self._panning = False
         self._pan_last = None
         self._left_drag = False
@@ -232,11 +234,14 @@ class ZoomableGraphicsView(QGraphicsView):
             if target is not None:
                 self.setDragMode(QGraphicsView.NoDrag)
                 self._left_drag = True
-                self.drag_started.emit()
             else:
                 self.setDragMode(QGraphicsView.RubberBandDrag)
                 self._left_drag = False
         super().mousePressEvent(event)
+        # drag_started DEPOIS do super: o Qt ja selecionou a peca clicada, entao
+        # o snapshot do desfazer (_begin_move) inclui a peca que vai ser movida.
+        if self._left_drag:
+            self.drag_started.emit()
 
     def mouseMoveEvent(self, event) -> None:
         scene_pos = self.mapToScene(event.position().toPoint())
@@ -821,6 +826,8 @@ class MainWindow(QMainWindow):
                             "Gera um DXF com todas as chapas")
         exp_dxf_n = self._act("Exportar DXF por chapa...", self.export_dxf_per_sheet, None,
                               "Gera um arquivo DXF para cada chapa")
+        exp_faca_pdf = self._act("Exportar Faca (PDF)...", self.export_faca_pdf, None,
+                                 "Gera um PDF so com a faca (linhas de corte)")
         exp_img = self._act("Exportar Imagem (PNG/JPEG)...", self.export_image, None,
                             "Rasteriza a impressao em imagem, no DPI escolhido")
         sair = self._act("Sair", self.close, None, "Fecha o programa")
@@ -830,7 +837,7 @@ class MainWindow(QMainWindow):
         m_arq = bar.addMenu("&Arquivo")
         for action in (novo, abrir, salvar, salvar_como,
                        None, add, substituir,
-                       None, exp_pdf, exp_dxf, exp_dxf_n, exp_img,
+                       None, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img,
                        None, sair):
             m_arq.addSeparator() if action is None else m_arq.addAction(action)
         m_edit = bar.addMenu("&Editar")
@@ -866,13 +873,13 @@ class MainWindow(QMainWindow):
             (to_front, "align-vertical-justify-start"),
             (to_back, "align-vertical-justify-end"),
             (exp_pdf, "download"), (exp_dxf, "download"), (exp_dxf_n, "download"),
-            (exp_img, "image"),
+            (exp_faca_pdf, "download"), (exp_img, "image"),
         ):
             action.setIcon(icons.icon(name))
 
         # acoes guardadas para habilitar/desabilitar conforme o estado
         self._act_generate = gerar
-        self._export_actions = [exp_pdf, exp_dxf, exp_dxf_n, exp_img]
+        self._export_actions = [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img]
         for action in self._export_actions:
             action.setEnabled(False)
 
@@ -929,7 +936,8 @@ class MainWindow(QMainWindow):
             ("Producao", [
                 tb.tool_button(gerar, "zap", accent=True),
                 tb.menu_button("Exportar", "download",
-                               [exp_pdf, exp_dxf, exp_dxf_n, exp_img], tip="Exportar producao"),
+                               [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img],
+                               tip="Exportar producao"),
             ]),
             ("Exibir", [
                 tb.tool_button(fit, "maximize"),
@@ -2328,6 +2336,7 @@ class MainWindow(QMainWindow):
         """Recalcula faca + nesting com os parametros atuais (tempo real)."""
         if not self._loaded or self._suspend_relayout:
             return
+        self._undo.clear()  # arranjo regenerado do zero: zera o historico
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
@@ -2393,7 +2402,9 @@ class MainWindow(QMainWindow):
         self._piece_items = []
         self._obj_rows = []  # evita referenciar pecas deletadas no scene.clear()
         self._guide_preview_item = None  # invalidado pelo scene.clear()
-        self._undo.clear()  # arranjo regenerado: zera historico de movimentos
+        # NAO limpa o historico aqui: senao excluir/duplicar/desfazer (que
+        # redesenham) apagariam o proprio comando. O reset do historico acontece
+        # so quando o arranjo e regenerado (em _relayout).
         self._scene.clear()
         if self._result is None:
             return
@@ -2662,7 +2673,9 @@ class MainWindow(QMainWindow):
         """Adiciona um arquivo da biblioteca a producao na posicao do drop, sem
         refazer o nesting das pecas que ja estao na chapa."""
         if self._result is None or not self._loaded:
-            self._toasts.info("Gere a producao primeiro para arrastar arquivos.")
+            # ainda nao gerou: o drop ja monta a producao (sem precisar clicar
+            # em "Gerar Producao"). O usuario organiza e segue dali.
+            self.generate(blocking=True)
             return
         bases = [b for b in self._base_artworks if self._path_of(b.id) == path]
         if not bases:  # arquivo ainda nao importado -> importa agora
@@ -3049,20 +3062,15 @@ class MainWindow(QMainWindow):
             segments = []
         marks, mark_segments = [], []
         if reg == "circles":
+            # bolinhas continuam no corte (comportamento ja validado)
             marks = registration_marks_sheets(
                 sheets, artworks, sheet_width,
                 margin_mm=float(self._reg_margin.value()),
                 diameter_mm=float(self._reg_diameter.value()),
             )
-        elif reg == "mimaki":
-            mk_list = mimaki_marks_sheets(
-                sheets, artworks, sheet_width,
-                distance_mm=float(self._mk_distance.value()),
-                mark_size_mm=float(self._mk_size.value()),
-            )
-            contours = list(contours) + mimaki_frame_contours(mk_list)
-            for mk in mk_list:
-                mark_segments.extend(mk.segments)
+        # Mimaki: as marcas de registro NAO vao para o arquivo de corte (so a
+        # faca). As marcas seguem apenas no PDF de impressao, para a leitura da
+        # camera; o corte leva so a linha de faca.
         return contours, segments, marks, mark_segments
 
     def export_dxf(self, path: str | None = None, pages=None) -> None:
@@ -3117,3 +3125,51 @@ class MainWindow(QMainWindow):
             gerados.append(out)
         if interactive:
             self._toasts.success(f"{len(gerados)} DXF de corte exportado(s)")
+
+    def export_faca_pdf(self, path: str | None = None, pages=None) -> None:
+        """Exporta a faca (linhas de corte) em PDF vetorial, uma pagina por chapa.
+        Mesma geometria do DXF (so a faca, sem marcas de registro)."""
+        if self._result is None:
+            return
+        interactive = not isinstance(path, str) or not path
+        sheets = self._select_export_sheets(
+            self._effective_sheets(), pages, interactive, "Exportar Faca (PDF)"
+        )
+        if sheets is None:
+            return
+        if not sheets:
+            if interactive:
+                QMessageBox.warning(self, "PrintNest", "Nenhuma chapa selecionada.")
+            return
+        if interactive:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Faca (PDF)",
+                str(Path(self._settings.last_dir) / "FACA.pdf"), "PDF (*.pdf)",
+            )
+            if not path:
+                return
+        import fitz
+
+        mm2pt = 72.0 / 25.4
+        doc = fitz.open()
+        try:
+            for sheet in sheets:
+                page = doc.new_page(
+                    width=sheet.material.width * mm2pt, height=sheet.used_length * mm2pt
+                )
+                contours, segments, _marks, _mk = self._dxf_payload([sheet])
+                pen = {"color": (0.86, 0.0, 0.0), "width": 0.5}
+                for contour in contours:
+                    pts = [fitz.Point(p.x * mm2pt, p.y * mm2pt) for p in contour.points]
+                    if len(pts) >= 2:
+                        page.draw_polyline(pts + [pts[0]], **pen)  # fecha o contorno
+                for seg in segments:
+                    page.draw_line(
+                        fitz.Point(seg.start.x * mm2pt, seg.start.y * mm2pt),
+                        fitz.Point(seg.end.x * mm2pt, seg.end.y * mm2pt), **pen,
+                    )
+            doc.save(path)
+        finally:
+            doc.close()
+        if interactive:
+            self._toasts.success("Faca exportada em PDF")

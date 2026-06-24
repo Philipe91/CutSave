@@ -199,6 +199,45 @@ def test_undo_de_movimento(qapp, tmp_path):
     assert abs(piece.pos().y() - old.y()) < 0.01
 
 
+def test_ctrlz_grava_movimento_via_mouse(qapp, tmp_path):
+    # Regressao: arrastar com o mouse uma peca NAO pre-selecionada precisa gravar
+    # o movimento no historico (Ctrl+Z). O snapshot tem de ocorrer apos a selecao.
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.resize(1000, 700)
+    window.show()
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._fit_view()
+    qapp.processEvents()
+
+    piece = window._piece_items[0]
+    assert not piece.isSelected()
+    assert window._undo.count() == 0
+    center = piece.scenePos() + QPointF(
+        piece.rect().width() / 2, piece.rect().height() / 2
+    )
+    vp = window._view.viewport()
+    start = window._view.mapFromScene(center)
+    end = QPoint(start.x() + 60, start.y() + 20)
+
+    def send(kind, pos, buttons=Qt.LeftButton):
+        ev = QMouseEvent(kind, QPointF(pos), vp.mapToGlobal(pos),
+                         Qt.LeftButton, buttons, Qt.NoModifier)
+        qapp.sendEvent(vp, ev)
+
+    send(QEvent.MouseButtonPress, start)
+    qapp.processEvents()
+    send(QEvent.MouseMove, end)
+    send(QEvent.MouseButtonRelease, end, buttons=Qt.NoButton)
+    qapp.processEvents()
+
+    assert window._undo.count() == 1  # movimento gravado -> Ctrl+Z funciona
+
+
 def test_agrupar_move_em_conjunto(qapp, tmp_path):
     from PySide6.QtWidgets import QGraphicsItemGroup
 
@@ -330,6 +369,32 @@ def test_exportar_dxf_por_chapa(qapp, tmp_path):
     window.export_dxf_per_sheet(str(base))
     gerados = list(tmp_path.glob("CORTE_*.dxf"))
     assert len(gerados) == n_chapas
+
+
+def test_exportar_faca_pdf(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    out = tmp_path / "FACA.pdf"
+    window.export_faca_pdf(str(out))
+    assert out.exists()
+    assert fitz.open(str(out)).page_count == 1
+
+
+def test_dxf_mimaki_nao_leva_marcas_de_registro(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._reg_type.setCurrentIndex(window._reg_type.findData("mimaki"))
+    window.generate(blocking=True)
+    out = tmp_path / "CORTE_MK.dxf"
+    window.export_dxf(str(out))
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    # so as facas (2 LWPOLYLINE), nenhuma linha de marca de registro Mimaki
+    assert len(msp.query("LWPOLYLINE")) == 2
+    assert len(msp.query("LINE")) == 0
 
 
 def test_exportar_imagem_png(qapp, tmp_path):
