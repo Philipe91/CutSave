@@ -132,6 +132,7 @@ class ZoomableGraphicsView(QGraphicsView):
     drag_finished = Signal()
     nudge = Signal(float, float)  # deslocamento (dx, dy) em mm, via setas
     cursor_moved = Signal(float, float)  # posicao do cursor (x, y) em mm na cena
+    library_drop = Signal(QPointF)  # arquivo arrastado da biblioteca, soltou na cena
 
     def __init__(self, scene: QGraphicsScene) -> None:
         super().__init__(scene)
@@ -141,9 +142,37 @@ class ZoomableGraphicsView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(170, 170, 170))  # mesa cinza
         self.setMouseTracking(True)  # cursor reportado mesmo sem botao pressionado
+        self.setAcceptDrops(True)  # aceita arquivos arrastados da biblioteca
         self._panning = False
         self._pan_last = None
         self._left_drag = False
+
+    # ---- arrastar da biblioteca para a area de trabalho ----
+    @staticmethod
+    def _is_library_drag(event) -> bool:
+        src = event.source()
+        return isinstance(src, QTableWidget) or event.mimeData().hasFormat(
+            "application/x-qabstractitemmodeldatalist"
+        )
+
+    def dragEnterEvent(self, event) -> None:
+        if self._is_library_drag(event):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event) -> None:
+        if self._is_library_drag(event):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event) -> None:
+        if self._is_library_drag(event):
+            self.library_drop.emit(self.mapToScene(event.position().toPoint()))
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
     def zoom_factor(self) -> float:
         """Fator de zoom atual (1.0 = 100%)."""
@@ -1122,6 +1151,7 @@ class MainWindow(QMainWindow):
         self._view.drag_started.connect(self._begin_move)
         self._view.drag_finished.connect(self._end_move)
         self._view.nudge.connect(self._nudge)
+        self._view.library_drop.connect(self._on_library_drop)
 
         work = QWidget()
         grid = QGridLayout(work)
@@ -1649,6 +1679,9 @@ class MainWindow(QMainWindow):
         self._table.setWordWrap(True)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._table.setDragEnabled(True)  # arrastar arquivo para a area de trabalho
+        self._table.setDragDropMode(QAbstractItemView.DragOnly)
         self._table.itemSelectionChanged.connect(self._update_selection_info)
         lay.addWidget(self._table, 1)
 
@@ -1929,6 +1962,13 @@ class MainWindow(QMainWindow):
 
     def _path_of(self, art_id) -> str | None:
         return self._origins.get(art_id) or self._sources.get(art_id, (None,))[0]
+
+    def _faca_for(self, base):
+        """Aplica a faca do arquivo (override ou padrao) a uma arte base."""
+        params = self._params_for(self._path_of(base.id))
+        if isinstance(base, ImageArtwork):
+            return self._image_faca(base, params)
+        return self._faca_uc.execute(self._transform(base, params), params["offset"])
 
     def _transform(self, art, params: dict):
         """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
@@ -2216,12 +2256,7 @@ class MainWindow(QMainWindow):
                 qty = quantities.get(path, 0)  # arquivo removido da tabela -> 0
                 if qty <= 0:
                     continue
-                params = self._params_for(path)  # faca do arquivo (ou padrao)
-                if isinstance(base, ImageArtwork):
-                    art = self._image_faca(base, params)
-                else:
-                    art = self._faca_uc.execute(self._transform(base, params), params["offset"])
-                artworks.extend([art] * qty)
+                artworks.extend([self._faca_for(base)] * qty)
         except ValidationError:
             self._alert.show_message(
                 AlertLevel.ERROR, "Recorte/recuo grande demais para a peca."
@@ -2534,6 +2569,80 @@ class MainWindow(QMainWindow):
                 used = max(used, placed.position.y + (fp.max_y - fp.min_y))
             sheets.append(Layout(layout.material, items, used))
         self._commit_arrangement(before, sheets, text)
+
+    # ---- adicionar arquivo da biblioteca a producao ja gerada (arrastar) ----
+    def _on_library_drop(self, scene_pos) -> None:
+        row = self._table.currentRow()
+        if 0 <= row < len(self._paths):
+            self._add_file_to_production(self._paths[row], scene_pos)
+
+    def _add_file_to_production(self, path: str, scene_pos) -> None:
+        """Adiciona um arquivo da biblioteca a producao na posicao do drop, sem
+        refazer o nesting das pecas que ja estao na chapa."""
+        if self._result is None or not self._loaded:
+            self._toasts.info("Gere a producao primeiro para arrastar arquivos.")
+            return
+        bases = [b for b in self._base_artworks if self._path_of(b.id) == path]
+        if not bases:  # arquivo ainda nao importado -> importa agora
+            bases = self._import_file_bases(path)
+            if not bases:
+                return
+            self._base_artworks.extend(bases)
+        faca_arts = [self._faca_for(b) for b in bases]
+        current = list(self._result.artworks)
+        have = {a.id for a in current}
+        current.extend(fa for fa in faca_arts if fa.id not in have)
+        self._result = ProductionResult(
+            sheets=self._result.sheets, artworks=current,
+            sources=self._sources, origins=self._origins,
+        )
+        index, base_pos = self._sheet_pos_at(scene_pos)
+        qty = self._quantities().get(path, 1) or 1
+        step = NUDGE_SUPER_MM
+        placed, n = [], 0
+        for fa in faca_arts:
+            for _ in range(qty):
+                placed.append(
+                    PlacedItem(fa.id, Point2D(base_pos.x + n * step, base_pos.y + n * step))
+                )
+                n += 1
+        self._add_placed({index: placed}, text="adicionar arquivo")
+        self._toasts.success(f"{Path(path).name} adicionado a producao")
+
+    def _import_file_bases(self, path: str) -> list:
+        """Importa um unico arquivo (sem refazer tudo) e registra fontes/pixmaps."""
+        box = self._import_box.currentData()
+        try:
+            result1 = self._pipeline.execute(
+                [path], self._material(), self._effective_offset(), 0.0, box,
+                sensitivity=float(self._auto_sensitivity.value()),
+                ignore_white=self._auto_ignore_white.isChecked(),
+            )
+        except Exception:  # arquivo invalido/ausente: nao quebra a producao atual
+            self._toasts.error(f"Falha ao importar {Path(path).name}")
+            return []
+        for art in result1.artworks:
+            self._sources[art.id] = result1.sources[art.id]
+            self._origins[art.id] = result1.origins.get(art.id, path)
+        for key in set(result1.sources.values()):
+            if key not in self._pixmaps:
+                try:
+                    data = self._renderer.render_png(key[0], key[1], box=box)
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(data, "PNG")
+                    self._pixmaps[key] = pixmap
+                except Exception:  # miniatura/render opcional; segue sem pixmap
+                    pass
+        return list(result1.artworks)
+
+    def _sheet_pos_at(self, scene_pos):
+        """Chapa e posicao local (mm) sob o ponto da cena onde o arquivo foi solto."""
+        x, y = scene_pos.x(), scene_pos.y()
+        for index, layout in enumerate(self._result.sheets):
+            dx = index * (layout.material.width + SHEET_GAP_MM)
+            if dx <= x <= dx + layout.material.width:
+                return index, Point2D(max(0.0, x - dx), max(0.0, y))
+        return 0, Point2D(max(0.0, x), max(0.0, y))
 
     def _duplicate_selected(self) -> None:
         """Duplica as pecas selecionadas com deslocamento diagonal (Corel: Ctrl+D)."""

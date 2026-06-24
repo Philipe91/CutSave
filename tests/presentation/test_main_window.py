@@ -578,6 +578,27 @@ def test_faca_por_arquivo_so_afeta_aquele_arquivo(qapp, tmp_path):
     assert abs(depois[pdf].cut_contour.size.width - pdf_w0) < 0.01  # PDF intacto
 
 
+def test_arrastar_arquivo_da_biblioteca_para_producao(qapp, tmp_path):
+    from PySide6.QtCore import QPointF
+
+    a = _two_page_pdf(tmp_path)
+    b = _n_page_pdf(tmp_path, 1, name="extra")
+    window = _window(tmp_path)
+    window.add_paths([a])
+    window.generate(blocking=True)
+    n0 = sum(s.item_count for s in window._result.sheets)
+    assert n0 == 2
+
+    # B foi esquecido: entra na biblioteca depois de gerar, ainda fora da producao
+    window.add_paths([b])
+    assert not any(window._path_of(art.id) == b for art in window._result.artworks)
+
+    # arrasta B para a area de trabalho (drop na chapa 0)
+    window._add_file_to_production(b, QPointF(10.0, 10.0))
+    assert any(window._path_of(art.id) == b for art in window._result.artworks)
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 1
+
+
 def test_snap_axis_encaixa_na_borda():
     from app.presentation.main_window import SNAP_THRESHOLD_MM, PieceItem
 
