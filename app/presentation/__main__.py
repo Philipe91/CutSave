@@ -34,9 +34,13 @@ def main() -> int:
     # independente do modo Claro/Escuro do Windows (Qt 6 segue o sistema).
     app.styleHints().setColorScheme(Qt.ColorScheme.Light)
     app.setStyleSheet(theme.build_app_qss())  # folha de estilo global (design system)
-    icon_file = resource_path("assets/printnest.ico")
-    if icon_file.exists():
-        app.setWindowIcon(QIcon(str(icon_file)))
+    # icone da janela: prefere a logo PNG; cai para o .ico se a PNG nao existir
+    icon_file = resource_path("assets/printnest.png")
+    if not icon_file.exists():
+        icon_file = resource_path("assets/printnest.ico")
+    app_icon = QIcon(str(icon_file)) if icon_file.exists() else None
+    if app_icon is not None:
+        app.setWindowIcon(app_icon)
     pipeline = RunProductionPipelineUseCase(
         ImportPdfUseCase(PyMuPdfImporter()),
         image_uc=ImportImageUseCase(Cv2ImageImporter(paths.cache_dir)),
@@ -49,6 +53,8 @@ def main() -> int:
         store,
         settings,
     )
+    if app_icon is not None:
+        window.setWindowIcon(app_icon)  # garante a logo na barra de titulo
     window.show()
     return app.exec()
 
