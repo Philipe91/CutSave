@@ -5,6 +5,20 @@
 
 ---
 
+## Pendências combinadas (a fazer em breve)
+
+- **Faca do cliente no PDF**: detectar/usar o contorno vetorial enviado pelo cliente
+  (página separada arte+corte; mesma página por cor especial). Motor já existe
+  (`pymupdf_vector_extractor`, `generate_vector_cut`), falta ligar ao pipeline.
+- **Soltar arquivo SEM gerar a faca (modo organizar)**: arrastar o arquivo da
+  Biblioteca para a área de trabalho e poder posicioná-lo **antes** de gerar a
+  faca; depois clicar em "Gerar Produção" para então gerar as facas. Hoje o
+  drop já monta a produção (com faca). Esse modo "só layout, faca depois" é uma
+  evolução: requer separar posicionamento da geração de faca (peças pelo tamanho
+  da arte, faca aplicada só no Gerar). Avaliar custo/benefício antes de fazer.
+
+---
+
 ## Visão Geral
 
 Construir um software profissional para Windows focado em:
