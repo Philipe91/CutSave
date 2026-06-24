@@ -34,10 +34,11 @@ def main() -> int:
     # independente do modo Claro/Escuro do Windows (Qt 6 segue o sistema).
     app.styleHints().setColorScheme(Qt.ColorScheme.Light)
     app.setStyleSheet(theme.build_app_qss())  # folha de estilo global (design system)
-    # icone da janela: prefere a logo PNG; cai para o .ico se a PNG nao existir
-    icon_file = resource_path("assets/printnest.png")
+    # icone da janela: .ico multi-tamanho (so o simbolo, nitido em 16/32px);
+    # cai para a PNG se o .ico nao existir
+    icon_file = resource_path("assets/printnest.ico")
     if not icon_file.exists():
-        icon_file = resource_path("assets/printnest.ico")
+        icon_file = resource_path("assets/printnest.png")
     app_icon = QIcon(str(icon_file)) if icon_file.exists() else None
     if app_icon is not None:
         app.setWindowIcon(app_icon)
