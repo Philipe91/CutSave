@@ -392,9 +392,9 @@ def test_dxf_mimaki_nao_leva_marcas_de_registro(qapp, tmp_path):
     window.export_dxf(str(out))
     doc = ezdxf.readfile(str(out))
     msp = doc.modelspace()
-    # so as facas (2 LWPOLYLINE), nenhuma linha de marca de registro Mimaki
-    assert len(msp.query("LWPOLYLINE")) == 2
-    assert len(msp.query("LINE")) == 0
+    # faca (2) + o quadrado/frame do Mimaki (1) = 3 contornos; sem as marcas em L
+    assert len(msp.query("LWPOLYLINE")) == 3
+    assert len(msp.query("LINE")) == 0  # nenhuma marca de registro em L no corte
 
 
 def test_exportar_imagem_png(qapp, tmp_path):

@@ -3236,9 +3236,16 @@ class MainWindow(QMainWindow):
                 margin_mm=float(self._reg_margin.value()),
                 diameter_mm=float(self._reg_diameter.value()),
             )
-        # Mimaki: as marcas de registro NAO vao para o arquivo de corte (so a
-        # faca). As marcas seguem apenas no PDF de impressao, para a leitura da
-        # camera; o corte leva so a linha de faca.
+        elif reg == "mimaki":
+            # mantem o QUADRADO (frame) que posiciona as marcas em L, junto com a
+            # faca; mas NAO leva as marcas de registro em L (mark_segments fica
+            # vazio). As marcas em L seguem apenas no PDF de impressao.
+            mk_list = mimaki_marks_sheets(
+                sheets, artworks, sheet_width,
+                distance_mm=float(self._mk_distance.value()),
+                mark_size_mm=float(self._mk_size.value()),
+            )
+            contours = list(contours) + mimaki_frame_contours(mk_list)
         return contours, segments, marks, mark_segments
 
     def export_dxf(self, path: str | None = None, pages=None) -> None:
