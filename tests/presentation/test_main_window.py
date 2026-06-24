@@ -523,6 +523,30 @@ def test_guia_fora_do_canvas_nao_cria(qapp, tmp_path):
     assert window._guides == []
 
 
+def test_aba_objeto_lista_seleciona_e_ordena(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    # a lista de objetos reflete as pecas
+    assert window._obj_list.count() == 2
+
+    # selecionar pela lista marca a peca no canvas
+    window._obj_list.item(0).setSelected(True)
+    assert window._obj_rows[0].isSelected()
+
+    # z-order: trazer a peca 0 para frente fica acima da peca 1
+    window._scene.clearSelection()
+    window._piece_items[0].setSelected(True)
+    window._bring_to_front()
+    assert window._piece_items[0].zValue() > window._piece_items[1].zValue()
+
+    # enviar para tras inverte
+    window._send_to_back()
+    assert window._piece_items[0].zValue() < window._piece_items[1].zValue()
+
+
 def test_snap_axis_encaixa_na_borda():
     from app.presentation.main_window import SNAP_THRESHOLD_MM, PieceItem
 

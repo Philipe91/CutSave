@@ -39,6 +39,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -479,7 +481,7 @@ class GuideItem(QGraphicsLineItem):
         self._is_h = bool(record[0])
         self._base = float(record[1])
         self.setPen(pen)
-        self.setZValue(1000)  # acima das pecas, para clicar facil
+        self.setZValue(1_000_000)  # sempre acima das pecas (mesmo apos z-order)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -1277,6 +1279,7 @@ class MainWindow(QMainWindow):
         self._props_tabs = QTabWidget()
         self._props_tabs.addTab(doc_scroll, "Documento")
         self._props_tabs.addTab(self._sel_stack, "Selecao")
+        self._props_tabs.addTab(self._build_object_page(), "Objeto")
 
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
@@ -1341,6 +1344,88 @@ class MainWindow(QMainWindow):
             card.body.addWidget(btn)
         return card
 
+    def _build_object_page(self) -> QWidget:
+        """Aba 'Objeto': lista os objetos da area de trabalho (clique seleciona) e
+        oferece gerenciar objetos como no CorelDRAW: selecionar tudo, agrupar/
+        desagrupar, ordem (frente/tras) e remover."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(theme.SPACE_SM)
+
+        cap = QLabel("Objetos na area de trabalho (clique para selecionar)")
+        cap.setProperty("role", "caption")
+        cap.setWordWrap(True)
+        lay.addWidget(cap)
+        self._obj_list = QListWidget()
+        self._obj_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self._obj_list.itemSelectionChanged.connect(self._on_object_list_selection)
+        lay.addWidget(self._obj_list, 1)
+
+        lay.addWidget(self._actions_card([
+            ("layers", "Selecionar tudo", self._select_all),
+            ("group", "Agrupar", self._group_selected),
+            ("ungroup", "Desagrupar", self._ungroup_selected),
+            ("align-vertical-justify-start", "Trazer para frente", self._bring_to_front),
+            ("align-vertical-justify-end", "Enviar para tras", self._send_to_back),
+            ("trash-2", "Remover", self._delete_selected),
+        ]))
+        return page
+
+    def _refresh_object_list(self) -> None:
+        """Reconstroi a lista de objetos a partir das pecas atuais."""
+        if not hasattr(self, "_obj_list"):
+            return
+        by_id = {a.id: a for a in self._result.artworks} if self._result else {}
+        self._obj_rows = list(self._piece_items)
+        self._obj_list.blockSignals(True)
+        self._obj_list.clear()
+        for i, piece in enumerate(self._obj_rows, 1):
+            art = by_id.get(piece.artwork_id)
+            name = art.name if art is not None else piece.artwork_id
+            self._obj_list.addItem(QListWidgetItem(f"{i}. {name}"))
+        self._obj_list.blockSignals(False)
+        self._sync_object_list_selection()
+
+    def _sync_object_list_selection(self) -> None:
+        """Reflete a selecao do canvas na lista (sem disparar de volta)."""
+        if not hasattr(self, "_obj_list"):
+            return
+        self._obj_list.blockSignals(True)
+        for row, piece in enumerate(getattr(self, "_obj_rows", [])):
+            item = self._obj_list.item(row)
+            if item is not None:
+                item.setSelected(piece.isSelected())
+        self._obj_list.blockSignals(False)
+
+    def _on_object_list_selection(self) -> None:
+        """Seleciona no canvas as pecas marcadas na lista."""
+        rows = {self._obj_list.row(it) for it in self._obj_list.selectedItems()}
+        self._scene.clearSelection()
+        for row, piece in enumerate(getattr(self, "_obj_rows", [])):
+            if row in rows:
+                piece.setSelected(True)
+
+    def _bring_to_front(self) -> None:
+        """Coloca as pecas selecionadas a frente das demais (ordem de empilhamento)."""
+        pieces = [it for it in self._scene.selectedItems() if isinstance(it, PieceItem)]
+        if not pieces:
+            return
+        others = [p for p in self._piece_items if p not in pieces]
+        top = max((p.zValue() for p in others), default=0.0)
+        for i, piece in enumerate(pieces, 1):
+            piece.setZValue(top + i)
+
+    def _send_to_back(self) -> None:
+        """Envia as pecas selecionadas para tras das demais."""
+        pieces = [it for it in self._scene.selectedItems() if isinstance(it, PieceItem)]
+        if not pieces:
+            return
+        others = [p for p in self._piece_items if p not in pieces]
+        bottom = min((p.zValue() for p in others), default=0.0)
+        for i, piece in enumerate(pieces, 1):
+            piece.setZValue(bottom - i)
+
     def _on_selection_changed(self) -> None:
         """Atualiza a aba 'Selecao' conforme a selecao do canvas. As abas ficam
         sempre visiveis; ao selecionar uma peca, vai para a aba Selecao, e ao
@@ -1352,20 +1437,25 @@ class MainWindow(QMainWindow):
         except RuntimeError:  # cena ja destruida (fechando a janela)
             return
         pieces = [it for it in selected if isinstance(it, PieceItem)]
+        cur = self._props_tabs.currentIndex()
         if not pieces:
             self._sel_stack.setCurrentIndex(0)
             self._props_tabs.setTabText(1, "Selecao")
-            self._props_tabs.setCurrentIndex(0)  # volta para Documento
+            if cur == 1:  # so volta para Documento se estiver na aba Selecao
+                self._props_tabs.setCurrentIndex(0)
         elif len(pieces) == 1:
             self._update_piece_page(pieces[0])
             self._sel_stack.setCurrentIndex(1)
             self._props_tabs.setTabText(1, "Peca")
-            self._props_tabs.setCurrentIndex(1)
+            if cur == 0:  # nao tira o usuario da aba Objeto
+                self._props_tabs.setCurrentIndex(1)
         else:
             self._update_group_page(pieces)
             self._sel_stack.setCurrentIndex(2)
             self._props_tabs.setTabText(1, f"Grupo ({len(pieces)})")
-            self._props_tabs.setCurrentIndex(1)
+            if cur == 0:
+                self._props_tabs.setCurrentIndex(1)
+        self._sync_object_list_selection()
         self._update_overlay()
 
     def _update_piece_page(self, piece: PieceItem) -> None:
@@ -2077,6 +2167,7 @@ class MainWindow(QMainWindow):
             self._fit_next = False
         else:
             self._view.view_changed.emit()  # mantem o zoom; atualiza reguas
+        self._refresh_object_list()
         self._update_overlay()
 
     def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float, interactive: bool) -> None:
