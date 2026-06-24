@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
         self._project_store = ProjectStore()
         self._project_path: str | None = None
 
-        self.setWindowTitle("PrintNest MVP")
+        self.setWindowTitle("PrintNest Premium")
         self._build_ui()
         self._load_settings()
         self._build_menu_toolbar()
@@ -669,14 +669,15 @@ class MainWindow(QMainWindow):
 
     def _show_about(self) -> None:
         QMessageBox.about(
-            self, "PrintNest",
-            "PrintNest - preparacao de producao grafica.\nV1.1 (prototipo).",
+            self, "PrintNest Premium",
+            "PrintNest Premium - preparacao de producao grafica.\n"
+            "Faca, nesting e exportacao PDF/DXF.",
         )
 
     # ---- projeto (.printnest) ----
     def _update_title(self) -> None:
         name = Path(self._project_path).name if self._project_path else "Sem titulo"
-        self.setWindowTitle(f"PrintNest - {name}")
+        self.setWindowTitle(f"PrintNest Premium — {name}")
 
     def _collect_project(self) -> ProjectDocument:
         """Captura o estado atual (arquivos + parametros) como ProjectDocument."""
