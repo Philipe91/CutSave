@@ -764,6 +764,10 @@ class MainWindow(QMainWindow):
         snap_act.setToolTip("Liga/desliga o encaixe ao arrastar pecas")
         snap_act.toggled.connect(self._set_snap)
         self._snap_action = snap_act
+        to_front = self._act("Trazer para frente", self._bring_to_front, "Shift+PgUp",
+                             "Coloca as pecas selecionadas a frente das demais")
+        to_back = self._act("Enviar para tras", self._send_to_back, "Shift+PgDown",
+                            "Envia as pecas selecionadas para tras das demais")
         exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, "Ctrl+E",
                             "Gera o PDF de impressao")
         exp_dxf = self._act("Exportar DXF (unico)...", self.export_dxf, None,
@@ -787,7 +791,8 @@ class MainWindow(QMainWindow):
                        None, excluir, reset, rem):
             m_edit.addSeparator() if action is None else m_edit.addAction(action)
         m_org = bar.addMenu("&Organizar")
-        for action in (al_l, al_r, al_t, al_b, al_cx, al_cy,
+        for action in (grp, ungrp, None, to_front, to_back,
+                       None, al_l, al_r, al_t, al_b, al_cx, al_cy,
                        None, dist_h, dist_v, None, snap_act):
             m_org.addSeparator() if action is None else m_org.addAction(action)
         limpar_guias = self._act("Limpar guias", self._clear_guides, None,
@@ -811,6 +816,8 @@ class MainWindow(QMainWindow):
             (al_cx, "align-horizontal-justify-center"), (al_cy, "align-vertical-justify-center"),
             (dist_h, "align-horizontal-justify-center"),
             (dist_v, "align-vertical-justify-center"),
+            (to_front, "align-vertical-justify-start"),
+            (to_back, "align-vertical-justify-end"),
             (exp_pdf, "download"), (exp_dxf, "download"), (exp_dxf_n, "download"),
             (exp_img, "image"),
         ):
@@ -864,6 +871,8 @@ class MainWindow(QMainWindow):
             ("Organizar", [
                 tb.tool_button(grp, "group", show_text=False),
                 tb.tool_button(ungrp, "ungroup", show_text=False),
+                tb.tool_button(to_front, "align-vertical-justify-start", show_text=False),
+                tb.tool_button(to_back, "align-vertical-justify-end", show_text=False),
                 tb.menu_button("Alinhar", "align-horizontal-justify-start",
                                [al_l, al_r, al_t, al_b, al_cx, al_cy], tip="Alinhar pecas"),
                 tb.menu_button("Distribuir", "align-horizontal-justify-center",
