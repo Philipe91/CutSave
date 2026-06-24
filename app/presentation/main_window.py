@@ -101,6 +101,7 @@ from app.presentation.panels.status_bar import StatusBarController
 from app.presentation.widgets import Alert, AlertLevel, CollapsibleCard, MeasureField, ToastManager
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ProjectError, ValidationError
+from app.shared.resources import resource_path
 
 IMAGE_FILE_FILTER = (
     "Arquivos suportados (*.pdf *.png *.jpg *.jpeg *.webp);;"
@@ -1691,6 +1692,16 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(panel)
         lay.setContentsMargins(0, 0, theme.SPACE_XS, 0)
         lay.setSpacing(theme.SPACE_SM)
+
+        # logo completa (simbolo + nome PRINTNEST PRO) no topo do painel
+        logo_path = resource_path("assets/printnest.png")
+        if logo_path.exists():
+            pm = QPixmap(str(logo_path))
+            if not pm.isNull():
+                logo = QLabel()
+                logo.setPixmap(pm.scaledToWidth(200, Qt.SmoothTransformation))
+                logo.setContentsMargins(2, 2, 0, 4)
+                lay.addWidget(logo)
 
         header = QLabel("Biblioteca")
         header.setStyleSheet(f"font-weight:600; color:{theme.TEXT};")

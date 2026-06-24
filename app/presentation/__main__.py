@@ -37,8 +37,8 @@ def main() -> int:
     # icone da janela: .ico multi-tamanho (so o simbolo, nitido em 16/32px);
     # cai para a PNG se o .ico nao existir
     icon_file = resource_path("assets/printnest.ico")
-    if not icon_file.exists():
-        icon_file = resource_path("assets/printnest.png")
+    if not icon_file.exists():  # .ico e gerado/ignorado no git; cai no simbolo quadrado
+        icon_file = resource_path("assets/printnest_symbol.png")
     app_icon = QIcon(str(icon_file)) if icon_file.exists() else None
     if app_icon is not None:
         app.setWindowIcon(app_icon)
