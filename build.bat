@@ -26,8 +26,8 @@ echo [4/4] Montando pasta PrintNest_Build...
 if exist PrintNest_Build rmdir /s /q PrintNest_Build
 mkdir PrintNest_Build
 copy /y dist\PrintNest.exe PrintNest_Build\PrintNest.exe
-if exist README_BUILD.txt copy /y README_BUILD.txt PrintNest_Build\README.txt
-if exist VERSAO.txt copy /y VERSAO.txt PrintNest_Build\VERSAO.txt
+if exist "DOCUMENTAÇÃO\README_BUILD.txt" copy /y "DOCUMENTAÇÃO\README_BUILD.txt" PrintNest_Build\README.txt
+if exist "DOCUMENTAÇÃO\VERSAO.txt" copy /y "DOCUMENTAÇÃO\VERSAO.txt" PrintNest_Build\VERSAO.txt
 
 echo.
 echo Build concluida em: PrintNest_Build\PrintNest.exe

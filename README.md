@@ -31,7 +31,7 @@ python -m pytest
 ```bash
 build.bat            # gera o .exe via PyInstaller (PrintNest.spec)
 ```
-Veja [README_BUILD.txt](README_BUILD.txt) para detalhes do empacotamento.
+Veja [DOCUMENTAÇÃO/README_BUILD.txt](DOCUMENTAÇÃO/README_BUILD.txt) para detalhes do empacotamento.
 
 ---
 
@@ -54,12 +54,14 @@ Atalhos no padrão CorelDRAW (`Ctrl+I` importar, `Ctrl+O` abrir, `Ctrl+G/Ctrl+U`
 
 ## Documentação
 
+Toda a documentação está na pasta **[DOCUMENTAÇÃO/](DOCUMENTAÇÃO/)**:
+
 | Documento | Conteúdo |
 |---|---|
-| [docs/ARQUITETURA.md](docs/ARQUITETURA.md) | Arquitetura de software (Clean Architecture, camadas, decisões) |
-| [docs/GUIA-DO-CODIGO.md](docs/GUIA-DO-CODIGO.md) | **Mapa do código atual** — por onde começar, onde fica cada coisa |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Próximos passos |
-| [PLANO-COMERCIALIZACAO.md](PLANO-COMERCIALIZACAO.md) | **Tudo o que falta para vender** (licenciamento, segurança, legal, desempenho) |
+| [ARQUITETURA.md](DOCUMENTAÇÃO/ARQUITETURA.md) | Arquitetura de software (Clean Architecture, camadas, decisões) |
+| [GUIA-DO-CODIGO.md](DOCUMENTAÇÃO/GUIA-DO-CODIGO.md) | **Mapa do código atual** — por onde começar, onde fica cada coisa |
+| [ROADMAP.md](DOCUMENTAÇÃO/ROADMAP.md) | Próximos passos |
+| [PLANO-COMERCIALIZACAO.md](DOCUMENTAÇÃO/PLANO-COMERCIALIZACAO.md) | **Tudo o que falta para vender** (licenciamento, segurança, legal, desempenho) |
 
 ---
 
@@ -77,5 +79,6 @@ app/
   infrastructure/ # adaptadores: importadores, exportadores, render
   shared/         # config, logging, erros
 tests/            # 380+ testes (domínio, aplicação, apresentação)
-docs/             # documentação
+scripts/          # ferramentas (ex.: benchmark de desempenho)
+DOCUMENTAÇÃO/     # toda a documentação
 ```
