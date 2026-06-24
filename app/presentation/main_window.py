@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -35,10 +36,14 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -717,6 +722,11 @@ class MainWindow(QMainWindow):
         # faca por arquivo: caminho -> params proprios (override). Sem override,
         # o arquivo segue o padrao do painel Documento.
         self._file_overrides: dict[str, dict] = {}
+        # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
+        # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
+        self._page_crops: dict[str, dict[int, tuple]] = {}
+        self._baked_crops: dict = {}      # (caminho, assinatura) -> PDF recortado em cache
+        self._crop_cache: dict[str, str] = {}  # PDF recortado -> caminho original
         # faca "pelo contorno" de PDF: detecta o contorno da pagina rasterizada.
         self._contour_detector = Cv2ImageImporter()
         self._pdf_contours: dict = {}  # (caminho, pagina) -> contorno detectado
@@ -1037,6 +1047,9 @@ class MainWindow(QMainWindow):
         self._project_path = None
         self._reset_project_state()
         self._file_overrides = {}  # descarta facas personalizadas por arquivo
+        self._page_crops = {}      # descarta recortes de pagina
+        self._baked_crops = {}
+        self._crop_cache = {}
         self._table.setRowCount(0)
         self._paths = []
         self._settings.last_project = ""
@@ -1728,6 +1741,15 @@ class MainWindow(QMainWindow):
         self._table.itemSelectionChanged.connect(self._update_selection_info)
         lay.addWidget(self._table, 1)
 
+        self._btn_crop = QPushButton("  Recortar paginas...")
+        self._btn_crop.setIcon(icons.icon("replace", theme.ICON))
+        self._btn_crop.setToolTip(
+            "Corta as bordas das paginas do PDF selecionado (cima/baixo/esq/dir),\n"
+            "em todas as paginas ou nas que voce escolher."
+        )
+        self._btn_crop.clicked.connect(self._crop_pages_dialog)
+        lay.addWidget(self._btn_crop)
+
         self._btn_remove = QPushButton("  Remover selecionado")
         self._btn_remove.setIcon(icons.icon("trash-2", theme.ICON))
         self._btn_remove.clicked.connect(lambda: self.remove_selected())
@@ -2253,6 +2275,133 @@ class MainWindow(QMainWindow):
             result[self._paths[row]] = spin.value() if spin else 1
         return result
 
+    def _crop_pages_dialog(self) -> None:
+        """Dialogo de recorte de paginas do PDF selecionado na biblioteca."""
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._paths):
+            QMessageBox.information(self, "PrintNest", "Selecione um arquivo na biblioteca.")
+            return
+        path = self._paths[row]
+        if Path(path).suffix.lower() != ".pdf":
+            QMessageBox.information(
+                self, "PrintNest",
+                "O recorte de paginas e para PDF. Para imagens, use 'Recorte da arte'.",
+            )
+            return
+        try:
+            import fitz
+            total = fitz.open(path).page_count
+        except Exception:
+            QMessageBox.warning(self, "PrintNest", "Nao foi possivel abrir o PDF.")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Recortar paginas — {Path(path).name}")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(f"PDF com {total} pagina(s). Quanto cortar de cada lado:"))
+        spins = {}
+        for key, rotulo in (("top", "Cima"), ("bottom", "Baixo"),
+                            ("left", "Esquerda"), ("right", "Direita")):
+            sp = LengthSpin(0, 1000)
+            existing = self._page_crops.get(path, {})
+            if existing:  # pre-preenche com o recorte atual (1a pagina recortada)
+                first = next(iter(existing.values()))
+                idx = {"left": 0, "top": 1, "right": 2, "bottom": 3}[key]
+                sp.setValue(first[idx])
+            spins[key] = sp
+            form.addRow(rotulo, sp)
+        pages_edit = QLineEdit("todas")
+        pages_edit.setToolTip("'todas' ou paginas especificas, ex.: 1,3-5")
+        form.addRow("Paginas", pages_edit)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg
+        )
+        # botao extra para limpar o recorte do arquivo
+        clear_btn = buttons.addButton("Remover recorte", QDialogButtonBox.DestructiveRole)
+        form.addRow(buttons)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        clear_btn.clicked.connect(lambda: (self._clear_page_crop(path), dlg.reject()))
+        if dlg.exec() != QDialog.Accepted:
+            return
+
+        left = float(spins["left"].value()); top = float(spins["top"].value())
+        right = float(spins["right"].value()); bottom = float(spins["bottom"].value())
+        spec = pages_edit.text().strip().lower()
+        if spec in ("", "todas", "all"):
+            pages = list(range(total))
+        else:
+            pages = self._parse_pages(spec, total)
+        if not pages or (left == top == right == bottom == 0):
+            self._clear_page_crop(path)
+            return
+        self._page_crops[path] = {pg: (left, top, right, bottom) for pg in pages}
+        self._invalidate_crop_cache(path)
+        if self._loaded:
+            self.generate(blocking=True)
+        self._toasts.success(f"Recorte aplicado a {len(pages)} pagina(s)")
+
+    def _clear_page_crop(self, path: str) -> None:
+        self._page_crops.pop(path, None)
+        self._invalidate_crop_cache(path)
+        if self._loaded:
+            self.generate(blocking=True)
+
+    def _invalidate_crop_cache(self, path: str) -> None:
+        self._baked_crops = {k: v for k, v in self._baked_crops.items() if k[0] != path}
+        self._crop_cache = {c: o for c, o in self._crop_cache.items() if o != path}
+
+    # ---- recorte de pagina (bake em PDF recortado de cache) ----
+    def _effective_paths(self) -> list:
+        """Caminhos a importar: o PDF recortado (cache) quando houver recorte de
+        pagina; senao o original. Mantem self._paths sempre com o ORIGINAL."""
+        return [self._effective_path(p) for p in self._paths]
+
+    def _effective_path(self, path: str) -> str:
+        crops = self._page_crops.get(path)
+        if not crops:
+            return path
+        sig = tuple(sorted((pg, tuple(v)) for pg, v in crops.items()))
+        cached = self._baked_crops.get((path, sig))
+        if cached and Path(cached).exists():
+            return cached
+        out = self._bake_cropped_pdf(path, crops, sig)
+        if out is None:
+            return path
+        self._baked_crops[(path, sig)] = out
+        self._crop_cache[out] = path
+        return out
+
+    def _bake_cropped_pdf(self, path: str, crops: dict, sig) -> str | None:
+        """Gera um PDF recortado em cache (corta a mediabox de cada pagina pelos
+        valores em mm). So PDF; devolve o caminho ou None se falhar."""
+        if Path(path).suffix.lower() != ".pdf":
+            return None
+        try:
+            import fitz
+
+            mm2pt = 72.0 / 25.4
+            doc = fitz.open(path)
+            for pg, (left, top, right, bottom) in crops.items():
+                if not (0 <= pg < doc.page_count):
+                    continue
+                page = doc[pg]
+                r = page.rect
+                new = fitz.Rect(
+                    r.x0 + left * mm2pt, r.y0 + top * mm2pt,
+                    r.x1 - right * mm2pt, r.y1 - bottom * mm2pt,
+                )
+                if new.width > 1 and new.height > 1:
+                    page.set_mediabox(new)
+            cache = Path(tempfile.gettempdir()) / "printnest_crops"
+            cache.mkdir(parents=True, exist_ok=True)
+            out = str(cache / f"crop_{abs(hash((path, sig))) & 0xffffffff:08x}.pdf")
+            doc.save(out)
+            doc.close()
+            return out
+        except Exception:
+            return None
+
     # ---- producao ----
     def _material(self) -> Material:
         return Material(
@@ -2273,10 +2422,11 @@ class MainWindow(QMainWindow):
         sensitivity = float(self._auto_sensitivity.value())
         ignore_white = self._auto_ignore_white.isChecked()
         self._fit_next = True  # ajusta o zoom uma vez apos gerar
+        eff_paths = self._effective_paths()  # PDFs recortados quando houver recorte
 
         if blocking:
             result = self._pipeline.execute(
-                self._paths, material, offset, sheet_height, box,
+                eff_paths, material, offset, sheet_height, box,
                 sensitivity=sensitivity, ignore_white=ignore_white,
             )
             unique = sorted(set(result.sources.values()))
@@ -2287,7 +2437,7 @@ class MainWindow(QMainWindow):
         self._set_busy(True)
         self._thread = QThread()
         self._worker = ProductionWorker(
-            self._pipeline, self._renderer, list(self._paths),
+            self._pipeline, self._renderer, eff_paths,
             material, offset, sheet_height, box, sensitivity, ignore_white,
         )
         self._worker.moveToThread(self._thread)
@@ -2327,6 +2477,12 @@ class MainWindow(QMainWindow):
         self._origins = dict(result.origins) or {
             art_id: src[0] for art_id, src in result.sources.items()
         }
+        # recorte: origins volta ao caminho ORIGINAL (quantidade/projeto usam ele);
+        # sources/render continuam apontando para o PDF recortado (mostra/exporta cortado)
+        if self._crop_cache:
+            self._origins = {
+                aid: self._crop_cache.get(p, p) for aid, p in self._origins.items()
+            }
         self._pixmaps = {}
         by_bytes: dict[bytes, QPixmap] = {}
         for key, data in png_map.items():
@@ -2718,9 +2874,10 @@ class MainWindow(QMainWindow):
     def _import_file_bases(self, path: str) -> list:
         """Importa um unico arquivo (sem refazer tudo) e registra fontes/pixmaps."""
         box = self._import_box.currentData()
+        eff = self._effective_path(path)  # PDF recortado quando houver recorte
         try:
             result1 = self._pipeline.execute(
-                [path], self._material(), self._effective_offset(), 0.0, box,
+                [eff], self._material(), self._effective_offset(), 0.0, box,
                 sensitivity=float(self._auto_sensitivity.value()),
                 ignore_white=self._auto_ignore_white.isChecked(),
             )
@@ -2729,7 +2886,7 @@ class MainWindow(QMainWindow):
             return []
         for art in result1.artworks:
             self._sources[art.id] = result1.sources[art.id]
-            self._origins[art.id] = result1.origins.get(art.id, path)
+            self._origins[art.id] = path  # mantem o caminho ORIGINAL (quantidade/projeto)
         for key in set(result1.sources.values()):
             if key not in self._pixmaps:
                 try:

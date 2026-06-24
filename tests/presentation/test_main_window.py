@@ -686,6 +686,29 @@ def test_faca_pdf_pelo_contorno_nao_e_retangulo(qapp, tmp_path):
     assert contour_pts > 8  # circulo -> muitos pontos, nao um retangulo
 
 
+def test_recorte_de_pagina_reduz_tamanho_e_mantem_path(qapp, tmp_path):
+    doc = fitz.open()
+    pg = doc.new_page(width=283.46, height=283.46)  # ~100x100mm
+    pg.draw_rect(pg.rect, color=(0, 0, 0), fill=(0, 0, 0))
+    src = tmp_path / "crop.pdf"
+    doc.save(str(src))
+    doc.close()
+
+    window = _window(tmp_path)
+    window.add_paths([str(src)])
+    window.generate(blocking=True)
+    assert round(window._result.artworks[0].size.width) == 100
+
+    # recorta 10mm de cada lado da pagina 0
+    window._page_crops[str(src)] = {0: (10.0, 10.0, 10.0, 10.0)}  # l, t, r, b
+    window.generate(blocking=True)
+    art = window._result.artworks[0]
+    assert round(art.size.width) == 80   # 100 - 10 - 10
+    assert round(art.size.height) == 80
+    # quantidade/projeto continuam mapeados pelo caminho ORIGINAL
+    assert window._path_of(art.id) == str(src)
+
+
 def test_snap_axis_encaixa_na_borda():
     from app.presentation.main_window import SNAP_THRESHOLD_MM, PieceItem
 
