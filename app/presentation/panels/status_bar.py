@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QLabel, QStatusBar
 
-from app.presentation import icons, theme
+from app.presentation import icons, theme, units
 
 
 class StatusBarController:
@@ -23,7 +23,7 @@ class StatusBarController:
         # permanentes (direita)
         self._mode = self._add_right("eye", "—")
         self._zoom = self._add_right("maximize", "100%")
-        self._cursor = self._add_right("ruler", "0, 0 mm")
+        self._cursor = self._add_right("ruler", units.fmt_xy(0.0, 0.0))
 
     def _add_left(self, icon_name: str, text: str) -> QLabel:
         ico = QLabel()
@@ -57,7 +57,7 @@ class StatusBarController:
         self._zoom.setText(f"{factor * 100:.0f}%")
 
     def set_cursor(self, x: float, y: float) -> None:
-        self._cursor.setText(f"{x:.0f}, {y:.0f} mm")
+        self._cursor.setText(units.fmt_xy(x, y))
 
     def set_mode(self, text: str) -> None:
         self._mode.setText(text)

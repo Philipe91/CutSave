@@ -179,7 +179,8 @@ def test_medida_do_arquivo_selecionado(qapp, tmp_path):
     window.generate(blocking=True)
     window._table.setCurrentCell(0, 0)
     texto = window._sel_info.text()
-    assert "mm" in texto and "x" in texto  # mostra a medida do arquivo
+    from app.presentation import units
+    assert units.unit() in texto and "x" in texto  # mostra a medida do arquivo
 
 
 def test_undo_de_movimento(qapp, tmp_path):

@@ -4,7 +4,7 @@ import contextlib
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QPointF, QRect, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QLocale, QObject, QPointF, QRect, QSize, Qt, QThread, Signal
 from PySide6.QtGui import (
     QAction,
     QBrush,
@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -80,13 +81,13 @@ from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
 )
-from app.domain.cut.contour_ops import offset_contour, smooth_contour
+from app.domain.cut.contour_ops import crop_and_rotate_contour, offset_contour, smooth_contour
 from app.domain.geometry import Point2D, Size
 from app.domain.model.image_artwork import ImageArtwork
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
-from app.presentation import icons, measurements, messages, theme
+from app.presentation import icons, measurements, messages, theme, units
 from app.presentation.panels import ribbon as ribbon_panel
 from app.presentation.panels.status_bar import StatusBarController
 from app.presentation.widgets import Alert, AlertLevel, CollapsibleCard, MeasureField, ToastManager
@@ -144,6 +145,14 @@ class ZoomableGraphicsView(QGraphicsView):
     def wheelEvent(self, event) -> None:
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
         self.scale(factor, factor)
+        self.view_changed.emit()
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)
+        self.view_changed.emit()  # mantem reguas/overlay/guias em sincronia
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
         self.view_changed.emit()
 
     def keyPressEvent(self, event) -> None:
@@ -225,13 +234,30 @@ class MoveCommand(QUndoCommand):
         for item, _, new in self._moves:
             item.setPos(new)
 
-    def scrollContentsBy(self, dx: int, dy: int) -> None:
-        super().scrollContentsBy(dx, dy)
-        self.view_changed.emit()
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self.view_changed.emit()
+class ArrangementCommand(QUndoCommand):
+    """Desfazer/refazer de mudancas no arranjo (excluir, duplicar, repetir).
+
+    Guarda o conjunto de chapas (PlacedItems) antes e depois da operacao e pede
+    a janela para reaplicar e redesenhar. O primeiro 'redo' (disparado pelo push)
+    e ignorado, pois a operacao ja foi aplicada quando o comando e empilhado.
+    """
+
+    def __init__(self, window, before, after, text: str) -> None:
+        super().__init__(text)
+        self._window = window
+        self._before = before
+        self._after = after
+        self._applied = True  # ja aplicado antes do push
+
+    def undo(self) -> None:
+        self._window._apply_arrangement(self._before)
+
+    def redo(self) -> None:
+        if self._applied:
+            self._applied = False
+            return
+        self._window._apply_arrangement(self._after)
 
 
 class PieceItem(QGraphicsRectItem):
@@ -295,16 +321,61 @@ class PieceItem(QGraphicsRectItem):
 
 
 class Ruler(QWidget):
-    """Regua (mm) sincronizada com o view, no estilo de softwares de pre-impressao."""
+    """Regua (mm) sincronizada com o view, no estilo de softwares de pre-impressao.
+
+    Arrastar a partir da regua cria uma guia (igual CorelDRAW): da regua de cima
+    (horizontal) nasce uma guia horizontal; da regua lateral, uma guia vertical.
+    """
+
+    # (guia_horizontal, valor_mm na cena) durante o arraste e ao soltar
+    guide_preview = Signal(bool, float)
+    guide_dropped = Signal(bool, float, bool)  # (..., dentro_do_canvas)
 
     def __init__(self, view: ZoomableGraphicsView, horizontal: bool) -> None:
         super().__init__()
         self._view = view
         self._h = horizontal
+        self._dragging = False
+        self.setCursor(Qt.SplitVCursor if horizontal else Qt.SplitHCursor)
         if horizontal:
             self.setFixedHeight(RULER_SIZE)
         else:
             self.setFixedWidth(RULER_SIZE)
+
+    def _scene_value_at(self, gpos) -> tuple[float, bool]:
+        """Converte a posicao global do mouse no valor (mm) da cena e diz se
+        esta dentro do canvas. Guia horizontal usa Y; vertical usa X."""
+        vp = self._view.viewport()
+        local = vp.mapFromGlobal(gpos)
+        scene = self._view.mapToScene(local)
+        value = scene.y() if self._h else scene.x()
+        return value, vp.rect().contains(local)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            value, _ = self._scene_value_at(event.globalPosition().toPoint())
+            self.guide_preview.emit(self._h, value)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._dragging:
+            value, _ = self._scene_value_at(event.globalPosition().toPoint())
+            self.guide_preview.emit(self._h, value)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._dragging and event.button() == Qt.LeftButton:
+            self._dragging = False
+            value, inside = self._scene_value_at(event.globalPosition().toPoint())
+            self.guide_dropped.emit(self._h, value, inside)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     @staticmethod
     def _nice_step(px_per_mm: float) -> float:
@@ -338,19 +409,58 @@ class Ruler(QWidget):
         step = self._nice_step(length / span)
         value = math.floor(lo / step) * step
         while value <= hi:
+            label = f"{units.from_mm(value):g}"  # valor na unidade atual (mm/cm)
             if self._h:
                 pos = view.mapFromScene(QPointF(value, 0.0)).x()
                 painter.drawLine(pos, RULER_SIZE - 6, pos, RULER_SIZE)
-                painter.drawText(pos + 2, RULER_SIZE - 8, f"{value:.0f}")
+                painter.drawText(pos + 2, RULER_SIZE - 8, label)
             else:
                 pos = view.mapFromScene(QPointF(0.0, value)).y()
                 painter.drawLine(RULER_SIZE - 6, pos, RULER_SIZE, pos)
                 painter.save()
                 painter.translate(RULER_SIZE - 9, pos - 2)
                 painter.rotate(-90)
-                painter.drawText(0, 0, f"{value:.0f}")
+                painter.drawText(0, 0, label)
                 painter.restore()
             value += step
+
+
+class MeasureOverlay(QFrame):
+    """Caixinha flutuante no canto da area de trabalho com as medidas do que
+    esta selecionado (peca/grupo) ou da chapa quando nada esta selecionado.
+
+    Transparente a cliques (nao atrapalha selecao/arraste no canvas).
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("measureOverlay")
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 7, 10, 7)
+        lay.setSpacing(1)
+        self._title = QLabel("")
+        self._title.setObjectName("ovTitle")
+        self._line1 = QLabel("")
+        self._line2 = QLabel("")
+        for w in (self._title, self._line1, self._line2):
+            lay.addWidget(w)
+        self.setStyleSheet(
+            "#measureOverlay{background:rgba(255,255,255,235);"
+            " border:1px solid #cfd6dd; border-radius:8px;}"
+            " QLabel{color:#2c3e50; font-size:12px;}"
+            " QLabel#ovTitle{font-weight:600; color:#1f2d3d;}"
+        )
+        self.hide()
+
+    def show_lines(self, title: str, line1: str, line2: str = "") -> None:
+        self._title.setText(title)
+        self._line1.setText(line1)
+        self._line2.setText(line2)
+        self._line2.setVisible(bool(line2))
+        self.adjustSize()
+        self.show()
+        self.raise_()
 
 
 class ProductionWorker(QObject):
@@ -395,6 +505,41 @@ def _spin(minimum, maximum, decimals=None):
     box = QSpinBox() if decimals is None else QDoubleSpinBox()
     box.setRange(minimum, maximum)
     return box
+
+
+class LengthSpin(QDoubleSpinBox):
+    """Campo de comprimento que guarda MILIMETROS internamente, mas exibe e
+    edita na unidade atual (mm/cm).
+
+    value()/setValue() continuam em mm (todo o app e os testes dependem disso);
+    so a apresentacao muda. A conversao acontece em textFromValue/valueFromText.
+    """
+
+    def __init__(self, min_mm, max_mm) -> None:
+        super().__init__()
+        self.setLocale(QLocale(QLocale.Language.C))  # separador decimal '.'
+        self.setKeyboardTracking(False)
+        self.setDecimals(2)  # precisao interna em mm (permite 0,01 cm)
+        self.setRange(float(min_mm), float(max_mm))
+        self.refresh_unit()
+
+    def refresh_unit(self) -> None:
+        """Reaplica a unidade atual ao passo, sufixo e texto exibido."""
+        u = units.unit()
+        self.setSingleStep(units.step_mm(u))
+        self.setSuffix(f" {u}")
+        self.lineEdit().setText(self.textFromValue(self.value()) + self.suffix())
+
+    def textFromValue(self, value_mm: float) -> str:
+        return f"{units.from_mm(value_mm):.{units.decimals()}f}"
+
+    def valueFromText(self, text: str) -> float:
+        cleaned = text.replace(self.suffix(), "").strip().replace(",", ".")
+        try:
+            shown = float(cleaned)
+        except ValueError:
+            return self.value()
+        return units.to_mm(shown)
 
 
 class QuantityStepper(QWidget):
@@ -480,6 +625,9 @@ class MainWindow(QMainWindow):
         self._pixmaps: dict[tuple[str, int], QPixmap] = {}
         self._thumb_cache: dict[str, QIcon] = {}
         self._loaded = False
+        self._suspend_relayout = False  # agrupa varias mudancas num so relayout
+        self._guides: list[tuple[bool, float]] = []  # (horizontal, valor_mm)
+        self._guide_preview_item = None
         self._result: ProductionResult | None = None
         self._thread: QThread | None = None
         self._worker: ProductionWorker | None = None
@@ -490,6 +638,10 @@ class MainWindow(QMainWindow):
         self._snap = SnapConfig()
         self._project_store = ProjectStore()
         self._project_path: str | None = None
+
+        # unidade definida ANTES de montar a UI, para os campos ja nascerem na
+        # unidade certa (LengthSpin le units.unit() ao ser criado).
+        units.set_unit(getattr(settings, "unit", units.CM))
 
         self.setWindowTitle("PrintNest Premium")
         self._build_ui()
@@ -511,25 +663,28 @@ class MainWindow(QMainWindow):
     def _build_menu_toolbar(self) -> None:
         novo = self._act("Novo Projeto", self.new_project, "Ctrl+N",
                          "Comeca um projeto vazio")
-        abrir = self._act("Abrir Projeto...", self.open_project, "Ctrl+Shift+O",
+        abrir = self._act("Abrir Projeto...", self.open_project, "Ctrl+O",
                           "Abre um projeto .printnest salvo")
         salvar = self._act("Salvar Projeto", self.save_project, "Ctrl+S",
                            "Salva o projeto atual")
         salvar_como = self._act("Salvar Como...", self.save_project_as, "Ctrl+Shift+S",
                                 "Salva o projeto em um novo arquivo")
-        add = self._act("Adicionar PDFs...", self.add_pdfs, "Ctrl+O",
-                        "Adiciona arquivos PDF a lista")
+        add = self._act("Adicionar arquivos...", self.add_pdfs, "Ctrl+I",
+                        "Importa arquivos (PDF/imagens) para a lista")
         substituir = self._act("Substituir arquivo selecionado...", self.replace_selected, None,
                                "Troca o arquivo da linha selecionada (ex.: arquivo nao encontrado)")
         gerar = self._act("Gerar Producao", self.generate, "F5",
                           "Importa, gera a faca e organiza o nesting")
-        fit = self._act("Ajustar a tela", self._fit_view, "Ctrl+0",
-                        "Enquadra todo o trabalho na tela")
-        undo = self._act("Desfazer", self._undo.undo, "Ctrl+Z", "Desfaz o ultimo movimento")
-        redo = self._act("Refazer", self._undo.redo, "Ctrl+Y", "Refaz o movimento")
+        fit = self._act("Ajustar a tela", self._fit_view, "F4",
+                        "Enquadra todo o trabalho na tela (F4 ou Ctrl+0)")
+        fit.setShortcuts([QKeySequence("F4"), QKeySequence("Ctrl+0")])
+        undo = self._act("Desfazer", self._undo.undo, "Ctrl+Z",
+                         "Desfaz a ultima acao (mover, excluir, duplicar, repetir)")
+        redo = self._act("Refazer", self._undo.redo, "Ctrl+Y", "Refaz a acao desfeita")
+        redo.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
         grp = self._act("Agrupar", self._group_selected, "Ctrl+G",
                         "Agrupa as pecas selecionadas")
-        ungrp = self._act("Desagrupar", self._ungroup_selected, "Ctrl+Shift+G",
+        ungrp = self._act("Desagrupar", self._ungroup_selected, "Ctrl+U",
                           "Desagrupa as pecas")
         sel_all = self._act("Selecionar tudo", self._select_all, "Ctrl+A",
                             "Seleciona todas as pecas na area de trabalho")
@@ -566,7 +721,7 @@ class MainWindow(QMainWindow):
         snap_act.setToolTip("Liga/desliga o encaixe ao arrastar pecas")
         snap_act.toggled.connect(self._set_snap)
         self._snap_action = snap_act
-        exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, None,
+        exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, "Ctrl+E",
                             "Gera o PDF de impressao")
         exp_dxf = self._act("Exportar DXF (unico)...", self.export_dxf, None,
                             "Gera um DXF com todas as chapas")
@@ -592,8 +747,11 @@ class MainWindow(QMainWindow):
         for action in (al_l, al_r, al_t, al_b, al_cx, al_cy,
                        None, dist_h, dist_v, None, snap_act):
             m_org.addSeparator() if action is None else m_org.addAction(action)
+        limpar_guias = self._act("Limpar guias", self._clear_guides, None,
+                                  "Remove todas as guias da area de trabalho")
         m_exib = bar.addMenu("E&xibir")
         m_exib.addAction(fit)
+        m_exib.addAction(limpar_guias)
         m_ferr = bar.addMenu("&Ferramentas")
         m_ferr.addAction(gerar)
         bar.addMenu("A&juda").addAction(sobre)
@@ -905,15 +1063,120 @@ class MainWindow(QMainWindow):
         grid.addWidget(self._view, 1, 1)
         self._view.view_changed.connect(self._h_ruler.update)
         self._view.view_changed.connect(self._v_ruler.update)
+
+        self._overlay = MeasureOverlay(self._view.viewport())
+        self._view.view_changed.connect(self._position_overlay)
+
+        for ruler in (self._h_ruler, self._v_ruler):
+            ruler.guide_preview.connect(self._on_guide_preview)
+            ruler.guide_dropped.connect(self._on_guide_dropped)
         return work
 
-    def _build_properties_panel(self) -> QWidget:
-        """Painel contextual: troca entre Documento / Peca / Grupo conforme a
-        selecao no canvas (nunca mostra tudo de uma vez)."""
-        self._props_title = QLabel("Documento")
-        self._props_title.setStyleSheet(f"font-weight:600; color:{theme.TEXT};")
-        self._props_stack = QStackedWidget()
+    # ---- guias (arrastar da regua, estilo CorelDRAW) ----
+    @staticmethod
+    def _guide_pen() -> QPen:
+        pen = QPen(QColor(0, 120, 215))
+        pen.setStyle(Qt.DashLine)
+        pen.setCosmetic(True)  # espessura/tracejado constantes em qualquer zoom
+        return pen
 
+    def _guides_extent(self) -> tuple[float, float, float, float]:
+        """Retangulo (x0, y0, x1, y1) que as guias atravessam, com margem."""
+        rect = self._scene.itemsBoundingRect()
+        if rect.isEmpty():
+            return -1000.0, -1000.0, 1000.0, 1000.0
+        m = max(200.0, rect.width() * 0.25, rect.height() * 0.25)
+        return rect.left() - m, rect.top() - m, rect.right() + m, rect.bottom() + m
+
+    def _make_guide_line(self, is_h: bool, value: float, pen: QPen):
+        x0, y0, x1, y1 = self._guides_extent()
+        if is_h:
+            return self._scene.addLine(x0, value, x1, value, pen)
+        return self._scene.addLine(value, y0, value, y1, pen)
+
+    def _on_guide_preview(self, is_h: bool, value: float) -> None:
+        if self._guide_preview_item is not None:
+            self._scene.removeItem(self._guide_preview_item)
+            self._guide_preview_item = None
+        if self._result is None:
+            return
+        self._guide_preview_item = self._make_guide_line(is_h, value, self._guide_pen())
+
+    def _on_guide_dropped(self, is_h: bool, value: float, inside: bool) -> None:
+        if self._guide_preview_item is not None:
+            self._scene.removeItem(self._guide_preview_item)
+            self._guide_preview_item = None
+        if inside and self._result is not None:
+            self._guides.append((is_h, value))
+            self._make_guide_line(is_h, value, self._guide_pen())
+
+    def _draw_guides(self) -> None:
+        """Redesenha as guias guardadas (a cena e limpa a cada preview)."""
+        if not self._guides:
+            return
+        pen = self._guide_pen()
+        for is_h, value in self._guides:
+            self._make_guide_line(is_h, value, pen)
+
+    def _clear_guides(self) -> None:
+        self._guides = []
+        self._draw_preview()
+
+    def _position_overlay(self) -> None:
+        """Reposiciona a caixinha de medidas no canto superior direito do canvas."""
+        if not hasattr(self, "_overlay") or not self._overlay.isVisible():
+            return
+        vp = self._view.viewport()
+        m = 10
+        self._overlay.move(max(m, vp.width() - self._overlay.width() - m), m)
+
+    def _update_overlay(self) -> None:
+        """Atualiza a caixinha de medidas conforme a selecao (ou a chapa)."""
+        if not hasattr(self, "_overlay"):
+            return
+        try:
+            selected = self._scene.selectedItems()
+        except RuntimeError:
+            return
+        pieces = [it for it in selected if isinstance(it, PieceItem)]
+        by_id = {a.id: a for a in self._result.artworks} if self._result else {}
+        if len(pieces) == 1 and by_id.get(pieces[0].artwork_id) is not None:
+            art = by_id[pieces[0].artwork_id]
+            m = measurements.piece_metrics(art)
+            self._overlay.show_lines(
+                "Peca",
+                f"Faca: {units.fmt_len(m.width, with_unit=False)} x {units.fmt_len(m.height)}",
+                f"Arte: {units.fmt_len(art.size.width, with_unit=False)} "
+                f"x {units.fmt_len(art.size.height)}",
+            )
+        elif len(pieces) > 1:
+            boxes = [
+                (p.pos().x(), p.pos().y(), p.rect().width(), p.rect().height())
+                for p in pieces
+            ]
+            g = measurements.group_metrics(boxes)
+            self._overlay.show_lines(
+                f"Grupo ({g.count})",
+                f"{units.fmt_len(g.width, with_unit=False)} x {units.fmt_len(g.height)}",
+            )
+        elif self._result and self._result.sheets:
+            s = self._result.sheets[0]
+            self._overlay.show_lines(
+                "Chapa",
+                f"{units.fmt_len(s.material.width, with_unit=False)} "
+                f"x {units.fmt_len(s.used_length)}",
+                f"{len(self._result.sheets)} chapa(s)",
+            )
+        else:
+            self._overlay.hide()
+            return
+        self._position_overlay()
+
+    def _build_properties_panel(self) -> QWidget:
+        """Painel de propriedades com abas fixas: 'Documento' (chapa/faca/etc.) e
+        'Selecao' (peca ou grupo). As abas ficam sempre visiveis, entao as
+        configuracoes nunca somem: clicar numa peca so muda para a aba Selecao,
+        e basta clicar em 'Documento' para voltar."""
         document = QWidget()
         dl = QVBoxLayout(document)
         dl.setContentsMargins(0, 0, 0, 0)
@@ -927,16 +1190,31 @@ class MainWindow(QMainWindow):
         doc_scroll.setWidgetResizable(True)
         doc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         doc_scroll.setWidget(document)
-        self._props_stack.addWidget(doc_scroll)         # 0 = documento
-        self._props_stack.addWidget(self._build_piece_page())  # 1 = peca
-        self._props_stack.addWidget(self._build_group_page())  # 2 = grupo
+
+        # aba Selecao: pilha interna (vazio / peca / grupo)
+        self._sel_stack = QStackedWidget()
+        hint = QLabel("Clique numa peca na area de trabalho para ver medidas e acoes.")
+        hint.setWordWrap(True)
+        hint.setProperty("role", "caption")
+        hint.setAlignment(Qt.AlignTop)
+        hint_wrap = QWidget()
+        hl = QVBoxLayout(hint_wrap)
+        hl.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM, 0)
+        hl.addWidget(hint)
+        hl.addStretch()
+        self._sel_stack.addWidget(hint_wrap)              # 0 = sem selecao
+        self._sel_stack.addWidget(self._build_piece_page())  # 1 = peca
+        self._sel_stack.addWidget(self._build_group_page())  # 2 = grupo
+
+        self._props_tabs = QTabWidget()
+        self._props_tabs.addTab(doc_scroll, "Documento")
+        self._props_tabs.addTab(self._sel_stack, "Selecao")
 
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
         wl.setContentsMargins(theme.SPACE_XS, 0, 0, 0)
         wl.setSpacing(theme.SPACE_SM)
-        wl.addWidget(self._props_title)
-        wl.addWidget(self._props_stack, 1)
+        wl.addWidget(self._props_tabs, 1)
         wrap.setMinimumWidth(280)
         wrap.setMaximumWidth(400)
         return wrap
@@ -996,8 +1274,10 @@ class MainWindow(QMainWindow):
         return card
 
     def _on_selection_changed(self) -> None:
-        """Troca a pagina de propriedades conforme a selecao do canvas."""
-        if not hasattr(self, "_props_stack"):
+        """Atualiza a aba 'Selecao' conforme a selecao do canvas. As abas ficam
+        sempre visiveis; ao selecionar uma peca, vai para a aba Selecao, e ao
+        soltar a selecao volta para Documento."""
+        if not hasattr(self, "_props_tabs"):
             return
         try:
             selected = self._scene.selectedItems()
@@ -1005,37 +1285,41 @@ class MainWindow(QMainWindow):
             return
         pieces = [it for it in selected if isinstance(it, PieceItem)]
         if not pieces:
-            self._props_stack.setCurrentIndex(0)
-            self._props_title.setText("Documento")
+            self._sel_stack.setCurrentIndex(0)
+            self._props_tabs.setTabText(1, "Selecao")
+            self._props_tabs.setCurrentIndex(0)  # volta para Documento
         elif len(pieces) == 1:
             self._update_piece_page(pieces[0])
-            self._props_stack.setCurrentIndex(1)
-            self._props_title.setText("Peca selecionada")
+            self._sel_stack.setCurrentIndex(1)
+            self._props_tabs.setTabText(1, "Peca")
+            self._props_tabs.setCurrentIndex(1)
         else:
             self._update_group_page(pieces)
-            self._props_stack.setCurrentIndex(2)
-            self._props_title.setText(f"Grupo ({len(pieces)} pecas)")
+            self._sel_stack.setCurrentIndex(2)
+            self._props_tabs.setTabText(1, f"Grupo ({len(pieces)})")
+            self._props_tabs.setCurrentIndex(1)
+        self._update_overlay()
 
     def _update_piece_page(self, piece: PieceItem) -> None:
         by_id = {a.id: a for a in self._result.artworks} if self._result else {}
         art = by_id.get(piece.artwork_id)
         if art is not None:
             m = measurements.piece_metrics(art)
-            self._pm_w.set_value(f"{m.width:.1f} mm")
-            self._pm_h.set_value(f"{m.height:.1f} mm")
-            self._pm_area.set_value(f"{m.area / 100:.2f} cm²")
-            self._pm_perim.set_value(f"{m.perimeter:.1f} mm")
+            self._pm_w.set_value(units.fmt_len(m.width))
+            self._pm_h.set_value(units.fmt_len(m.height))
+            self._pm_area.set_value(units.fmt_area(m.area))
+            self._pm_perim.set_value(units.fmt_len(m.perimeter))
         x = piece.pos().x() - piece.dx
         y = piece.pos().y() - piece.dy
-        self._pm_pos.set_value(f"{x:.1f}, {y:.1f} mm")
+        self._pm_pos.set_value(units.fmt_xy(x, y))
 
     def _update_group_page(self, pieces: list[PieceItem]) -> None:
         boxes = [
             (p.pos().x(), p.pos().y(), p.rect().width(), p.rect().height()) for p in pieces
         ]
         g = measurements.group_metrics(boxes)
-        self._gm_w.set_value(f"{g.width:.1f} mm")
-        self._gm_h.set_value(f"{g.height:.1f} mm")
+        self._gm_w.set_value(units.fmt_len(g.width))
+        self._gm_h.set_value(units.fmt_len(g.height))
         self._gm_count.set_value(str(g.count))
 
     def _apply_tooltips(self) -> None:
@@ -1129,32 +1413,32 @@ class MainWindow(QMainWindow):
 
     def _build_chapa_group(self) -> QFrame:
         group, lay = self._section("Chapa / Material", "#16a085")
-        lay.addWidget(QLabel("Largura da chapa (mm)"))
-        self._width = _spin(1, 20000)
+        lay.addWidget(QLabel("Largura da chapa"))
+        self._width = LengthSpin(1, 20000)
         self._width.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._width)
-        lay.addWidget(QLabel("Altura da chapa (mm) - 0 = chapa unica"))
-        self._height = _spin(0, 20000)
+        lay.addWidget(QLabel("Altura da chapa (0 = chapa unica)"))
+        self._height = LengthSpin(0, 20000)
         self._height.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._height)
-        lay.addWidget(QLabel("Espacamento (mm)"))
-        self._spacing = _spin(0, 500, decimals=2)
+        lay.addWidget(QLabel("Espacamento"))
+        self._spacing = LengthSpin(0, 500)
         self._spacing.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._spacing)
         return group
 
     def _build_faca_group(self) -> QFrame:
         group, lay = self._section("Faca", "#c0392b")
-        lay.addWidget(QLabel("Offset - sangria p/ fora (mm)"))
-        self._offset = _spin(-100, 100, decimals=2)
+        lay.addWidget(QLabel("Offset - sangria p/ fora"))
+        self._offset = LengthSpin(-100, 100)
         self._offset.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._offset)
-        lay.addWidget(QLabel("Recuo de seguranca - faca p/ dentro (mm)"))
-        self._safety = _spin(0, 100, decimals=2)
+        lay.addWidget(QLabel("Recuo de seguranca - faca p/ dentro"))
+        self._safety = LengthSpin(0, 100)
         self._safety.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._safety)
-        lay.addWidget(QLabel("Recorte da arte - cortar bordas (mm)"))
-        self._crop = _spin(0, 100, decimals=2)
+        lay.addWidget(QLabel("Recorte da arte - cortar bordas"))
+        self._crop = LengthSpin(0, 100)
         self._crop.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._crop)
         self._shared = QComboBox()
@@ -1175,18 +1459,27 @@ class MainWindow(QMainWindow):
             "Desmarcado: a faca fica no retangulo da imagem inteira."
         )
         lay.addWidget(self._auto_ignore_white)
-        lay.addWidget(QLabel("Offset externo - sangria p/ fora (mm)"))
-        self._auto_offset_ext = _spin(0, 100, decimals=2)
+        lay.addWidget(QLabel("Offset externo - sangria p/ fora"))
+        self._auto_offset_ext = LengthSpin(0, 100)
         self._auto_offset_ext.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._auto_offset_ext)
-        lay.addWidget(QLabel("Offset interno - recuo p/ dentro (mm)"))
-        self._auto_offset_int = _spin(0, 100, decimals=2)
+        lay.addWidget(QLabel("Offset interno - recuo p/ dentro"))
+        self._auto_offset_int = LengthSpin(0, 100)
         self._auto_offset_int.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._auto_offset_int)
         lay.addWidget(QLabel("Suavizar curvas (0 = reto, 5 = macio)"))
         self._auto_smooth = _spin(0, 5)
         self._auto_smooth.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._auto_smooth)
+
+        self._btn_reset_faca = QPushButton("  Restaurar padroes da faca")
+        self._btn_reset_faca.setIcon(icons.icon("rotate-ccw", theme.ICON))
+        self._btn_reset_faca.setToolTip(
+            "Zera offset, recuo, recorte, giro e suavizacao para a faca sair exata\n"
+            "no contorno. Aplicado sozinho a cada novo arquivo importado."
+        )
+        self._btn_reset_faca.clicked.connect(self._reset_faca_defaults)
+        lay.addWidget(self._btn_reset_faca)
         return group
 
     def _build_registro_group(self) -> QFrame:
@@ -1199,27 +1492,35 @@ class MainWindow(QMainWindow):
         self._reg_type.currentIndexChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._reg_type)
 
-        lay.addWidget(QLabel("Bolinhas: afastamento / diametro (mm)"))
-        self._reg_margin = _spin(0, 200, decimals=1)
+        lay.addWidget(QLabel("Bolinhas: afastamento / diametro"))
+        self._reg_margin = LengthSpin(0, 200)
         lay.addWidget(self._reg_margin)
-        self._reg_diameter = _spin(1, 50, decimals=1)
+        self._reg_diameter = LengthSpin(1, 50)
         lay.addWidget(self._reg_diameter)
 
-        lay.addWidget(QLabel("Mimaki: distancia do quadro (mm)"))
-        self._mk_distance = _spin(0, 200, decimals=1)
+        lay.addWidget(QLabel("Mimaki: distancia do quadro"))
+        self._mk_distance = LengthSpin(0, 200)
         self._mk_distance.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._mk_distance)
-        lay.addWidget(QLabel("Mimaki: tamanho da marca (mm)"))
-        self._mk_size = _spin(1, 100, decimals=1)
+        lay.addWidget(QLabel("Mimaki: tamanho da marca"))
+        self._mk_size = LengthSpin(1, 100)
         self._mk_size.valueChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._mk_size)
-        lay.addWidget(QLabel("Mimaki: espessura da marca (mm)"))
-        self._mk_thickness = _spin(0.1, 10, decimals=1)
+        lay.addWidget(QLabel("Mimaki: espessura da marca"))
+        self._mk_thickness = LengthSpin(0.1, 10)
         lay.addWidget(self._mk_thickness)
         return group
 
     def _build_exibicao_group(self) -> QFrame:
         group, lay = self._section("Exibicao", "#2c3e50")
+        lay.addWidget(QLabel("Unidade de medida"))
+        self._unit_box = QComboBox()
+        self._unit_box.addItem("Centimetros (cm)", units.CM)
+        self._unit_box.addItem("Milimetros (mm)", units.MM)
+        self._unit_box.currentIndexChanged.connect(
+            lambda _: self._on_unit_changed(self._unit_box.currentData())
+        )
+        lay.addWidget(self._unit_box)
         lay.addWidget(QLabel("Modo de visualizacao"))
         self._view_mode = QComboBox()
         self._view_mode.addItem("Impressao + Corte", "both")
@@ -1228,7 +1529,7 @@ class MainWindow(QMainWindow):
         self._view_mode.addItem("Tela dividida (impressao / corte)", "split")
         self._view_mode.currentIndexChanged.connect(lambda _: self._refresh_preview())
         lay.addWidget(self._view_mode)
-        self._show_rulers = QCheckBox("Mostrar reguas (mm)")
+        self._show_rulers = QCheckBox("Mostrar reguas")
         self._show_rulers.toggled.connect(lambda _: self._apply_rulers_visibility())
         lay.addWidget(self._show_rulers)
         self._snap_check = QCheckBox("Encaixar pecas ao arrastar (snap)")
@@ -1241,6 +1542,18 @@ class MainWindow(QMainWindow):
         self._h_ruler.setVisible(visible)
         self._v_ruler.setVisible(visible)
         self._corner.setVisible(visible)
+
+    def _on_unit_changed(self, unit: str) -> None:
+        """Troca a unidade (mm/cm) em todo o sistema: campos, reguas e medidas."""
+        units.set_unit(unit)
+        for spin in self.findChildren(LengthSpin):
+            spin.refresh_unit()
+        self._h_ruler.update()
+        self._v_ruler.update()
+        self._update_selection_info()  # medida do arquivo na biblioteca
+        self._on_selection_changed()   # painel da peca/grupo + overlay
+        if self._loaded:
+            self._save_settings()
 
     # ---- settings ----
     def _load_settings(self) -> None:
@@ -1262,6 +1575,8 @@ class MainWindow(QMainWindow):
         self._mk_thickness.setValue(s.mimaki_thickness)
         self._show_rulers.setChecked(s.show_rulers)
         self._apply_rulers_visibility()
+        units.set_unit(s.unit)
+        self._unit_box.setCurrentIndex(max(0, self._unit_box.findData(s.unit)))
         self._snap_check.setChecked(s.snap_enabled)
         self._set_snap(s.snap_enabled)
         self._view_mode.setCurrentIndex(max(0, self._view_mode.findData(s.view_mode)))
@@ -1289,6 +1604,7 @@ class MainWindow(QMainWindow):
         s.mimaki_size = float(self._mk_size.value())
         s.mimaki_thickness = float(self._mk_thickness.value())
         s.show_rulers = self._show_rulers.isChecked()
+        s.unit = units.unit()
         s.view_mode = self._view_mode.currentData()
         s.import_box = self._import_box.currentData()
         s.snap_enabled = self._snap.enabled
@@ -1318,16 +1634,57 @@ class MainWindow(QMainWindow):
             width, height = height, width
         return replace(art, size=Size(width, height), cut_contour=None)
 
+    def _reset_faca_defaults(self) -> None:
+        """Volta as configuracoes de faca ao padrao seguro (faca exata no
+        contorno: sem sangria, recuo, recorte, giro ou suavizacao).
+
+        Chamado pelo botao 'Restaurar padroes' e automaticamente a cada novo
+        arquivo importado, para a faca sempre sair certa, sem herdar valores
+        antigos que deixavam a faca torta.
+        """
+        self._suspend_relayout = True
+        try:
+            self._offset.setValue(0)
+            self._safety.setValue(0)
+            self._crop.setValue(0)
+            self._auto_offset_ext.setValue(0)
+            self._auto_offset_int.setValue(0)
+            self._auto_smooth.setValue(0)
+            self._auto_sensitivity.setValue(50)
+            self._auto_ignore_white.setChecked(True)
+            self._rotation.setCurrentIndex(0)  # 0 graus
+        finally:
+            self._suspend_relayout = False
+        self._relayout()
+
     def _image_faca(self, base: ImageArtwork, net_offset: float):
-        """Faca de uma imagem: contorno detectado, suavizado e com offset."""
+        """Faca de uma imagem: contorno detectado, recortado/rotacionado igual a
+        arte exibida (crop + rotacao), depois suavizado e com offset.
+
+        Recorte e rotacao precisam valer para a faca tambem (o pixmap do preview
+        e girado/cortado em _display_pixmap); senao a faca fica desalinhada e o
+        tamanho usado no nesting/exportacao nao bate com a imagem girada.
+        """
+        crop = float(self._crop.value())
+        rotation = self._rotation_value()
         contour = base.raw_contour
         if contour is not None:
+            contour, w, h = crop_and_rotate_contour(
+                contour, crop, rotation, base.size.width, base.size.height
+            )
             smooth = int(self._auto_smooth.value())
             if smooth > 0:
                 contour = smooth_contour(contour, smooth)
             if net_offset != 0:
                 contour = offset_contour(contour, net_offset)
-        return replace(base, cut_contour=contour)
+            size = Size(w, h)
+        else:
+            w = base.size.width - 2 * crop
+            h = base.size.height - 2 * crop
+            if rotation % 360 in (90, 270):
+                w, h = h, w
+            size = Size(w, h)
+        return replace(base, size=size, cut_contour=contour)
 
     # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
@@ -1337,6 +1694,9 @@ class MainWindow(QMainWindow):
         )
         if paths:
             self.add_paths(paths)
+            # arquivo novo sempre entra com a faca no padrao (evita herdar
+            # offset/recuo/giro antigos que deixavam a faca torta).
+            self._reset_faca_defaults()
             self._settings.last_dir = str(Path(paths[0]).parent)
             self._store.save(self._settings)
 
@@ -1403,7 +1763,10 @@ class MainWindow(QMainWindow):
                 pages, dims = info[path]
                 if dims:
                     w, h = next(iter(dims))
-                    meta += f" · {self._fmt_mm(w)}×{self._fmt_mm(h)} mm"
+                    meta += (
+                        f" · {units.fmt_len(w, with_unit=False)}"
+                        f"×{units.fmt_len(h)}"
+                    )
                 if len(pages) > 1:
                     meta += f" · {len(pages)} pag"
             item.setText(f"{Path(path).name}\n{meta}")
@@ -1415,10 +1778,6 @@ class MainWindow(QMainWindow):
         self._table.removeRow(row)
         del self._paths[row]
         self._relayout()
-
-    @staticmethod
-    def _fmt_mm(value: float) -> str:
-        return f"{value:.0f}" if abs(value - round(value)) < 0.05 else f"{value:.1f}"
 
     def _update_selection_info(self) -> None:
         """Mostra a medida do arquivo selecionado numa caixa (sem poluir o preview)."""
@@ -1435,7 +1794,10 @@ class MainWindow(QMainWindow):
             key = (round(art.size.width, 1), round(art.size.height, 1))
             if key not in seen:
                 seen.add(key)
-                sizes.append(f"{self._fmt_mm(art.size.width)} x {self._fmt_mm(art.size.height)} mm")
+                sizes.append(
+                    f"{units.fmt_len(art.size.width, with_unit=False)} "
+                    f"x {units.fmt_len(art.size.height)}"
+                )
         if sizes:
             self._sel_info.setText(f"{name}\n" + " | ".join(sizes))
         else:
@@ -1538,7 +1900,7 @@ class MainWindow(QMainWindow):
 
     def _relayout(self) -> None:
         """Recalcula faca + nesting com os parametros atuais (tempo real)."""
-        if not self._loaded:
+        if not self._loaded or self._suspend_relayout:
             return
         offset = self._effective_offset()
         material = self._material()
@@ -1611,6 +1973,7 @@ class MainWindow(QMainWindow):
 
     def _draw_preview(self) -> None:
         self._piece_items = []
+        self._guide_preview_item = None  # invalidado pelo scene.clear()
         self._undo.clear()  # arranjo regenerado: zera historico de movimentos
         self._scene.clear()
         if self._result is None:
@@ -1630,11 +1993,13 @@ class MainWindow(QMainWindow):
                 dy=0.0,
                 interactive=mode in ("both", "print"),
             )
+        self._draw_guides()
         if self._fit_next:
             self._fit_view()
             self._fit_next = False
         else:
             self._view.view_changed.emit()  # mantem o zoom; atualiza reguas
+        self._update_overlay()
 
     def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float, interactive: bool) -> None:
         result = self._result
@@ -1849,10 +2214,11 @@ class MainWindow(QMainWindow):
         if moves:
             self._undo.push(MoveCommand(moves))
 
-    def _add_placed(self, add_by_sheet: dict) -> None:
+    def _add_placed(self, add_by_sheet: dict, *, text: str = "duplicar") -> None:
         """Acrescenta PlacedItems por chapa e redesenha (estende o comprimento usado)."""
         if not add_by_sheet:
             return
+        before = self._snapshot_sheets()
         by_id = {a.id: a for a in self._result.artworks}
         sheets = []
         for index, layout in enumerate(self._effective_sheets()):
@@ -1865,13 +2231,7 @@ class MainWindow(QMainWindow):
                 fp = artwork_footprint(art)
                 used = max(used, placed.position.y + (fp.max_y - fp.min_y))
             sheets.append(Layout(layout.material, items, used))
-        self._result = ProductionResult(
-            sheets=sheets, artworks=self._result.artworks, sources=self._sources
-        )
-        self._draw_preview()
-        total = sum(s.item_count for s in sheets)
-        self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
-        self._status_ctl.set_production(total, len(sheets))
+        self._commit_arrangement(before, sheets, text)
 
     def _duplicate_selected(self) -> None:
         """Duplica as pecas selecionadas com deslocamento diagonal (Corel: Ctrl+D)."""
@@ -1916,7 +2276,7 @@ class MainWindow(QMainWindow):
                     add.setdefault(piece.sheet_index, []).append(
                         PlacedItem(piece.artwork_id, Point2D(px, py))
                     )
-        self._add_placed(add)
+        self._add_placed(add, text="repetir em grade")
 
     def _step_repeat_dialog(self) -> None:
         if self._result is None or not self._selected_pieces():
@@ -1954,6 +2314,31 @@ class MainWindow(QMainWindow):
         for piece in self._piece_items:
             piece.setSelected(True)
 
+    # ---- historico de arranjo (excluir/duplicar/repetir com Ctrl+Z) ----
+    def _snapshot_sheets(self) -> list:
+        """Copia o arranjo atual (chapas + PlacedItems) para o historico."""
+        return [
+            Layout(layout.material, list(layout.items), layout.used_length)
+            for layout in self._effective_sheets()
+        ]
+
+    def _apply_arrangement(self, sheets) -> None:
+        """Reaplica um arranjo (lista de Layout) e redesenha: usado por desfazer/refazer."""
+        if self._result is None:
+            return
+        self._result = ProductionResult(
+            sheets=sheets, artworks=self._result.artworks, sources=self._sources
+        )
+        self._draw_preview()
+        total = sum(s.item_count for s in sheets)
+        self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
+        self._status_ctl.set_production(total, len(sheets))
+
+    def _commit_arrangement(self, before, after, text: str) -> None:
+        """Aplica 'after' e registra o passo no historico (Ctrl+Z desfaz)."""
+        self._apply_arrangement(after)
+        self._undo.push(ArrangementCommand(self, before, after, text))
+
     def _delete_selected(self) -> None:
         if not self._piece_items:
             return
@@ -1965,16 +2350,10 @@ class MainWindow(QMainWindow):
                 to_remove.add(item)
         if not to_remove:
             return
+        before = self._snapshot_sheets()
         self._piece_items = [p for p in self._piece_items if p not in to_remove]
-        self._result = ProductionResult(
-            sheets=self._effective_sheets(),
-            artworks=self._result.artworks,
-            sources=self._sources,
-        )
-        self._draw_preview()
-        total = sum(s.item_count for s in self._result.sheets)
-        self._status.setText(f"{len(self._result.sheets)} chapa(s) | {total} peca(s)")
-        self._status_ctl.set_production(total, len(self._result.sheets))
+        after = self._effective_sheets()
+        self._commit_arrangement(before, after, "excluir")
 
     def _reset_arrangement(self) -> None:
         """Refaz o nesting do zero (descarta movimentos/exclusoes manuais)."""

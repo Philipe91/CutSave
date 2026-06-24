@@ -33,6 +33,7 @@ class AppSettings:
     mimaki_size: float = 15.0
     mimaki_thickness: float = 1.0
     show_rulers: bool = True
+    unit: str = "cm"  # unidade de exibicao/edicao: mm | cm (interno e sempre mm)
     view_mode: str = "both"  # both | print | cut | split
     import_box: str = "media"  # media (Caixa de Midia) | trim (Caixa de Apara)
     snap_enabled: bool = True  # encaixe (snap) ao arrastar pecas

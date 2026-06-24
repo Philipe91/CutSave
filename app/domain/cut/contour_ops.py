@@ -44,6 +44,32 @@ def smooth_contour(contour: CutContour, iterations: int, ratio: float = 0.25) ->
     return CutContour([Point2D(x, y) for x, y in pts])
 
 
+def crop_and_rotate_contour(
+    contour: CutContour, crop_mm: float, rotation: int, width: float, height: float
+) -> tuple[CutContour, float, float]:
+    """Recorta a borda (crop_mm) e rotaciona (0/90/180/270) o contorno de imagem.
+
+    Devolve (contorno, largura, altura) no mesmo sistema da arte exibida, para a
+    faca acompanhar o pixmap girado/cortado do preview. Usa a convencao de
+    QTransform().rotate (eixo Y para baixo): 90 -> (H - y, x), 180 -> (W - x,
+    H - y), 270 -> (y, W - x). Espelha o que `_transform` faz com o tamanho das
+    artes vetoriais, mantendo faca, nesting e exportacao alinhados.
+    """
+    w = width - 2 * crop_mm
+    h = height - 2 * crop_mm
+    pts = [(p.x - crop_mm, p.y - crop_mm) for p in contour.points]
+    r = rotation % 360
+    if r == 90:
+        pts = [(h - y, x) for x, y in pts]
+        w, h = h, w
+    elif r == 180:
+        pts = [(w - x, h - y) for x, y in pts]
+    elif r == 270:
+        pts = [(y, w - x) for x, y in pts]
+        w, h = h, w
+    return CutContour([Point2D(x, y) for x, y in pts]), w, h
+
+
 def offset_contour(contour: CutContour, offset_mm: float) -> CutContour:
     """Aplica um offset (mm) ao contorno: positivo cresce, negativo encolhe.
 
