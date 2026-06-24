@@ -5,7 +5,7 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, QObject, QPointF, QRect, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QLocale, QObject, QPointF, QRect, QRectF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import (
     QAction,
     QBrush,
@@ -516,6 +516,123 @@ class MeasureOverlay(QFrame):
         self.adjustSize()
         self.show()
         self.raise_()
+
+
+class CropPreview(QWidget):
+    """Pre-visualizacao do recorte de pagina: mostra a pagina, sombreia o que
+    sera cortado e deixa arrastar as 4 bordas para definir o corte (mm)."""
+
+    crop_changed = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._pm: QPixmap | None = None
+        self._pw_mm = 1.0
+        self._ph_mm = 1.0
+        self._crop = [0.0, 0.0, 0.0, 0.0]  # esquerda, cima, direita, baixo (mm)
+        self._drag: str | None = None
+        self.setMinimumSize(380, 380)
+        self.setMouseTracking(True)
+
+    def set_page(self, pixmap, w_mm: float, h_mm: float) -> None:
+        self._pm = pixmap
+        self._pw_mm = max(1e-3, w_mm)
+        self._ph_mm = max(1e-3, h_mm)
+        self.update()
+
+    def set_crop(self, left, top, right, bottom) -> None:
+        self._crop = [float(left), float(top), float(right), float(bottom)]
+        self.update()
+
+    def crop(self) -> tuple:
+        return tuple(self._crop)
+
+    def _geom(self):
+        m = 14
+        aw = max(1, self.width() - 2 * m)
+        ah = max(1, self.height() - 2 * m)
+        if self._pm is not None and not self._pm.isNull():
+            pw, ph = self._pm.width(), self._pm.height()
+        else:
+            pw, ph = self._pw_mm, self._ph_mm
+        s = min(aw / pw, ah / ph)
+        dw, dh = pw * s, ph * s
+        ox = (self.width() - dw) / 2
+        oy = (self.height() - dh) / 2
+        return ox, oy, dw, dh, dw / self._pw_mm, dh / self._ph_mm
+
+    def paintEvent(self, event) -> None:  # noqa: ARG002
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(70, 72, 75))
+        ox, oy, dw, dh, mmx, mmy = self._geom()
+        target = QRectF(ox, oy, dw, dh)
+        if self._pm is not None and not self._pm.isNull():
+            p.drawPixmap(target, self._pm, QRectF(self._pm.rect()))
+        else:
+            p.fillRect(target, QColor(255, 255, 255))
+        left, top, right, bottom = self._crop
+        cx0, cy0 = ox + left * mmx, oy + top * mmy
+        cx1, cy1 = ox + dw - right * mmx, oy + dh - bottom * mmy
+        shade = QColor(210, 40, 40, 90)
+        p.fillRect(QRectF(ox, oy, dw, top * mmy), shade)
+        p.fillRect(QRectF(ox, cy1, dw, bottom * mmy), shade)
+        p.fillRect(QRectF(ox, cy0, left * mmx, cy1 - cy0), shade)
+        p.fillRect(QRectF(cx1, cy0, right * mmx, cy1 - cy0), shade)
+        pen = QPen(QColor(0, 120, 215))
+        pen.setWidth(2)
+        pen.setStyle(Qt.DashLine)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(QRectF(cx0, cy0, cx1 - cx0, cy1 - cy0))
+
+    def _edges(self):
+        ox, oy, dw, dh, mmx, mmy = self._geom()
+        left, top, right, bottom = self._crop
+        return {
+            "l": ox + left * mmx, "r": ox + dw - right * mmx,
+            "t": oy + top * mmy, "b": oy + dh - bottom * mmy,
+        }, (ox, oy, dw, dh, mmx, mmy)
+
+    def mousePressEvent(self, event) -> None:
+        edges, (ox, oy, dw, dh, mmx, mmy) = self._edges()
+        x, y = event.position().x(), event.position().y()
+        tol, best, cand = 9, 9, None
+        if oy - tol <= y <= oy + dh + tol:
+            for e in ("l", "r"):
+                if abs(x - edges[e]) < best:
+                    best, cand = abs(x - edges[e]), e
+        if ox - tol <= x <= ox + dw + tol:
+            for e in ("t", "b"):
+                if abs(y - edges[e]) < best:
+                    best, cand = abs(y - edges[e]), e
+        self._drag = cand
+
+    def mouseMoveEvent(self, event) -> None:
+        edges, (ox, oy, dw, dh, mmx, mmy) = self._edges()
+        x, y = event.position().x(), event.position().y()
+        if self._drag is None:
+            near_v = abs(x - edges["l"]) < 9 or abs(x - edges["r"]) < 9
+            near_h = abs(y - edges["t"]) < 9 or abs(y - edges["b"]) < 9
+            self.setCursor(
+                Qt.SizeHorCursor if near_v else
+                (Qt.SizeVerCursor if near_h else Qt.ArrowCursor)
+            )
+            return
+        left, top, right, bottom = self._crop
+        if self._drag == "l":
+            left = max(0.0, min((x - ox) / mmx, self._pw_mm - right - 1))
+        elif self._drag == "r":
+            right = max(0.0, min((ox + dw - x) / mmx, self._pw_mm - left - 1))
+        elif self._drag == "t":
+            top = max(0.0, min((y - oy) / mmy, self._ph_mm - bottom - 1))
+        elif self._drag == "b":
+            bottom = max(0.0, min((oy + dh - y) / mmy, self._ph_mm - top - 1))
+        self._crop = [left, top, right, bottom]
+        self.update()
+        self.crop_changed.emit()
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: ARG002
+        self._drag = None
 
 
 class GuideItem(QGraphicsLineItem):
@@ -2297,28 +2414,73 @@ class MainWindow(QMainWindow):
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Recortar paginas — {Path(path).name}")
-        form = QFormLayout(dlg)
-        form.addRow(QLabel(f"PDF com {total} pagina(s). Quanto cortar de cada lado:"))
+        dlg.resize(760, 480)
+        root = QVBoxLayout(dlg)
+        body = QHBoxLayout()
+        root.addLayout(body, 1)
+
+        # --- coluna esquerda: campos ---
+        left_col = QWidget()
+        form = QFormLayout(left_col)
+        form.addRow(QLabel(f"PDF com {total} pagina(s).\nArraste as bordas ou digite (mm):"))
         spins = {}
+        existing = self._page_crops.get(path, {})
+        first = next(iter(existing.values()), (0.0, 0.0, 0.0, 0.0))
         for key, rotulo in (("top", "Cima"), ("bottom", "Baixo"),
                             ("left", "Esquerda"), ("right", "Direita")):
             sp = LengthSpin(0, 1000)
-            existing = self._page_crops.get(path, {})
-            if existing:  # pre-preenche com o recorte atual (1a pagina recortada)
-                first = next(iter(existing.values()))
-                idx = {"left": 0, "top": 1, "right": 2, "bottom": 3}[key]
-                sp.setValue(first[idx])
+            idx = {"left": 0, "top": 1, "right": 2, "bottom": 3}[key]
+            sp.setValue(first[idx])
             spins[key] = sp
             form.addRow(rotulo, sp)
         pages_edit = QLineEdit("todas")
         pages_edit.setToolTip("'todas' ou paginas especificas, ex.: 1,3-5")
         form.addRow("Paginas", pages_edit)
+        prev_page = QSpinBox()
+        prev_page.setRange(1, total)
+        form.addRow("Pre-visualizar pagina", prev_page)
+        body.addWidget(left_col)
+
+        # --- coluna direita: pre-visualizacao ---
+        preview = CropPreview()
+        body.addWidget(preview, 1)
+
+        # binding bidirecional campos <-> preview
+        def push_to_preview():
+            preview.set_crop(spins["left"].value(), spins["top"].value(),
+                             spins["right"].value(), spins["bottom"].value())
+
+        def pull_from_preview():
+            for k, v in zip(("left", "top", "right", "bottom"), preview.crop()):
+                spins[k].blockSignals(True)
+                spins[k].setValue(v)
+                spins[k].blockSignals(False)
+
+        def render_preview():
+            try:
+                data = self._renderer.render_png(
+                    path, prev_page.value() - 1, dpi=110,
+                    box=self._import_box.currentData(),
+                )
+                pm = QPixmap()
+                pm.loadFromData(data, "PNG")
+                if not pm.isNull():
+                    preview.set_page(pm, pm.width() * 25.4 / 110.0, pm.height() * 25.4 / 110.0)
+            except Exception:
+                pass
+            push_to_preview()
+
+        for sp in spins.values():
+            sp.valueChanged.connect(lambda _=0: push_to_preview())
+        preview.crop_changed.connect(pull_from_preview)
+        prev_page.valueChanged.connect(lambda _=0: render_preview())
+        render_preview()
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg
         )
-        # botao extra para limpar o recorte do arquivo
         clear_btn = buttons.addButton("Remover recorte", QDialogButtonBox.DestructiveRole)
-        form.addRow(buttons)
+        root.addWidget(buttons)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
         clear_btn.clicked.connect(lambda: (self._clear_page_crop(path), dlg.reject()))
