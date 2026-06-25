@@ -7,15 +7,39 @@
 
 ## Pendências combinadas (a fazer em breve)
 
-- **Faca do cliente no PDF**: detectar/usar o contorno vetorial enviado pelo cliente
-  (página separada arte+corte; mesma página por cor especial). Motor já existe
-  (`pymupdf_vector_extractor`, `generate_vector_cut`), falta ligar ao pipeline.
+- **Faca do cliente no PDF**: usar o contorno vetorial de corte enviado pelo cliente.
+  - **Etapa 1 — FEITA (24/06):** modo "Faca do cliente (vetor do PDF)" usa o maior
+    contorno vetorial; faca em verde + aviso de detecção; botão "Gerar Faca". Liga
+    `pymupdf_vector_extractor` + `VectorContourGenerator` ao pipeline (aditivo).
+  - **Etapa 2 — a fazer:** detectar a faca por **cor especial / spot color**
+    (CutContour, magenta), isolando só a linha de corte na mesma página.
+  - **Etapa 3 — a fazer:** suportar **página separada** de corte (arte na pág. 1,
+    corte na pág. 2).
+
+- **Integração CorelDRAW → PrintNest (botão no Corel, estilo RDWorks)**: replicar o
+  fluxo do plugin do RDWorks — desenhar no Corel, clicar num botão e o arquivo já
+  cai no PrintNest. Encaixa direto com a "Faca do cliente (vetor)": o corte
+  desenhado no Corel sai no PDF como vetor e o PrintNest o usa como faca.
+  - **Macro no CorelDRAW (VBA/GMS):** adiciona um botão na barra; ao clicar, exporta
+    a página/seleção como **PDF** (preserva os vetores, inclusive o corte) em um
+    temporário e dispara o PrintNest com esse caminho.
+  - **PrintNest recebe via CLI:** `python -m app.presentation arquivo.pdf` adiciona
+    e abre o arquivo.
+  - **Instância única + IPC (Qt `QLocalServer`/`QLocalSocket`):** se o PrintNest já
+    estiver aberto, o novo arquivo **entra na sessão atual** em vez de abrir outra
+    janela (comportamento "igual RDWorks").
+  - **Esforço:** CLI = pequeno; instância única/IPC = médio; macro Corel = pequeno/médio.
+  - **Cuidados:** versão do Corel (algumas exigem habilitar macros/usar VSTA);
+    assinar o macro (evitar aviso de segurança); exportar preservando vetor;
+    Windows-only (ok, a loja é Windows).
+
 - **Soltar arquivo SEM gerar a faca (modo organizar)**: arrastar o arquivo da
   Biblioteca para a área de trabalho e poder posicioná-lo **antes** de gerar a
   faca; depois clicar em "Gerar Produção" para então gerar as facas. Hoje o
-  drop já monta a produção (com faca). Esse modo "só layout, faca depois" é uma
-  evolução: requer separar posicionamento da geração de faca (peças pelo tamanho
-  da arte, faca aplicada só no Gerar). Avaliar custo/benefício antes de fazer.
+  drop já monta a produção (com faca). Decisão de produto combinada: manter a
+  geração automática, mas com **origem da faca por peça** (default inteligente) e
+  o botão **Gerar Faca** separado (este já existe). O modo "só layout, faca
+  depois" fica como interruptor opcional. Avaliar custo/benefício.
 
 ---
 
