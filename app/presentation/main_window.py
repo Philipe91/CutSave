@@ -106,7 +106,14 @@ from app.infrastructure.importers.pymupdf_vector_extractor import PyMuPdfVectorE
 from app.presentation import icons, measurements, messages, theme, units
 from app.presentation.panels import ribbon as ribbon_panel
 from app.presentation.panels.status_bar import StatusBarController
-from app.presentation.widgets import Alert, AlertLevel, CollapsibleCard, MeasureField, ToastManager
+from app.presentation.widgets import (
+    Alert,
+    AlertLevel,
+    CollapsibleCard,
+    MeasureField,
+    ToastManager,
+    labeled,
+)
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ProjectError, ValidationError
 from app.shared.resources import resource_path
@@ -734,8 +741,32 @@ class ProductionWorker(QObject):
         self.finished.emit((result, png_map))
 
 
+def _block_wheel(event) -> None:
+    """Ignora o scroll do mouse: o valor NUNCA muda por rolagem (so setas, teclado
+    ou digitacao). O evento sobe para a area de rolagem (o painel rola normal).
+    Evita o erro de producao de alterar numeros sem querer ao rolar a tela."""
+    event.ignore()
+
+
+class _NoWheelSpinBox(QSpinBox):
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        _block_wheel(event)
+
+
+class _NoWheelDoubleSpinBox(QDoubleSpinBox):
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        _block_wheel(event)
+
+
+class NoWheelComboBox(QComboBox):
+    """QComboBox que ignora o scroll do mouse (nao troca de item ao rolar)."""
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        _block_wheel(event)
+
+
 def _spin(minimum, maximum, decimals=None):
-    box = QSpinBox() if decimals is None else QDoubleSpinBox()
+    box = _NoWheelSpinBox() if decimals is None else _NoWheelDoubleSpinBox()
     box.setRange(minimum, maximum)
     return box
 
@@ -773,6 +804,10 @@ class LengthSpin(QDoubleSpinBox):
         except ValueError:
             return self.value()
         return units.to_mm(shown)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        # scroll do mouse NAO altera a medida (so setas/teclado/digitacao)
+        _block_wheel(event)
 
 
 class QuantityStepper(QWidget):
@@ -1499,10 +1534,26 @@ class MainWindow(QMainWindow):
         dl = QVBoxLayout(document)
         dl.setContentsMargins(0, 0, 0, 0)
         dl.setSpacing(theme.SPACE_SM)
-        dl.addWidget(self._build_chapa_group())
-        dl.addWidget(self._build_faca_group())
-        dl.addWidget(self._build_registro_group())
+        self._doc_layout = dl  # usado pelo Modo Compacto
+        self._doc_cards = []   # cards do documento (para o Modo Compacto)
+
+        # Modo Compacto (para notebooks): reduz espacamentos/altura dos campos.
+        self._compact_check = QCheckBox("Modo Compacto")
+        self._compact_check.setToolTip(
+            "Reduz os espacamentos e a altura dos campos, mantendo a legibilidade.\n"
+            "Ideal para telas menores (notebooks)."
+        )
+        self._compact_check.toggled.connect(self._apply_compact_mode)
+        dl.addWidget(self._compact_check)
+
+        dl.addWidget(self._build_resumo_card())          # resumo da producao (topo, fixo)
+        dl.addWidget(self._build_producao_card())        # 1 - Producao (aberto)
+        dl.addWidget(self._build_acabamento_card())      # 2 - Acabamento (recolhido)
+        dl.addWidget(self._build_imagens_card())         # 3 - Imagens (recolhido)
+        dl.addWidget(self._build_registro_card())        # 4 - Marcas de registro (recolhido)
+        dl.addWidget(self._build_avancado_card())        # 5 - Avancado (recolhido)
         dl.addStretch()
+        self._doc_widget = document  # usado pelo Modo Compacto p/ achar os campos
         doc_scroll = QScrollArea()
         doc_scroll.setWidgetResizable(True)
         doc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1962,11 +2013,6 @@ class MainWindow(QMainWindow):
             "Encaixe magnetico: a peca gruda nas bordas/centro das outras e da chapa (Alt+Q)"
         )
 
-    def _section(self, title: str, color: str = "") -> tuple[CollapsibleCard, QVBoxLayout]:
-        """Cartao moderno recolhivel (CollapsibleCard). 'color' e ignorado (legado)."""
-        card = CollapsibleCard(title)
-        return card, card.body
-
     def _build_library_panel(self) -> QWidget:
         """Biblioteca de arquivos (esquerda): cada linha tem miniatura, nome,
         medida, paginas, tipo e quantidade. Dona do _table (contrato dos testes:
@@ -2051,47 +2097,89 @@ class MainWindow(QMainWindow):
         panel.setMaximumWidth(420)
         return panel
 
-    def _build_chapa_group(self) -> QFrame:
-        group, lay = self._section("Chapa / Material", "#16a085")
-        lay.addWidget(QLabel("Largura da chapa"))
+    # ---- aba Documento: cards modernos (UI). NAO altera o motor. ----
+    def _doc_card(self, title: str, accent: str, *, collapsed: bool = False) -> CollapsibleCard:
+        card = CollapsibleCard(title, collapsed=collapsed, accent=accent)
+        self._doc_cards.append(card)
+        return card
+
+    @staticmethod
+    def _grid_fields(body, rows) -> None:
+        """Adiciona campos numa grade de 2 colunas (menos altura, mais organizado).
+        rows: lista de (rotulo, widget, tooltip)."""
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(theme.SPACE_SM)
+        grid.setVerticalSpacing(theme.SPACE_SM)
+        for i, (label, widget, tip) in enumerate(rows):
+            if tip:
+                widget.setToolTip(tip)
+            grid.addWidget(labeled(label, widget), i // 2, i % 2)
+        body.addLayout(grid)
+
+    def _build_resumo_card(self) -> CollapsibleCard:
+        """Resumo da producao (somente leitura), atualizado automaticamente."""
+        card = CollapsibleCard("Resumo da producao", accent="resumo")
+        self._sum_material = MeasureField("Material")
+        self._sum_pecas = MeasureField("Pecas")
+        self._sum_chapas = MeasureField("Chapas")
+        self._sum_area = MeasureField("Area utilizada")
+        self._sum_faca = MeasureField("Faca")
+        self._sum_reg = MeasureField("Registro")
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(theme.SPACE_MD)
+        grid.setVerticalSpacing(theme.SPACE_SM)
+        fields = [self._sum_material, self._sum_pecas, self._sum_chapas,
+                  self._sum_area, self._sum_faca, self._sum_reg]
+        for i, f in enumerate(fields):
+            grid.addWidget(f, i // 2, i % 2)
+        card.body.addLayout(grid)
+        return card
+
+    def _build_producao_card(self) -> CollapsibleCard:
+        """Secao 1 - Producao (sempre aberta): o que se usa 95% do tempo."""
+        card = self._doc_card("Producao", "producao")
         self._width = LengthSpin(1, 20000)
         self._width.valueChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._width)
-        lay.addWidget(QLabel("Altura da chapa (0 = chapa unica)"))
         self._height = LengthSpin(0, 20000)
         self._height.valueChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._height)
-        lay.addWidget(QLabel("Espacamento horizontal  ( − junta as pecas )"))
+        self._grid_fields(card.body, [
+            ("Largura da chapa", self._width,
+             "Largura util da chapa/bobina onde as pecas sao encaixadas."),
+            ("Altura (0 = unica)", self._height,
+             "Altura da chapa. 0 = chapa unica (cresce conforme o conteudo)."),
+        ])
         self._spacing = LengthSpin(-500, 500)
-        self._spacing.setToolTip(
-            "Espaco entre as pecas na MESMA linha. Negativo aproxima/sobrepoe\n"
-            "os retangulos (util p/ peca redonda, fecha o vao branco)."
-        )
         self._spacing.valueChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._spacing)
-        lay.addWidget(QLabel("Espacamento vertical  ( − junta as linhas )"))
         self._spacing_v = LengthSpin(-500, 500)
-        self._spacing_v.setToolTip("Espaco entre as LINHAS (para cima/baixo). Negativo aproxima.")
         self._spacing_v.valueChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._spacing_v)
-        return group
-
-    def _build_faca_group(self) -> QFrame:
-        group, lay = self._section("Faca", "#c0392b")
-        lay.addWidget(QLabel("Sangria da faca  ( + fora  /  − dentro )"))
+        self._grid_fields(card.body, [
+            ("Espacamento horizontal", self._spacing,
+             "Espaco entre as pecas na MESMA linha. Negativo aproxima/sobrepoe\n"
+             "os retangulos (util p/ peca redonda, fecha o vao branco)."),
+            ("Espacamento vertical", self._spacing_v,
+             "Espaco entre as LINHAS (para cima/baixo). Negativo aproxima."),
+        ])
         self._offset = LengthSpin(-100, 100)
         self._offset.setToolTip(
-            "Um campo so: valor positivo afasta a faca para FORA da arte (sangria);\n"
-            "valor negativo recolhe a faca para DENTRO (recuo de seguranca)."
+            "Adiciona/recolhe material ao redor do corte. Positivo afasta a faca\n"
+            "para FORA da arte (sangria); negativo recolhe para DENTRO (recuo)."
         )
         self._offset.valueChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._offset)
-        lay.addWidget(QLabel("Recorte da arte - cortar bordas"))
+        card.body.addWidget(labeled("Sangria da faca  ( + fora  /  − dentro )", self._offset))
+        return card
+
+    def _build_acabamento_card(self) -> CollapsibleCard:
+        """Secao 2 - Acabamento (recolhida): recorte e tipo de faca."""
+        card = self._doc_card("Acabamento", "acabamento", collapsed=True)
         self._crop = LengthSpin(0, 100)
         self._crop.valueChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._crop)
-        lay.addWidget(QLabel("Faca de PDF"))
-        self._faca_mode = QComboBox()
+        card.body.addWidget(self._labeled_tip(
+            "Recorte da arte (cortar bordas)", self._crop,
+            "Corta as bordas da arte (mm em cada lado) antes de gerar a faca."
+        ))
+        self._faca_mode = NoWheelComboBox()
         self._faca_mode.addItem("Retangulo (por fora)", "rect")
         self._faca_mode.addItem("Pelo contorno (rasteriza)", "contour")
         self._faca_mode.addItem("Faca do cliente (vetor do PDF)", "vector")
@@ -2102,76 +2190,135 @@ class MainWindow(QMainWindow):
             "Faca do cliente: usa a linha de corte vetorial que veio no PDF."
         )
         self._faca_mode.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._faca_mode)
-        self._shared = QComboBox()
+        card.body.addWidget(labeled("Tipo de faca (PDF)", self._faca_mode))
+        self._shared = NoWheelComboBox()
         self._shared.addItems(["Faca por peca (quadrados)", "Faca compartilhada (grade)"])
+        self._shared.setToolTip(
+            "Faca por peca: cada peca tem seu retangulo de corte.\n"
+            "Faca compartilhada: bordas coladas viram uma so linha (grade)."
+        )
         self._shared.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._shared)
+        card.body.addWidget(labeled("Modo da faca", self._shared))
+        return card
 
-        # Faca automatica de imagens (PNG/JPG/WEBP)
-        sep = QLabel("Faca automatica (imagens)")
-        sep.setStyleSheet("font-weight:bold; color:#c0392b; margin-top:6px;")
-        lay.addWidget(sep)
-        lay.addWidget(QLabel("Sensibilidade (0-100)"))
+    def _build_imagens_card(self) -> CollapsibleCard:
+        """Secao 3 - Imagens (recolhida): faca automatica de PNG/JPG/WEBP."""
+        card = self._doc_card("Imagens", "imagens", collapsed=True)
         self._auto_sensitivity = _spin(0, 100)
-        lay.addWidget(self._auto_sensitivity)
+        self._auto_smooth = _spin(0, 5)
+        self._auto_smooth.valueChanged.connect(lambda _: self._relayout(renest=False))
+        self._grid_fields(card.body, [
+            ("Sensibilidade (0-100)", self._auto_sensitivity,
+             "Sensibilidade da deteccao do contorno em imagens (0-100)."),
+            ("Suavizar curvas (0-5)", self._auto_smooth,
+             "Suaviza o contorno da faca: 0 = reto, 5 = macio."),
+        ])
+        self._auto_offset = LengthSpin(-100, 100)
+        self._auto_offset.setToolTip(
+            "Sangria da faca da imagem: positivo afasta para FORA do desenho;\n"
+            "negativo recolhe para DENTRO (recuo)."
+        )
+        self._auto_offset.valueChanged.connect(lambda _: self._relayout(renest=False))
+        card.body.addWidget(labeled("Sangria da faca (imagem)", self._auto_offset))
         self._auto_ignore_white = QCheckBox("Remover fundo automatico (imagens opacas)")
         self._auto_ignore_white.setToolTip(
             "Detecta a cor do fundo pela borda e a remove (branco, escuro ou colorido).\n"
             "Desmarcado: a faca fica no retangulo da imagem inteira."
         )
-        lay.addWidget(self._auto_ignore_white)
-        lay.addWidget(QLabel("Sangria da faca  ( + fora  /  − dentro )"))
-        self._auto_offset = LengthSpin(-100, 100)
-        self._auto_offset.setToolTip(
-            "Um campo so: positivo afasta a faca para FORA do desenho (sangria);\n"
-            "negativo recolhe para DENTRO (recuo)."
-        )
-        self._auto_offset.valueChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._auto_offset)
-        lay.addWidget(QLabel("Suavizar curvas (0 = reto, 5 = macio)"))
-        self._auto_smooth = _spin(0, 5)
-        self._auto_smooth.valueChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._auto_smooth)
+        card.body.addWidget(self._auto_ignore_white)
+        return card
 
-        self._btn_reset_faca = QPushButton("  Restaurar padroes da faca")
-        self._btn_reset_faca.setIcon(icons.icon("rotate-ccw", theme.ICON))
-        self._btn_reset_faca.setToolTip(
-            "Zera offset, recuo, recorte, giro e suavizacao para a faca sair exata\n"
-            "no contorno. Aplicado sozinho a cada novo arquivo importado."
-        )
-        self._btn_reset_faca.clicked.connect(self._reset_faca_defaults)
-        lay.addWidget(self._btn_reset_faca)
-        return group
-
-    def _build_registro_group(self) -> QFrame:
-        group, lay = self._section("Marcas de registro", "#8e44ad")
-        lay.addWidget(QLabel("Tipo de registro"))
-        self._reg_type = QComboBox()
+    def _build_registro_card(self) -> CollapsibleCard:
+        """Secao 4 - Marcas de registro (recolhida)."""
+        card = self._doc_card("Marcas de registro", "registro", collapsed=True)
+        self._reg_type = NoWheelComboBox()
         self._reg_type.addItem("Nenhum", "none")
         self._reg_type.addItem("Bolinhas (5)", "circles")
         self._reg_type.addItem("Mimaki (marcas em L)", "mimaki")
         self._reg_type.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._reg_type)
-
-        lay.addWidget(QLabel("Bolinhas: afastamento / diametro"))
+        card.body.addWidget(labeled("Tipo de registro", self._reg_type))
         self._reg_margin = LengthSpin(0, 200)
-        lay.addWidget(self._reg_margin)
         self._reg_diameter = LengthSpin(1, 50)
-        lay.addWidget(self._reg_diameter)
-
-        lay.addWidget(QLabel("Mimaki: distancia do quadro"))
+        self._grid_fields(card.body, [
+            ("Bolinhas: afastamento", self._reg_margin,
+             "Distancia das bolinhas ate as bordas da chapa (mm)."),
+            ("Bolinhas: diametro", self._reg_diameter,
+             "Diametro das bolinhas de registro (mm)."),
+        ])
         self._mk_distance = LengthSpin(0, 200)
         self._mk_distance.valueChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._mk_distance)
-        lay.addWidget(QLabel("Mimaki: tamanho da marca"))
         self._mk_size = LengthSpin(1, 100)
         self._mk_size.valueChanged.connect(lambda _: self._relayout(renest=False))
-        lay.addWidget(self._mk_size)
-        lay.addWidget(QLabel("Mimaki: espessura da marca"))
+        self._grid_fields(card.body, [
+            ("Mimaki: distancia", self._mk_distance,
+             "Distancia do quadro (frame) ate o conteudo (mm)."),
+            ("Mimaki: tamanho", self._mk_size, "Tamanho das marcas em L (mm)."),
+        ])
         self._mk_thickness = LengthSpin(0.1, 10)
-        lay.addWidget(self._mk_thickness)
-        return group
+        card.body.addWidget(self._labeled_tip(
+            "Mimaki: espessura da marca", self._mk_thickness,
+            "Espessura das marcas de registro (mm)."
+        ))
+        return card
+
+    def _build_avancado_card(self) -> CollapsibleCard:
+        """Secao 5 - Avancado (recolhida): acoes tecnicas."""
+        card = self._doc_card("Avancado", "avancado", collapsed=True)
+        self._btn_reset_faca = QPushButton("  Restaurar padroes da faca")
+        self._btn_reset_faca.setIcon(icons.icon("rotate-ccw", theme.ICON))
+        self._btn_reset_faca.setToolTip(
+            "Zera sangria, recuo, recorte, giro e suavizacao para a faca sair exata\n"
+            "no contorno. Aplicado sozinho a cada novo arquivo importado."
+        )
+        self._btn_reset_faca.clicked.connect(self._reset_faca_defaults)
+        card.body.addWidget(self._btn_reset_faca)
+        return card
+
+    @staticmethod
+    def _labeled_tip(label: str, widget, tip: str):
+        widget.setToolTip(tip)
+        return labeled(label, widget)
+
+    def _apply_compact_mode(self, on: bool) -> None:
+        """Modo Compacto: reduz espacamentos e a altura dos campos (notebooks)."""
+        gap = theme.SPACE_XS if on else theme.SPACE_SM
+        self._doc_layout.setSpacing(gap)
+        for card in self._doc_cards:
+            card.body.setSpacing(gap)
+        # altura dos campos (spins/combos) do documento
+        spins = (self._doc_widget.findChildren(QDoubleSpinBox)
+                 + self._doc_widget.findChildren(QSpinBox)
+                 + self._doc_widget.findChildren(QComboBox))
+        for sp in spins:
+            sp.setMaximumHeight(24 if on else 16777215)
+
+    def _update_resumo(self) -> None:
+        """Atualiza o card 'Resumo da producao' (somente leitura)."""
+        if not hasattr(self, "_sum_material"):
+            return
+        fields = (self._sum_material, self._sum_pecas, self._sum_chapas,
+                  self._sum_area, self._sum_faca, self._sum_reg)
+        r = self._result
+        if r is None or not r.sheets:
+            for f in fields:
+                f.set_value("—")
+            return
+        mat = r.sheets[0].material
+        total = sum(s.item_count for s in r.sheets)
+        pct = round(max(
+            measurements.sheet_metrics(s, r.artworks).used_pct for s in r.sheets
+        ))
+        height = float(self._height.value()) or max((s.used_length for s in r.sheets), default=0)
+        off = float(self._offset.value())
+        sinal = "+" if off >= 0 else "−"
+        self._sum_material.set_value(
+            f"{units.fmt_len(mat.width, with_unit=False)} x {units.fmt_len(height)}"
+        )
+        self._sum_pecas.set_value(str(total))
+        self._sum_chapas.set_value(str(len(r.sheets)))
+        self._sum_area.set_value(f"{pct}%")
+        self._sum_faca.set_value(f"{sinal}{units.fmt_len(abs(off))}")
+        self._sum_reg.set_value(self._reg_type.currentText())
 
     def _build_display_controls(self) -> QWidget:
         """Painel de Exibicao (unidade, modo de visualizacao, reguas, snap) usado
@@ -3063,6 +3210,7 @@ class MainWindow(QMainWindow):
             self._alert.show_message(level, self._faca_notice[1])
         else:
             self._alert.clear()
+        self._update_resumo()  # mantem o card "Resumo da producao" sincronizado
 
     def _refresh_preview(self) -> None:
         if self._result is not None:

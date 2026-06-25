@@ -151,6 +151,15 @@ def build_app_qss() -> str:
         border: 1px solid {BORDER};
         border-radius: {RADIUS}px;
     }}
+    /* faixa colorida por secao (borda esquerda) */
+    QFrame#card[accent="producao"]  {{ border-left: 3px solid {ACCENT}; }}
+    QFrame#card[accent="acabamento"] {{ border-left: 3px solid {WARNING}; }}
+    QFrame#card[accent="imagens"]   {{ border-left: 3px solid {SUCCESS}; }}
+    QFrame#card[accent="registro"]  {{ border-left: 3px solid #8e44ad; }}
+    QFrame#card[accent="avancado"]  {{ border-left: 3px solid {TEXT_MUTED}; }}
+    QFrame#card[accent="resumo"] {{
+        border-left: 3px solid {ACCENT}; background: {SURFACE_ALT};
+    }}
     QPushButton#cardHeader {{
         background: transparent; border: none; text-align: left;
         padding: 10px 12px; color: {TEXT}; font-weight: 600;

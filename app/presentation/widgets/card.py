@@ -20,9 +20,13 @@ from app.presentation import icons, theme
 class CollapsibleCard(QFrame):
     """Cartao com cabecalho clicavel que mostra/esconde o conteudo."""
 
-    def __init__(self, title: str, *, collapsed: bool = False) -> None:
+    def __init__(self, title: str, *, collapsed: bool = False, accent: str = "") -> None:
         super().__init__()
         self.setObjectName("card")
+        # faixa colorida por secao (Producao=azul, Acabamento=laranja, etc.).
+        # O QSS (theme.build_app_qss) define a borda esquerda por este valor.
+        if accent:
+            self.setProperty("accent", accent)
         self._title = title
 
         outer = QVBoxLayout(self)
