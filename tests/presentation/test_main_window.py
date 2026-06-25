@@ -799,6 +799,42 @@ def test_chapa_branca_nao_some_ao_clicar_no_vazio(qapp, tmp_path):
     assert n_rects() == antes  # a chapa branca continua la
 
 
+def test_soltar_arquivo_sem_faca_e_gerar_depois(qapp, tmp_path):
+    # Soltar arquivo da biblioteca = so a arte (sem faca); a faca surge ao
+    # clicar "Gerar Faca".
+    from PySide6.QtCore import QPointF
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window._add_file_to_production(src, QPointF(10, 10))  # arrasta (soltar)
+
+    assert window._result is not None
+    assert not any(a.has_cut for a in window._result.artworks)  # SEM faca
+
+    window._regenerate_faca()  # botao "Gerar Faca"
+    assert all(a.has_cut for a in window._result.artworks)  # agora COM faca
+
+
+def test_rotacionar_reencaixa_mantendo_quantidade(qapp, tmp_path):
+    # Rotacionar re-nesta (re-encaixa) mantendo a quantidade, inclusive duplicatas.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._select_all()
+    window._duplicate_selected()
+    n = sum(s.item_count for s in window._result.sheets)
+    assert n > 2
+
+    window._rotation.setCurrentText("90")
+    assert sum(s.item_count for s in window._result.sheets) == n  # mantem qtd
+
+
 def test_arrastar_um_arquivo_abre_so_ele(qapp, tmp_path):
     # 3 arquivos na biblioteca, nada gerado: arrastar UM abre so ele (nao todos).
     from PySide6.QtCore import QPointF

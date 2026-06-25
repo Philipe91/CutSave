@@ -860,6 +860,7 @@ class MainWindow(QMainWindow):
         self._loaded = False
         self._suspend_relayout = False  # agrupa varias mudancas num so relayout
         self._suspend_undo = False  # ao gerar/abrir, nao registra passo de desfazer
+        self._faca_on = False  # faca so e gerada ao clicar "Gerar Faca"/"Gerar Producao"
         self._move_before = None  # snapshot do arranjo no inicio de um arraste
         self._guides: list[tuple[bool, float]] = []  # (horizontal, valor_mm)
         self._guide_preview_item = None
@@ -1206,6 +1207,7 @@ class MainWindow(QMainWindow):
     def new_project(self) -> None:
         self._project_path = None
         self._reset_project_state()
+        self._faca_on = False      # volta ao modo "soltar sem faca"
         self._file_overrides = {}  # descarta facas personalizadas por arquivo
         self._file_sizes = {}      # descarta tamanhos personalizados por arquivo
         self._page_crops = {}      # descarta recortes de pagina
@@ -2031,7 +2033,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(cap_rot)
         self._rotation = QComboBox()
         self._rotation.addItems(["0", "90", "180", "270"])
-        self._rotation.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
+        self._rotation.currentIndexChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._rotation)
 
         self._sel_info = QLabel("Selecione um arquivo")
@@ -2328,6 +2330,10 @@ class MainWindow(QMainWindow):
         path = self._path_of(base.id)
         params = self._params_for(path)
         base, sx, sy = self._resized_base(base, path)
+        if not self._faca_on:
+            # modo "soltar sem faca": so a arte (com recorte/giro/tamanho), sem
+            # gerar a faca. A faca surge ao clicar "Gerar Faca"/"Gerar Producao".
+            return self._transform(base, params)
         if isinstance(base, ImageArtwork):
             return self._image_faca(base, params)
         if params.get("mode") == "vector":  # faca do cliente (linha vetorial do PDF)
@@ -2397,7 +2403,8 @@ class MainWindow(QMainWindow):
             return
         self._pdf_contours = {}
         self._vector_contours = {}
-        self._relayout(renest=False)  # refaz so a faca; mantem o arranjo manual
+        self._faca_on = True  # liga a faca (modo "soltar sem faca" -> gera agora)
+        self._relayout(renest=False)  # gera a faca; mantem o arranjo manual
         self._toasts.success("Faca gerada")
 
     def _pdf_raster_contour(self, base):
@@ -2543,7 +2550,7 @@ class MainWindow(QMainWindow):
             item.setIcon(self._thumbnail(path))
             self._table.setItem(row, 0, item)
             spin = QuantityStepper(1, 100000, 1)
-            spin.valueChanged.connect(lambda _: self._relayout())
+            spin.valueChanged.connect(lambda _: self._relayout(from_table=True))
             self._table.setCellWidget(row, 1, spin)
             self._table.setRowHeight(row, 58)
             self._paths.append(path)
@@ -2828,13 +2835,17 @@ class MainWindow(QMainWindow):
             spacing_y=float(self._spacing_v.value()),
         )
 
-    def generate(self, *, blocking: bool = False, paths: list | None = None) -> None:
+    def generate(self, *, blocking: bool = False, paths: list | None = None,
+                 faca: bool = True) -> None:
         # paths=None -> todos os arquivos da biblioteca; uma lista -> so esses
         # (usado ao arrastar UM arquivo para a area de trabalho vazia).
+        # faca=False -> monta a producao SO com a arte (sem faca); a faca e
+        # gerada depois ao clicar "Gerar Faca" (arrastar = soltar sem faca).
         target_paths = paths if paths is not None else self._paths
         if not target_paths:
             QMessageBox.warning(self, "PrintNest", "Adicione ao menos um arquivo.")
             return
+        self._faca_on = faca
         self._save_settings()
         material = self._material()
         offset = self._effective_offset()
@@ -2918,7 +2929,7 @@ class MainWindow(QMainWindow):
         self._set_exports_enabled(True)
         self._suspend_undo = True  # gerar = recomeco limpo (nao vira passo de undo)
         try:
-            self._relayout()
+            self._relayout(from_table=True)  # gerar = quantidade da tabela
         finally:
             self._suspend_undo = False
         self._undo.clear()  # zera o historico ao gerar uma nova producao
@@ -2926,8 +2937,11 @@ class MainWindow(QMainWindow):
         self._refresh_library_metadata()
         self._toasts.success("Producao gerada")
 
-    def _relayout(self, *, renest: bool = True) -> None:
+    def _relayout(self, *, renest: bool = True, from_table: bool = False) -> None:
         """Recalcula faca + nesting com os parametros atuais (tempo real).
+
+        from_table=True: a quantidade vem da TABELA (gerar / mudar quantidade).
+        from_table=False: mantem a contagem atual do arranjo (duplicatas manuais).
 
         renest=True (padrao): refaz o nesting do zero. Usado por mudancas de
         layout (chapa, espacamento, quantidade) e ao gerar.
@@ -2948,52 +2962,67 @@ class MainWindow(QMainWindow):
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
+        # 1. regenera a GEOMETRIA de cada arte base com os parametros atuais
+        #    (faca/giro/tamanho, ou so a arte quando a faca esta desligada).
         try:
-            artworks = []
-            for base in self._base_artworks:
-                path = self._path_of(base.id)
-                qty = quantities.get(path, 0)  # arquivo removido da tabela -> 0
-                if qty <= 0:
-                    continue
-                artworks.extend([self._faca_for(base)] * qty)
+            by_id = {base.id: self._faca_for(base) for base in self._base_artworks}
         except ValidationError:
             self._alert.show_message(
                 AlertLevel.ERROR, "Recorte/recuo grande demais para a peca."
             )
             return
-        if not artworks:
+        # 2. define as INSTANCIAS (quantas copias de cada arte):
+        #    - from_table/fresh: contagem da tabela (gerar / mudar quantidade);
+        #    - senao: contagem ATUAL do arranjo (mantem duplicatas manuais).
+        fresh = self._result is None or not self._piece_items
+        if from_table or fresh:
+            instances = []
+            for base in self._base_artworks:
+                qty = quantities.get(self._path_of(base.id), 0)
+                fa = by_id.get(base.id)
+                if fa is not None and qty > 0:
+                    instances.extend([fa] * qty)
+        else:
+            instances = [
+                by_id[it.artwork_id]
+                for layout in self._effective_sheets()
+                for it in layout.items
+                if it.artwork_id in by_id
+            ]
+        if not instances:
             self._scene.clear()
             self._alert.show_message(
                 AlertLevel.WARNING, "Nenhuma peca (verifique as quantidades)."
             )
             self._status_ctl.set_production(0, 0)
             return
-        if not renest and self._result is not None and self._piece_items:
-            sheets = self._preserve_arrangement(artworks, material)
+        # 3. re-nesta (layout/giro: re-encaixa mantendo a contagem) ou preserva
+        #    as posicoes atuais (ajuste de geometria: sangria/recorte/tamanho).
+        if renest or fresh:
+            sheets = self._nesting_uc.execute_sheets(instances, material, sheet_height)
         else:
-            sheets = self._nesting_uc.execute_sheets(artworks, material, sheet_height)
-        self._result = ProductionResult(sheets=sheets, artworks=artworks, sources=self._sources)
+            sheets = self._preserve_arrangement(by_id, material)
+        self._result = ProductionResult(sheets=sheets, artworks=instances, sources=self._sources)
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
         self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
-        self._update_status_and_alerts(sheets, total, artworks, material)
+        self._update_status_and_alerts(sheets, total, instances, material)
         if before is not None:
-            after = (sheets, artworks)
+            after = (sheets, instances)
             self._undo.push(
                 SnapshotCommand(self, before, after, "ajustar", merge_id=RELAYOUT_MERGE_ID)
             )
 
-    def _preserve_arrangement(self, artworks, material):
+    def _preserve_arrangement(self, by_id, material):
         """Mantem o arranjo manual atual (posicoes, duplicatas e chapas/areas em
         branco), apenas trocando a geometria das artes (nova faca/giro/tamanho).
 
         Placements que referenciam uma arte que sumiu (id removido) sao
         descartados; o resto (inclusive copias duplicadas, que compartilham o
         mesmo id) e mantido com a posicao e o comprimento usado atuais."""
-        valid = {a.id for a in artworks}
         sheets = []
         for layout in self._effective_sheets():
-            items = [it for it in layout.items if it.artwork_id in valid]
+            items = [it for it in layout.items if it.artwork_id in by_id]
             sheets.append(Layout(material, items, layout.used_length))
         return sheets
 
@@ -3369,8 +3398,9 @@ class MainWindow(QMainWindow):
         refazer o nesting das pecas que ja estao na chapa."""
         if self._result is None or not self._loaded:
             # ainda nao gerou: o drop monta a producao com SOMENTE o arquivo
-            # arrastado (nao todos os da biblioteca). O usuario organiza dali.
-            self.generate(blocking=True, paths=[path])
+            # arrastado (nao todos), e SEM faca (soltar sem faca). A faca surge
+            # depois ao clicar "Gerar Faca". O usuario organiza dali.
+            self.generate(blocking=True, paths=[path], faca=False)
             return
         bases = [b for b in self._base_artworks if self._path_of(b.id) == path]
         if not bases:  # arquivo ainda nao importado -> importa agora
@@ -3575,9 +3605,9 @@ class MainWindow(QMainWindow):
         self._commit_arrangement(before, after, "excluir")
 
     def _reset_arrangement(self) -> None:
-        """Refaz o nesting do zero (descarta movimentos/exclusoes manuais)."""
+        """Refaz o nesting do zero (descarta movimentos/exclusoes/duplicatas)."""
         self._fit_next = True
-        self._relayout()
+        self._relayout(from_table=True)
 
     def _draw_marks(self, layout, artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen) -> None:
         if reg == "circles":
