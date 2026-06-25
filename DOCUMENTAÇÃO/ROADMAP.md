@@ -16,9 +16,16 @@
   - **Etapa 3 — a fazer:** suportar **página separada** de corte (arte na pág. 1,
     corte na pág. 2).
 
-- **Integração CorelDRAW → PrintNest (botão no Corel, estilo RDWorks)**: replicar o
-  fluxo do plugin do RDWorks — desenhar no Corel, clicar num botão e o arquivo já
-  cai no PrintNest. Encaixa direto com a "Faca do cliente (vetor)": o corte
+- **Integração CorelDRAW → PrintNest (botão no Corel, estilo RDWorks)** — ✅
+  **FEITO (25/06):** CLI (`PrintNest.exe arquivo.pdf`), instância única + IPC
+  (`app/presentation/single_instance.py`) para cair na sessão aberta, e macro
+  VBA (`corel/PrintNest.bas`) com botão inteligente + AbrirPrintNest. Guia do
+  cliente em `corel/GUIA-CLIENTE.md`. Validado de ponta a ponta. Pendente só:
+  assinar a macro e (futuro) instalador que registra a macro sozinho.
+  Descrição original do plano abaixo (mantida como referência):
+
+  Replicar o fluxo do plugin do RDWorks — desenhar no Corel, clicar num botão e
+  o arquivo já cai no PrintNest. Encaixa direto com a "Faca do cliente (vetor)": o corte
   desenhado no Corel sai no PDF como vetor e o PrintNest o usa como faca.
   - **Macro no CorelDRAW (VBA/GMS):** adiciona um botão na barra; ao clicar, exporta
     a página/seleção como **PDF** (preserva os vetores, inclusive o corte) em um
@@ -33,7 +40,11 @@
     assinar o macro (evitar aviso de segurança); exportar preservando vetor;
     Windows-only (ok, a loja é Windows).
 
-- **Soltar arquivo SEM gerar a faca (modo organizar)**: arrastar o arquivo da
+- **Soltar arquivo SEM gerar a faca (modo organizar)** — ✅ **FEITO (25/06):**
+  arrastar traz só a arte (sem faca); a faca é gerada ao clicar "Gerar Faca"/
+  "Gerar Produção". Descrição original abaixo:
+
+  arrastar o arquivo da
   Biblioteca para a área de trabalho e poder posicioná-lo **antes** de gerar a
   faca; depois clicar em "Gerar Produção" para então gerar as facas. Hoje o
   drop já monta a produção (com faca). Decisão de produto combinada: manter a
