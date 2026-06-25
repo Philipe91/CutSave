@@ -52,6 +52,8 @@ Você desenha no Corel, clica no botão e o arquivo cai no PrintNest já pronto.
   **página** inteira. Um clique faz o certo.
 - **EnviarSelecaoParaPrintNest** — força o envio da **seleção**.
 - **EnviarPaginaParaPrintNest** — força o envio da **página** inteira.
+- **AbrirPrintNest** — só **abre o PrintNest** (ou traz a janela já aberta para
+  a frente). Não envia arquivo. Bom para um botão "Abrir PrintNest" na barra.
 
 ## "Chegou como imagem?" (vetor vs. raster)
 A **visualização** no PrintNest é sempre um *render* (imagem) da página — isso

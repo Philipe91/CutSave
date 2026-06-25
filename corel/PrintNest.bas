@@ -125,3 +125,25 @@ Public Sub EnviarPaginaParaPrintNest()
 erro:
     MsgBox "Erro ao enviar a pagina: " & Err.Description, vbCritical, "PrintNest"
 End Sub
+
+' Botao "Abrir PrintNest": so abre o programa (ou traz a janela ja aberta para
+' a frente, por causa da instancia unica). Nao envia nenhum arquivo.
+Public Sub AbrirPrintNest()
+    On Error GoTo erro
+    Dim exe As String
+    exe = PrintNestExe()
+    If exe = "" Then
+        MsgBox "PrintNest nao encontrado." & vbCrLf & _
+               "Abra esta macro (Alt+F11) e ajuste a constante PRINTNEST_EXE.", _
+               vbExclamation, "PrintNest"
+        Exit Sub
+    End If
+    If LCase$(Right$(exe, 4)) = ".bat" Then
+        Shell "cmd /c """ & exe & """", vbHide
+    Else
+        Shell """" & exe & """", vbNormalFocus
+    End If
+    Exit Sub
+erro:
+    MsgBox "Erro ao abrir o PrintNest: " & Err.Description, vbCritical, "PrintNest"
+End Sub
