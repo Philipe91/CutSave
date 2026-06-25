@@ -799,6 +799,48 @@ def test_chapa_branca_nao_some_ao_clicar_no_vazio(qapp, tmp_path):
     assert n_rects() == antes  # a chapa branca continua la
 
 
+def test_redimensionar_atualiza_na_hora(qapp, tmp_path):
+    # Regressao: mudar a medida no campo deve refletir VISUALMENTE na hora
+    # (sem precisar duplicar). O PieceItem desenhado muda de tamanho.
+    from PySide6.QtCore import QPointF
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window._add_file_to_production(src, QPointF(10, 10))
+    piece = window._piece_items[0]
+    window._selected_path = window._path_of(piece.artwork_id)
+
+    window._ps_w.setValue(400)  # muda a largura (dispara on-the-fly)
+    assert abs(window._piece_items[0].rect().width() - 400) < 1.0
+
+
+def test_arrastar_segundo_arquivo_organiza_nesting(qapp, tmp_path):
+    # Arrastar outro arquivo (varias paginas) deve ORGANIZAR (nesting), nao
+    # empilhar tudo no ponto do drop.
+    from PySide6.QtCore import QPointF
+
+    a = _two_page_pdf(tmp_path)
+    b = _n_page_pdf(tmp_path, 3, name="multi3")
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([a, b])
+    window._add_file_to_production(a, QPointF(10, 10))
+    window._add_file_to_production(b, QPointF(50, 50))  # arrasta b (3 paginas)
+
+    bpos = [
+        (round(it.position.x), round(it.position.y))
+        for sh in window._result.sheets
+        for it in sh.items
+        if window._path_of(it.artwork_id) == b
+    ]
+    assert len(bpos) == 3
+    assert len(set(bpos)) == 3  # posicoes distintas = organizado (nao empilhado)
+
+
 def test_soltar_arquivo_sem_faca_e_gerar_depois(qapp, tmp_path):
     # Soltar arquivo da biblioteca = so a arte (sem faca); a faca surge ao
     # clicar "Gerar Faca".

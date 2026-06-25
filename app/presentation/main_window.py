@@ -954,6 +954,8 @@ class MainWindow(QMainWindow):
                             "Seleciona todas as pecas na area de trabalho")
         excluir = self._act("Excluir selecionado", self._delete_selected, "Del",
                             "Exclui as pecas selecionadas do arranjo")
+        organizar = self._act("Organizar (nesting)", self._organize, "Ctrl+L",
+                              "Reorganiza as pecas na chapa mantendo a quantidade atual")
         reset = self._act("Resetar arranjo", self._reset_arrangement, None,
                           "Refaz o nesting do zero (descarta ajustes manuais)")
         rem = self._act("Remover PDF selecionado", self.remove_selected, None,
@@ -1014,7 +1016,7 @@ class MainWindow(QMainWindow):
                        None, excluir, reset, rem):
             m_edit.addSeparator() if action is None else m_edit.addAction(action)
         m_org = bar.addMenu("&Organizar")
-        for action in (grp, ungrp, None, to_front, to_back,
+        for action in (organizar, None, grp, ungrp, None, to_front, to_back,
                        None, al_l, al_r, al_t, al_b, al_cx, al_cy,
                        None, dist_h, dist_v, None, snap_act):
             m_org.addSeparator() if action is None else m_org.addAction(action)
@@ -1035,7 +1037,8 @@ class MainWindow(QMainWindow):
             (gerar, "zap"), (gerar_faca, "scissors"),
             (fit, "maximize"), (undo, "rotate-ccw"), (redo, "rotate-cw"),
             (grp, "group"), (ungrp, "ungroup"), (sel_all, "layers"), (excluir, "trash-2"),
-            (reset, "rotate-ccw"), (rem, "trash-2"), (dup, "copy"), (step, "grid-3x3"),
+            (organizar, "grid-3x3"), (reset, "rotate-ccw"), (rem, "trash-2"),
+            (dup, "copy"), (step, "grid-3x3"),
             (al_l, "align-horizontal-justify-start"), (al_r, "align-horizontal-justify-end"),
             (al_t, "align-vertical-justify-start"), (al_b, "align-vertical-justify-end"),
             (al_cx, "align-horizontal-justify-center"), (al_cy, "align-vertical-justify-center"),
@@ -1094,6 +1097,7 @@ class MainWindow(QMainWindow):
                 tb.tool_button(excluir, "trash-2", show_text=False),
             ]),
             ("Organizar", [
+                tb.tool_button(organizar, "grid-3x3"),
                 tb.tool_button(grp, "group", show_text=False),
                 tb.tool_button(ungrp, "ungroup", show_text=False),
                 tb.tool_button(to_front, "align-vertical-justify-start", show_text=False),
@@ -1553,15 +1557,13 @@ class MainWindow(QMainWindow):
         size_card = CollapsibleCard("Tamanho (redimensionar)")
         size_card.body.addWidget(QLabel("Largura"))
         self._ps_w = LengthSpin(1, 20000)
-        # so aplica ao confirmar (Enter/sair do campo): evita valores
-        # intermediarios ao digitar (ex.: "1" antes de "100") que deixariam a
-        # peca microscopica por um instante.
-        self._ps_w.setKeyboardTracking(False)
+        # atualiza ao vivo enquanto digita; o reload do campo e bloqueado
+        # enquanto ele tem foco (em _load_piece_size), para nao apagar o que
+        # o usuario esta digitando.
         self._ps_w.valueChanged.connect(lambda _: self._on_piece_size_changed("w"))
         size_card.body.addWidget(self._ps_w)
         size_card.body.addWidget(QLabel("Altura"))
         self._ps_h = LengthSpin(1, 20000)
-        self._ps_h.setKeyboardTracking(False)
         self._ps_h.valueChanged.connect(lambda _: self._on_piece_size_changed("h"))
         size_card.body.addWidget(self._ps_h)
         self._ps_lock = QCheckBox("Manter proporcao")
@@ -1810,6 +1812,10 @@ class MainWindow(QMainWindow):
 
     def _load_piece_size(self, path) -> None:
         """Carrega no editor o tamanho do arquivo da peca (override ou original)."""
+        # nao sobrescreve o que o usuario esta digitando (reselecao apos relayout
+        # chama isto; sem o guard, o campo voltava ao valor antigo no meio da digitacao).
+        if self._ps_w.hasFocus() or self._ps_h.hasFocus():
+            return
         base = next((b for b in self._base_artworks if self._path_of(b.id) == path), None)
         if base is None:
             return
@@ -3427,6 +3433,7 @@ class MainWindow(QMainWindow):
                 )
                 n += 1
         self._add_placed({index: placed}, text="adicionar arquivo")
+        self._relayout(renest=True)  # organiza (nesting) automaticamente, com ou sem faca
         self._toasts.success(f"{Path(path).name} adicionado a producao")
 
     def _import_file_bases(self, path: str) -> list:
@@ -3603,6 +3610,16 @@ class MainWindow(QMainWindow):
         self._piece_items = [p for p in self._piece_items if p not in to_remove]
         after = self._effective_sheets()
         self._commit_arrangement(before, after, "excluir")
+
+    def _organize(self) -> None:
+        """Reorganiza (nesting) mantendo a contagem atual do arranjo (inclui
+        duplicatas). Botao 'Organizar' para o cliente reorganizar quando quiser."""
+        if not self._loaded:
+            self._toasts.info("Solte ou gere os arquivos primeiro.")
+            return
+        self._fit_next = True
+        self._relayout(renest=True)
+        self._toasts.success("Organizado")
 
     def _reset_arrangement(self) -> None:
         """Refaz o nesting do zero (descarta movimentos/exclusoes/duplicatas)."""
