@@ -101,6 +101,7 @@ from app.domain.model.image_artwork import ImageArtwork
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
+from app.domain.nesting.max_rects import MaxRectsPacker
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.infrastructure.importers.pymupdf_vector_extractor import PyMuPdfVectorExtractor
 from app.presentation import icons, measurements, messages, theme, units
@@ -884,7 +885,10 @@ class MainWindow(QMainWindow):
         self._settings = settings
 
         self._faca_uc = GenerateRectangularCutUseCase()
-        self._nesting_uc = RunGridNestingUseCase()
+        # MaxRects = maximo aproveitamento (preenche os vaos). O grid (em linhas)
+        # so e usado na faca compartilhada, que precisa das pecas alinhadas.
+        self._nesting_uc = RunGridNestingUseCase(MaxRectsPacker())
+        self._grid_nesting_uc = RunGridNestingUseCase()
 
         self._paths: list[str] = []
         self._base_artworks: list = []
@@ -3152,7 +3156,10 @@ class MainWindow(QMainWindow):
         # 3. re-nesta (layout/giro: re-encaixa mantendo a contagem) ou preserva
         #    as posicoes atuais (ajuste de geometria: sangria/recorte/tamanho).
         if renest or fresh:
-            sheets = self._nesting_uc.execute_sheets(instances, material, sheet_height)
+            # faca compartilhada precisa das pecas alinhadas em grade; senao usa
+            # MaxRects (maximo aproveitamento, preenche os vaos).
+            uc = self._grid_nesting_uc if self._shared.currentIndex() == 1 else self._nesting_uc
+            sheets = uc.execute_sheets(instances, material, sheet_height)
         else:
             sheets = self._preserve_arrangement(by_id, material)
         self._result = ProductionResult(sheets=sheets, artworks=instances, sources=self._sources)
