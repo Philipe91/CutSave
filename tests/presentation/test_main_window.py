@@ -757,6 +757,56 @@ def test_reset_all_defaults_zera_espacamento(qapp, tmp_path):
     assert window._file_sizes == {}  # tamanhos personalizados descartados
 
 
+def test_girar_arquivo_selecionado_reencaixa(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    art0 = window._result.artworks[0]
+    w0, h0 = art0.size.width, art0.size.height
+
+    window._piece_items[0].setSelected(True)
+    window._rotate_selected(90)  # gira o arquivo da peca selecionada
+    # a arte daquele arquivo girou (L<->A trocados)
+    by_path = {}
+    for a in window._result.artworks:
+        by_path.setdefault(window._path_of(a.id), a)
+    rot = by_path[src]
+    assert abs(rot.size.width - h0) < 0.5 and abs(rot.size.height - w0) < 0.5
+
+
+def test_pecas_selecionaveis_na_tela_dividida(qapp, tmp_path):
+    from app.presentation.main_window import PieceItem
+    from PySide6.QtWidgets import QGraphicsItem
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._view_mode.setCurrentIndex(window._view_mode.findData("split"))
+
+    sel = [
+        it for it in window._scene.items()
+        if isinstance(it, PieceItem)
+        and (it.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+    ]
+    assert len(sel) > 0  # da pra selecionar a peca/faca na tela dividida
+    sel[0].setSelected(True)
+    assert window._selected_sheet_indices() == [sel[0].sheet_index]
+
+
+def test_unidade_no_menu_opcoes(qapp, tmp_path):
+    window = _window(tmp_path)
+    assert hasattr(window, "_act_unit_cm") and hasattr(window, "_act_unit_mm")
+    from app.presentation import units
+    window._on_unit_changed(units.MM)
+    assert units.unit() == units.MM
+    window._on_unit_changed(units.CM)
+    assert units.unit() == units.CM
+
+
 def test_chapa_branca_nao_some_ao_clicar_no_vazio(qapp, tmp_path):
     # Regressao (GC): clicar na area vazia (laco de selecao) nao pode remover a
     # chapa branca de fundo nem outros itens decorativos da cena.

@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QLocale, QObject, QPointF, QRect, QRectF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QBrush,
     QColor,
     QIcon,
@@ -23,6 +24,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -40,6 +42,7 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -51,6 +54,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSpinBox,
     QSplitter,
@@ -362,6 +366,18 @@ class PieceItem(QGraphicsRectItem):
         self.snap: SnapConfig | None = None
         self.sheet_rect: tuple[float, float, float, float] | None = None
         self.setPen(QPen(Qt.NoPen))
+
+    def paint(self, painter, option, widget=None) -> None:  # noqa: ARG002
+        # a arte e a faca sao itens filhos; a peca em si so desenha o contorno
+        # AZUL quando esta selecionada (feedback de selecao, estilo CorelDRAW).
+        # Nao chama super().paint para nao mostrar o tracejado padrao do Qt.
+        if self.isSelected():
+            pen = QPen(QColor(theme.ACCENT))
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(self.rect())
 
     @staticmethod
     def _snap_axis(start: float, size: float, lines, threshold: float) -> float:
@@ -864,6 +880,173 @@ class QuantityStepper(QWidget):
         self._spin.setValue(value)
 
 
+class ExportCenterDialog(QDialog):
+    """Centro de Exportacao: escolha visual das chapas (miniaturas + checkbox),
+    previa da chapa em foco e formato (PDF impressao / DXF corte / Faca PDF /
+    Imagem). Reusa os exportadores do MainWindow; aqui so e a parte de UI."""
+
+    def __init__(self, window: MainWindow) -> None:
+        super().__init__(window)
+        self._w = window
+        self.setWindowTitle("Centro de Exportacao")
+        self.setMinimumSize(720, 480)
+
+        sheets = window._effective_sheets()
+        pre = set(window._selected_sheet_indices())  # chapas selecionadas no canvas
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD)
+        root.setSpacing(theme.SPACE_MD)
+
+        # ---- esquerda: lista de chapas com miniatura + checkbox ----
+        left = QVBoxLayout()
+        left.setSpacing(theme.SPACE_SM)
+        head = QHBoxLayout()
+        title = QLabel("Chapas")
+        title.setStyleSheet(f"font-weight:600; color:{theme.TEXT};")
+        head.addWidget(title)
+        head.addStretch()
+        btn_all = QPushButton("Todas")
+        btn_none = QPushButton("Nenhuma")
+        for b in (btn_all, btn_none):
+            b.setProperty("role", "caption")
+            head.addWidget(b)
+        left.addLayout(head)
+
+        self._checks: list[QCheckBox] = []
+        list_host = QWidget()
+        list_lay = QVBoxLayout(list_host)
+        list_lay.setContentsMargins(0, 0, 0, 0)
+        list_lay.setSpacing(theme.SPACE_SM)
+        for i, layout in enumerate(sheets):
+            row = QFrame()
+            row.setObjectName("card")
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM)
+            thumb = QLabel()
+            thumb.setPixmap(window._sheet_thumbnail(i, 64))
+            thumb.setFixedWidth(70)
+            rl.addWidget(thumb)
+            chk = QCheckBox(
+                f"Chapa {i + 1}\n{units.fmt_len(layout.material.width, with_unit=False)} x "
+                f"{units.fmt_len(layout.used_length)}  ·  {layout.item_count} peca(s)"
+            )
+            chk.setChecked(i in pre or not pre)  # selecionadas no canvas; senao todas
+            chk.toggled.connect(self._update_preview)
+            self._checks.append(chk)
+            rl.addWidget(chk, 1)
+            list_lay.addWidget(row)
+        list_lay.addStretch()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(list_host)
+        left.addWidget(scroll, 1)
+        root.addLayout(left, 1)
+
+        btn_all.clicked.connect(lambda: self._set_all(True))
+        btn_none.clicked.connect(lambda: self._set_all(False))
+
+        # ---- direita: previa + formato + opcoes ----
+        right = QVBoxLayout()
+        right.setSpacing(theme.SPACE_SM)
+        prev_card = CollapsibleCard("Pre-visualizacao", accent="producao")
+        self._preview = QLabel()
+        self._preview.setAlignment(Qt.AlignCenter)
+        self._preview.setMinimumHeight(220)
+        self._preview.setStyleSheet(f"background:{theme.SURFACE_ALT}; border-radius:6px;")
+        prev_card.body.addWidget(self._preview)
+        right.addWidget(prev_card)
+
+        fmt_box = QGroupBox("Formato")
+        fmt_lay = QVBoxLayout(fmt_box)
+        self._fmt_group = QButtonGroup(self)
+        self._fmt_buttons = {}
+        for key, text in [
+            ("pdf", "PDF de impressao"),
+            ("dxf", "DXF de corte"),
+            ("faca", "Faca em PDF (linhas de corte)"),
+            ("img", "Imagem (PNG / JPG)"),
+        ]:
+            rb = QRadioButton(text)
+            self._fmt_group.addButton(rb)
+            self._fmt_buttons[key] = rb
+            fmt_lay.addWidget(rb)
+        self._fmt_buttons["pdf"].setChecked(True)
+        self._fmt_group.buttonToggled.connect(lambda *_: self._sync_options())
+        right.addWidget(fmt_box)
+
+        # opcoes especificas
+        self._opt_dxf_per = QCheckBox("Um arquivo DXF por chapa")
+        right.addWidget(self._opt_dxf_per)
+        dpi_row = QHBoxLayout()
+        dpi_row.addWidget(QLabel("DPI da imagem"))
+        self._opt_dpi = _spin(30, 1200)
+        self._opt_dpi.setValue(int(window._settings.export_dpi))
+        dpi_row.addWidget(self._opt_dpi)
+        dpi_row.addStretch()
+        self._dpi_host = QWidget()
+        self._dpi_host.setLayout(dpi_row)
+        right.addWidget(self._dpi_host)
+        right.addStretch()
+
+        buttons = QDialogButtonBox(parent=self)
+        self._btn_export = buttons.addButton("Exportar", QDialogButtonBox.AcceptRole)
+        self._btn_export.setProperty("accent", "true")
+        buttons.addButton("Fechar", QDialogButtonBox.RejectRole)
+        buttons.accepted.connect(self._do_export)
+        buttons.rejected.connect(self.reject)
+        right.addWidget(buttons)
+        root.addLayout(right, 1)
+
+        self._sync_options()
+        self._update_preview()
+
+    def _set_all(self, on: bool) -> None:
+        for chk in self._checks:
+            chk.setChecked(on)
+
+    def _checked_indices(self) -> list[int]:
+        return [i for i, chk in enumerate(self._checks) if chk.isChecked()]
+
+    def _current_format(self) -> str:
+        for key, rb in self._fmt_buttons.items():
+            if rb.isChecked():
+                return key
+        return "pdf"
+
+    def _sync_options(self) -> None:
+        fmt = self._current_format()
+        self._opt_dxf_per.setVisible(fmt == "dxf")
+        self._dpi_host.setVisible(fmt == "img")
+
+    def _update_preview(self, *_) -> None:
+        idxs = self._checked_indices()
+        if not idxs:
+            self._preview.setText("Selecione ao menos uma chapa.")
+            return
+        pm = self._w._sheet_thumbnail(idxs[0], 360)
+        self._preview.setPixmap(pm)
+
+    def _do_export(self) -> None:
+        idxs = self._checked_indices()
+        if not idxs:
+            QMessageBox.warning(self, "PrintNest", "Selecione ao menos uma chapa.")
+            return
+        fmt = self._current_format()
+        self.accept()
+        if fmt == "pdf":
+            self._w.export_pdf(pages=idxs)
+        elif fmt == "faca":
+            self._w.export_faca_pdf(pages=idxs)
+        elif fmt == "img":
+            self._w.export_image(pages=idxs, dpi=int(self._opt_dpi.value()))
+        elif fmt == "dxf":
+            if self._opt_dxf_per.isChecked():
+                self._w.export_dxf_per_sheet(pages=idxs)
+            else:
+                self._w.export_dxf(pages=idxs)
+
+
 class MainWindow(QMainWindow):
     """Tela unica do MVP PrintNest, organizada por categorias."""
 
@@ -985,6 +1168,10 @@ class MainWindow(QMainWindow):
                          "Desfaz a ultima acao (mover, excluir, duplicar, repetir)")
         redo = self._act("Refazer", self._undo.redo, "Ctrl+Y", "Refaz a acao desfeita")
         redo.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
+        rot_l = self._act("Girar 90 a esquerda", lambda: self._rotate_selected(-90), "Ctrl+[",
+                          "Gira o arquivo selecionado 90 graus anti-horario (re-encaixa)")
+        rot_r = self._act("Girar 90 a direita", lambda: self._rotate_selected(90), "Ctrl+]",
+                          "Gira o arquivo selecionado 90 graus horario (re-encaixa)")
         grp = self._act("Agrupar", self._group_selected, "Ctrl+G",
                         "Agrupa as pecas selecionadas")
         ungrp = self._act("Desagrupar", self._ungroup_selected, "Ctrl+U",
@@ -1030,7 +1217,9 @@ class MainWindow(QMainWindow):
                              "Coloca as pecas selecionadas a frente das demais")
         to_back = self._act("Enviar para tras", self._send_to_back, "Shift+PgDown",
                             "Envia as pecas selecionadas para tras das demais")
-        exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, "Ctrl+E",
+        exp_center = self._act("Centro de Exportacao...", self._open_export_center, "Ctrl+E",
+                               "Escolhe as chapas (com previa) e o formato de exportacao")
+        exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, None,
                             "Gera o PDF de impressao")
         exp_dxf = self._act("Exportar DXF (unico)...", self.export_dxf, None,
                             "Gera um DXF com todas as chapas")
@@ -1047,11 +1236,12 @@ class MainWindow(QMainWindow):
         m_arq = bar.addMenu("&Arquivo")
         for action in (novo, abrir, salvar, salvar_como,
                        None, add, substituir,
+                       None, exp_center,
                        None, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img,
                        None, sair):
             m_arq.addSeparator() if action is None else m_arq.addAction(action)
         m_edit = bar.addMenu("&Editar")
-        for action in (undo, redo, None, sel_all, dup, step, grp, ungrp,
+        for action in (undo, redo, None, rot_l, rot_r, None, sel_all, dup, step, grp, ungrp,
                        None, excluir, reset, rem):
             m_edit.addSeparator() if action is None else m_edit.addAction(action)
         m_org = bar.addMenu("&Organizar")
@@ -1067,6 +1257,24 @@ class MainWindow(QMainWindow):
         m_ferr = bar.addMenu("&Ferramentas")
         m_ferr.addAction(gerar)
         m_ferr.addAction(gerar_faca)
+
+        # Opcoes (ao lado de Ajuda): unidade de medida (cm/mm)
+        m_opt = bar.addMenu("&Opcoes")
+        um = m_opt.addMenu("Unidade de medida")
+        self._unit_group = QActionGroup(self)
+        self._unit_group.setExclusive(True)
+        self._act_unit_cm = QAction("Centimetros (cm)", self, checkable=True)
+        self._act_unit_cm.setData(units.CM)
+        self._act_unit_mm = QAction("Milimetros (mm)", self, checkable=True)
+        self._act_unit_mm.setData(units.MM)
+        for a in (self._act_unit_cm, self._act_unit_mm):
+            self._unit_group.addAction(a)
+            a.triggered.connect(lambda _=False, act=a: self._on_unit_changed(act.data()))
+            um.addAction(a)
+        # marca a unidade atual (ja definida a partir das configuracoes)
+        self._act_unit_mm.setChecked(units.unit() == units.MM)
+        self._act_unit_cm.setChecked(units.unit() != units.MM)
+
         bar.addMenu("A&juda").addAction(sobre)
 
         # icones nas acoes (aparecem no menu e na ribbon)
@@ -1074,7 +1282,8 @@ class MainWindow(QMainWindow):
             (novo, "file-plus"), (abrir, "folder-open"), (salvar, "save"),
             (salvar_como, "save"), (add, "plus"), (substituir, "replace"),
             (gerar, "zap"), (gerar_faca, "scissors"),
-            (fit, "maximize"), (undo, "rotate-ccw"), (redo, "rotate-cw"),
+            (fit, "maximize"), (undo, "undo-2"), (redo, "redo-2"),
+            (rot_l, "rotate-ccw"), (rot_r, "rotate-cw"),
             (grp, "group"), (ungrp, "ungroup"), (sel_all, "layers"), (excluir, "trash-2"),
             (organizar, "grid-3x3"), (reset, "rotate-ccw"), (rem, "trash-2"),
             (dup, "copy"), (step, "grid-3x3"),
@@ -1085,6 +1294,7 @@ class MainWindow(QMainWindow):
             (dist_v, "align-vertical-justify-center"),
             (to_front, "align-vertical-justify-start"),
             (to_back, "align-vertical-justify-end"),
+            (exp_center, "download"),
             (exp_pdf, "download"), (exp_dxf, "download"), (exp_dxf_n, "download"),
             (exp_faca_pdf, "download"), (exp_img, "image"),
         ):
@@ -1092,7 +1302,7 @@ class MainWindow(QMainWindow):
 
         # acoes guardadas para habilitar/desabilitar conforme o estado
         self._act_generate = gerar
-        self._export_actions = [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img]
+        self._export_actions = [exp_center, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img]
         for action in self._export_actions:
             action.setEnabled(False)
 
@@ -1129,8 +1339,10 @@ class MainWindow(QMainWindow):
                 tb.tool_button(add, "plus"),
             ]),
             ("Editar", [
-                tb.tool_button(undo, "rotate-ccw", show_text=False),
-                tb.tool_button(redo, "rotate-cw", show_text=False),
+                tb.tool_button(undo, "undo-2", show_text=False),
+                tb.tool_button(redo, "redo-2", show_text=False),
+                tb.tool_button(rot_l, "rotate-ccw", show_text=False),
+                tb.tool_button(rot_r, "rotate-cw", show_text=False),
                 tb.tool_button(dup, "copy", show_text=False),
                 tb.tool_button(step, "grid-3x3", show_text=False),
                 tb.tool_button(excluir, "trash-2", show_text=False),
@@ -1150,9 +1362,10 @@ class MainWindow(QMainWindow):
             ("Producao", [
                 tb.tool_button(gerar, "zap", accent=True),
                 tb.tool_button(gerar_faca, "scissors"),
-                tb.menu_button("Exportar", "download",
+                tb.tool_button(exp_center, "download"),
+                tb.menu_button("Mais...", "download",
                                [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img],
-                               tip="Exportar producao"),
+                               tip="Exportar formato especifico"),
             ]),
             ("Exibir", [
                 tb.tool_button(fit, "maximize"),
@@ -2333,17 +2546,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(5)
 
-        cap_u = QLabel("Unidade de medida")
-        cap_u.setProperty("role", "caption")
-        lay.addWidget(cap_u)
-        self._unit_box = QComboBox()
-        self._unit_box.addItem("Centimetros (cm)", units.CM)
-        self._unit_box.addItem("Milimetros (mm)", units.MM)
-        self._unit_box.currentIndexChanged.connect(
-            lambda _: self._on_unit_changed(self._unit_box.currentData())
-        )
-        lay.addWidget(self._unit_box)
-
+        # (a unidade de medida foi movida para o menu "Opcoes", ao lado de Ajuda)
         cap_v = QLabel("Modo de visualizacao")
         cap_v.setProperty("role", "caption")
         lay.addWidget(cap_v)
@@ -2406,7 +2609,9 @@ class MainWindow(QMainWindow):
         self._show_rulers.setChecked(s.show_rulers)
         self._apply_rulers_visibility()
         units.set_unit(s.unit)
-        self._unit_box.setCurrentIndex(max(0, self._unit_box.findData(s.unit)))
+        if hasattr(self, "_act_unit_mm"):
+            self._act_unit_mm.setChecked(s.unit == units.MM)
+            self._act_unit_cm.setChecked(s.unit != units.MM)
         self._snap_check.setChecked(s.snap_enabled)
         self._set_snap(s.snap_enabled)
         self._view_mode.setCurrentIndex(max(0, self._view_mode.findData(s.view_mode)))
@@ -3323,17 +3528,18 @@ class MainWindow(QMainWindow):
                     sheet_index=index, dx=dx, dy=dy,
                 )
                 piece.setPos(dx + item.position.x, dy + item.position.y)
+                # selecionavel em QUALQUER modo (inclusive tela dividida/so-corte):
+                # da pra selecionar a peca/faca e exportar so ela com Ctrl+E.
+                piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                 if interactive:
-                    piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                     piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
                     piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
                     piece.snap = self._snap
                     piece.sheet_rect = (dx, dy, layout.material.width, layout.used_length)
                     self._piece_items.append(piece)
                 else:
-                    # pecas nao-interativas (tela dividida, so-corte, so-impressao)
-                    # tambem precisam de referencia Python, senao o PySide as coleta
-                    # e o Qt as remove ao clicar (sumiam na tela dividida).
+                    # nao-interativas (split/corte): so selecionaveis. Precisam de
+                    # referencia Python, senao o PySide as coleta (sumiam ao clicar).
                     self._decor_items.append(piece)
 
                 ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
@@ -3766,6 +3972,25 @@ class MainWindow(QMainWindow):
         after = self._effective_sheets()
         self._commit_arrangement(before, after, "excluir")
 
+    def _rotate_selected(self, delta: int) -> None:
+        """Gira em +-90 graus o(s) arquivo(s) da(s) peca(s) selecionada(s); sem
+        selecao, gira TODOS (rotacao global). Re-encaixa o nesting depois."""
+        if not self._loaded:
+            self._toasts.info("Gere a producao primeiro (Gerar Producao).")
+            return
+        paths = {self._path_of(p.artwork_id) for p in self._selected_pieces()}
+        paths.discard(None)
+        if paths:
+            for path in paths:
+                p = dict(self._params_for(path))
+                p["rotation"] = (int(p.get("rotation", 0)) + delta) % 360
+                self._file_overrides[path] = p
+            self._relayout(renest=True)  # re-encaixa girado, mantendo a contagem
+        else:
+            # nada selecionado: gira todos (rotacao global do documento)
+            novo = (self._rotation_value() + delta) % 360
+            self._rotation.setCurrentText(str(novo))  # dispara o relayout
+
     def _organize(self) -> None:
         """Reorganiza (nesting) mantendo a contagem atual do arranjo (inclui
         duplicatas). Botao 'Organizar' para o cliente reorganizar quando quiser."""
@@ -3849,6 +4074,42 @@ class MainWindow(QMainWindow):
             "rotate": self._rotation_value(),
             "box": self._import_box.currentData(),
         }
+
+    # ---- Centro de Exportacao (Ctrl+E) ----
+    def _sheet_thumbnail(self, index: int, max_px: int = 150) -> QPixmap:
+        """Renderiza uma miniatura da chapa (a partir da cena atual)."""
+        sheets = self._effective_sheets()
+        if not (0 <= index < len(sheets)):
+            return QPixmap()
+        layout = sheets[index]
+        w = max(layout.material.width, 1.0)
+        h = max(layout.used_length, 1.0)
+        dx = index * (layout.material.width + SHEET_GAP_MM)
+        scale = max_px / max(w, h)
+        pm = QPixmap(max(1, int(w * scale)), max(1, int(h * scale)))
+        pm.fill(Qt.white)
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        try:
+            self._scene.render(painter, QRectF(pm.rect()), QRectF(dx, 0.0, w, h))
+        finally:
+            painter.end()
+        return pm
+
+    def _selected_sheet_indices(self) -> list[int]:
+        """Indices das chapas que tem alguma peca selecionada no canvas."""
+        try:
+            sel = self._scene.selectedItems()
+        except RuntimeError:
+            return []
+        return sorted({it.sheet_index for it in sel if isinstance(it, PieceItem)})
+
+    def _open_export_center(self) -> None:
+        """Centro de Exportacao: escolhe chapas (com previa) e formato (Ctrl+E)."""
+        if self._result is None or not self._result.sheets:
+            self._toasts.info("Gere a producao primeiro (Gerar Producao).")
+            return
+        ExportCenterDialog(self).exec()
 
     def export_pdf(self, path: str | None = None, pages=None) -> None:
         if self._result is None:
@@ -4016,7 +4277,7 @@ class MainWindow(QMainWindow):
         if interactive:
             self._toasts.success("DXF de corte exportado")
 
-    def export_dxf_per_sheet(self, base_path: str | None = None) -> None:
+    def export_dxf_per_sheet(self, base_path: str | None = None, pages=None) -> None:
         """Exporta um DXF por chapa: CORTE_01.dxf, CORTE_02.dxf, ..."""
         if self._result is None:
             return
@@ -4028,7 +4289,7 @@ class MainWindow(QMainWindow):
             )
             if not base_path:
                 return
-        sheets = self._effective_sheets()
+        sheets = self._select_export_sheets(self._effective_sheets(), pages, False, "DXF")
         stem = str(Path(base_path).with_suffix(""))
         ext = Path(base_path).suffix or ".dxf"
         gerados = []
