@@ -757,6 +757,32 @@ def test_reset_all_defaults_zera_espacamento(qapp, tmp_path):
     assert window._file_sizes == {}  # tamanhos personalizados descartados
 
 
+def test_exportar_apenas_a_selecao(qapp, tmp_path):
+    # Selecionar pecas e exportar SO elas (recortado, sem o resto / sem branco).
+    import ezdxf
+
+    src = _n_page_pdf(tmp_path, 5, w=283, h=170, name="cinco")
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window._offset.setValue(0)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 5
+
+    window._piece_items[0].setSelected(True)
+    window._piece_items[1].setSelected(True)
+    res = window._selection_export_sheets()
+    assert res is not None
+    synthetic, (w, h) = res
+    assert synthetic[0].item_count == 2  # so as 2 selecionadas
+
+    out = str(tmp_path / "SEL.dxf")
+    window.export_dxf(out, sheets_override=synthetic)
+    doc = ezdxf.readfile(out)
+    assert len(doc.modelspace().query("LWPOLYLINE")) == 2  # so as 2, sem o resto
+
+
 def test_girar_arquivo_selecionado_reencaixa(qapp, tmp_path):
     src = _two_page_pdf(tmp_path)
     window = _window(tmp_path)

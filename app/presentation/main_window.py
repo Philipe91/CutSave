@@ -893,6 +893,7 @@ class ExportCenterDialog(QDialog):
 
         sheets = window._effective_sheets()
         pre = set(window._selected_sheet_indices())  # chapas selecionadas no canvas
+        self._sel_export = window._selection_export_sheets()  # (sheets, (w,h)) ou None
 
         root = QHBoxLayout(self)
         root.setContentsMargins(theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD)
@@ -932,15 +933,15 @@ class ExportCenterDialog(QDialog):
                 f"{units.fmt_len(layout.used_length)}  ·  {layout.item_count} peca(s)"
             )
             chk.setChecked(i in pre or not pre)  # selecionadas no canvas; senao todas
-            chk.toggled.connect(self._update_preview)
+            chk.toggled.connect(self._sync_options)
             self._checks.append(chk)
             rl.addWidget(chk, 1)
             list_lay.addWidget(row)
         list_lay.addStretch()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(list_host)
-        left.addWidget(scroll, 1)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setWidget(list_host)
+        left.addWidget(self._scroll, 1)
         root.addLayout(left, 1)
 
         btn_all.clicked.connect(lambda: self._set_all(True))
@@ -956,6 +957,27 @@ class ExportCenterDialog(QDialog):
         self._preview.setStyleSheet(f"background:{theme.SURFACE_ALT}; border-radius:6px;")
         prev_card.body.addWidget(self._preview)
         right.addWidget(prev_card)
+
+        # medidas do que sera exportado
+        self._dims = QLabel()
+        self._dims.setProperty("role", "caption")
+        right.addWidget(self._dims)
+
+        # o que exportar: chapas marcadas ou apenas a selecao (estilo Corel)
+        self._mode_sel = QRadioButton()
+        self._mode_sheets = QRadioButton("Chapas marcadas")
+        if self._sel_export is not None:
+            n = len(self._w._selected_pieces())
+            self._mode_sel.setText(f"Apenas a selecao ({n} peca(s))")
+            mode_box = QGroupBox("O que exportar")
+            mb = QVBoxLayout(mode_box)
+            mb.addWidget(self._mode_sel)
+            mb.addWidget(self._mode_sheets)
+            right.addWidget(mode_box)
+            self._mode_sel.setChecked(True)  # com selecao, exporta so ela por padrao
+            self._mode_sel.toggled.connect(lambda *_: self._sync_options())
+        else:
+            self._mode_sheets.setChecked(True)
 
         fmt_box = QGroupBox("Formato")
         fmt_lay = QVBoxLayout(fmt_box)
@@ -1014,25 +1036,67 @@ class ExportCenterDialog(QDialog):
                 return key
         return "pdf"
 
-    def _sync_options(self) -> None:
+    def _selection_mode(self) -> bool:
+        return self._sel_export is not None and self._mode_sel.isChecked()
+
+    def _sync_options(self, *_) -> None:
         fmt = self._current_format()
-        self._opt_dxf_per.setVisible(fmt == "dxf")
+        sel = self._selection_mode()
+        self._opt_dxf_per.setVisible(fmt == "dxf" and not sel)  # nao se aplica a selecao
         self._dpi_host.setVisible(fmt == "img")
+        self._scroll.setEnabled(not sel)  # "apenas selecao" ignora a lista de chapas
+        self._update_dims()
+        self._update_preview()
+
+    def _update_dims(self) -> None:
+        if self._selection_mode():
+            _, (w, h) = self._sel_export
+        else:
+            idxs = self._checked_indices()
+            if not idxs:
+                self._dims.setText("")
+                return
+            if len(idxs) > 1:
+                self._dims.setText(f"Exportar: {len(idxs)} chapas")
+                return
+            s = self._w._effective_sheets()[idxs[0]]
+            w, h = s.material.width, s.used_length
+        self._dims.setText(
+            f"Tamanho: {units.fmt_len(w, with_unit=False)} x {units.fmt_len(h)}"
+        )
 
     def _update_preview(self, *_) -> None:
+        if self._selection_mode():
+            pm = self._w._selection_thumbnail(360)
+            if pm.isNull():
+                self._preview.setText("Selecao vazia.")
+            else:
+                self._preview.setPixmap(pm)
+            return
         idxs = self._checked_indices()
         if not idxs:
             self._preview.setText("Selecione ao menos uma chapa.")
             return
-        pm = self._w._sheet_thumbnail(idxs[0], 360)
-        self._preview.setPixmap(pm)
+        self._preview.setPixmap(self._w._sheet_thumbnail(idxs[0], 360))
 
     def _do_export(self) -> None:
+        fmt = self._current_format()
+        if self._selection_mode():
+            synthetic, _ = self._sel_export
+            self.accept()
+            if fmt == "pdf":
+                self._w.export_pdf(sheets_override=synthetic)
+            elif fmt == "faca":
+                self._w.export_faca_pdf(sheets_override=synthetic)
+            elif fmt == "img":
+                self._w.export_image(sheets_override=synthetic, dpi=int(self._opt_dpi.value()))
+            elif fmt == "dxf":
+                self._w.export_dxf(sheets_override=synthetic)
+            return
         idxs = self._checked_indices()
         if not idxs:
             QMessageBox.warning(self, "PrintNest", "Selecione ao menos uma chapa.")
             return
-        fmt = self._current_format()
         self.accept()
         if fmt == "pdf":
             self._w.export_pdf(pages=idxs)
@@ -4104,6 +4168,54 @@ class MainWindow(QMainWindow):
             return []
         return sorted({it.sheet_index for it in sel if isinstance(it, PieceItem)})
 
+    def _selection_bbox_scene(self):
+        """Retangulo (cena) que envolve as pecas selecionadas, ou None."""
+        pieces = self._selected_pieces()
+        if not pieces:
+            return None
+        xs0 = [p.scenePos().x() for p in pieces]
+        ys0 = [p.scenePos().y() for p in pieces]
+        xs1 = [p.scenePos().x() + p.rect().width() for p in pieces]
+        ys1 = [p.scenePos().y() + p.rect().height() for p in pieces]
+        return QRectF(min(xs0), min(ys0), max(xs1) - min(xs0), max(ys1) - min(ys0))
+
+    def _selection_export_sheets(self):
+        """Monta UMA chapa sintetica so com as pecas selecionadas, recortada ao
+        retangulo delas (sem espaco em branco). Retorna (sheets, (largura, altura))
+        em mm, ou None se nao houver selecao."""
+        pieces = self._selected_pieces()
+        if not pieces:
+            return None
+        box = self._selection_bbox_scene()
+        w = max(box.width(), 1.0)
+        h = max(box.height(), 1.0)
+        placed = [
+            PlacedItem(
+                p.artwork_id,
+                Point2D(p.scenePos().x() - box.x(), p.scenePos().y() - box.y()),
+            )
+            for p in pieces
+        ]
+        mat = Material(name="selecao", width=w)
+        return [Layout(mat, placed, h)], (w, h)
+
+    def _selection_thumbnail(self, max_px: int = 360) -> QPixmap:
+        """Miniatura SO da regiao selecionada (mostra exatamente o que sera
+        exportado, no modo de visualizacao atual)."""
+        box = self._selection_bbox_scene()
+        if box is None or box.width() <= 0 or box.height() <= 0:
+            return QPixmap()
+        scale = max_px / max(box.width(), box.height())
+        pm = QPixmap(max(1, int(box.width() * scale)), max(1, int(box.height() * scale)))
+        pm.fill(Qt.white)
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        try:
+            self._scene.render(painter, QRectF(pm.rect()), box)
+        finally:
+            painter.end()
+        return pm
+
     def _open_export_center(self) -> None:
         """Centro de Exportacao: escolhe chapas (com previa) e formato (Ctrl+E)."""
         if self._result is None or not self._result.sheets:
@@ -4111,11 +4223,11 @@ class MainWindow(QMainWindow):
             return
         ExportCenterDialog(self).exec()
 
-    def export_pdf(self, path: str | None = None, pages=None) -> None:
+    def export_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
         if self._result is None:
             return
         interactive = not isinstance(path, str) or not path
-        sheets = self._select_export_sheets(
+        sheets = sheets_override if sheets_override is not None else self._select_export_sheets(
             self._effective_sheets(), pages, interactive, "Exportar PDF de impressao"
         )
         if sheets is None:
@@ -4138,12 +4250,13 @@ class MainWindow(QMainWindow):
             self._toasts.success("PDF de impressao exportado")
 
     def export_image(
-        self, path: str | None = None, pages=None, dpi=None, image_format=None
+        self, path: str | None = None, pages=None, dpi=None, image_format=None,
+        sheets_override=None,
     ) -> None:
         if self._result is None:
             return
         interactive = not isinstance(path, str) or not path
-        sheets = self._select_export_sheets(
+        sheets = sheets_override if sheets_override is not None else self._select_export_sheets(
             self._effective_sheets(), pages, interactive, "Exportar Imagem"
         )
         if sheets is None:
@@ -4250,11 +4363,11 @@ class MainWindow(QMainWindow):
             contours = list(contours) + mimaki_frame_contours(mk_list)
         return contours, segments, marks, mark_segments
 
-    def export_dxf(self, path: str | None = None, pages=None) -> None:
+    def export_dxf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
         if self._result is None:
             return
         interactive = not isinstance(path, str) or not path
-        sheets = self._select_export_sheets(
+        sheets = sheets_override if sheets_override is not None else self._select_export_sheets(
             self._effective_sheets(), pages, interactive, "Exportar DXF"
         )
         if sheets is None:
@@ -4303,13 +4416,13 @@ class MainWindow(QMainWindow):
         if interactive:
             self._toasts.success(f"{len(gerados)} DXF de corte exportado(s)")
 
-    def export_faca_pdf(self, path: str | None = None, pages=None) -> None:
+    def export_faca_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
         """Exporta a faca (linhas de corte) em PDF vetorial, uma pagina por chapa.
         Mesma geometria do DXF (so a faca, sem marcas de registro)."""
         if self._result is None:
             return
         interactive = not isinstance(path, str) or not path
-        sheets = self._select_export_sheets(
+        sheets = sheets_override if sheets_override is not None else self._select_export_sheets(
             self._effective_sheets(), pages, interactive, "Exportar Faca (PDF)"
         )
         if sheets is None:
