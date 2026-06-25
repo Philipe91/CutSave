@@ -217,9 +217,9 @@ def test_undo_de_movimento(qapp, tmp_path):
     piece.setPos(piece.x() + 100, piece.y() + 30)
     window._end_move()
     assert window._undo.count() == 1
-    window._undo.undo()
-    assert abs(piece.pos().x() - old.x()) < 0.01
-    assert abs(piece.pos().y() - old.y()) < 0.01
+    window._undo.undo()  # desfazer redesenha (snapshot de dados) -> rebusca a peca
+    xs = [(p.pos().x(), p.pos().y()) for p in window._piece_items]
+    assert any(abs(x - old.x()) < 0.01 and abs(y - old.y()) < 0.01 for x, y in xs)
 
 
 def test_ctrlz_grava_movimento_via_mouse(qapp, tmp_path):
@@ -510,12 +510,13 @@ def test_nudge_move_pecas_com_setas(qapp, tmp_path):
     piece = window._piece_items[0]
     piece.setSelected(True)
     x0, y0 = piece.pos().x(), piece.pos().y()
-    window._nudge(5.0, -3.0)
+    window._nudge(5.0, -3.0)  # move sem redesenhar (peca segue valida)
     assert abs(piece.pos().x() - (x0 + 5.0)) < 0.01
     assert abs(piece.pos().y() - (y0 - 3.0)) < 0.01
     assert window._undo.count() == 1
-    window._undo.undo()
-    assert abs(piece.pos().x() - x0) < 0.01
+    window._undo.undo()  # desfazer redesenha -> rebusca a peca pela posicao
+    xs = [(p.pos().x(), p.pos().y()) for p in window._piece_items]
+    assert any(abs(x - x0) < 0.01 and abs(y - y0) < 0.01 for x, y in xs)
 
 
 def test_alinhar_a_esquerda(qapp, tmp_path):
@@ -664,6 +665,251 @@ def test_faca_por_arquivo_so_afeta_aquele_arquivo(qapp, tmp_path):
     depois = first_by_path()
     assert depois[img].cut_contour.size.width > img_w0   # a imagem cresceu
     assert abs(depois[pdf].cut_contour.size.width - pdf_w0) < 0.01  # PDF intacto
+
+
+def test_redimensionar_arquivo_escala_arte_e_faca(qapp, tmp_path):
+    from app.domain.geometry import Size
+
+    src = _two_page_pdf(tmp_path)  # ~70.5 x 35.3 mm
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._offset.setValue(0)  # faca exata = tamanho da arte
+    window.generate(blocking=True)
+    art0 = window._result.artworks[0]
+    w0, h0 = art0.size.width, art0.size.height
+
+    # dobra a largura e a altura desse arquivo
+    window._file_sizes[src] = Size(w0 * 2, h0 * 2)
+    window._relayout()
+
+    art = window._result.artworks[0]
+    assert abs(art.size.width - w0 * 2) < 0.01
+    assert abs(art.size.height - h0 * 2) < 0.01
+    # a faca acompanha o novo tamanho (todas as copias mudam)
+    assert abs(art.cut_contour.size.width - w0 * 2) < 0.01
+    assert all(
+        abs(a.size.width - w0 * 2) < 0.01 for a in window._result.artworks
+    )
+
+
+def test_redimensionar_escala_faca_do_cliente_vetorial(qapp, tmp_path):
+    from app.domain.geometry import Size
+
+    window = _window(tmp_path)
+    window.add_paths([_vector_cut_pdf(tmp_path)])
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("vector"))
+    window._auto_offset.setValue(0)  # sem sangria -> testa a escala pura do contorno
+    window.generate(blocking=True)
+    path = window._path_of(window._result.artworks[0].id)
+    faca_w0 = window._result.artworks[0].cut_contour.size.width
+
+    art0 = window._result.artworks[0]
+    window._file_sizes[path] = Size(art0.size.width * 2, art0.size.height * 2)
+    window._relayout()
+
+    # o contorno vetorial do cliente tambem dobra (nao vira retangulo)
+    faca = window._result.artworks[0].cut_contour
+    assert abs(faca.size.width - faca_w0 * 2) < 0.5
+    assert len(faca.points) > 5
+
+
+def test_redimensionar_pela_ui_mantem_proporcao_e_reseta(qapp, tmp_path):
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._offset.setValue(0)
+    window.generate(blocking=True)
+    art0 = window._result.artworks[0]
+    ratio = art0.size.width / art0.size.height
+
+    window._piece_items[0].setSelected(True)  # abre a aba da peca
+    assert window._selected_path == src
+    assert window._ps_lock.isChecked()  # proporcao travada por padrao
+
+    nova_largura = art0.size.width * 1.5
+    window._ps_w.setValue(nova_largura)  # dispara o redimensionamento
+
+    art = window._result.artworks[0]
+    assert abs(art.size.width - nova_largura) < 0.05
+    # altura ajustada mantendo a proporcao
+    assert abs(art.size.width / art.size.height - ratio) < 1e-3
+    assert src in window._file_sizes
+
+    window._reset_piece_size()  # volta ao tamanho original
+    assert src not in window._file_sizes
+    assert abs(window._result.artworks[0].size.width - art0.size.width) < 0.05
+
+
+def test_reset_all_defaults_zera_espacamento(qapp, tmp_path):
+    # Regra: ao adicionar arquivo com a area vazia, zera TUDO (inclui o
+    # espacamento vertical negativo que sobrepunha as pecas).
+    from app.domain.geometry import Size
+
+    window = _window(tmp_path)
+    window._spacing_v.setValue(-35)
+    window._spacing.setValue(10)
+    window._offset.setValue(5)
+    window._file_sizes["x.pdf"] = Size(10, 10)
+    window._reset_all_defaults()
+    assert window._spacing_v.value() == 0
+    assert window._spacing.value() == 0
+    assert window._offset.value() == 0
+    assert window._file_sizes == {}  # tamanhos personalizados descartados
+
+
+def test_chapa_branca_nao_some_ao_clicar_no_vazio(qapp, tmp_path):
+    # Regressao (GC): clicar na area vazia (laco de selecao) nao pode remover a
+    # chapa branca de fundo nem outros itens decorativos da cena.
+    import gc
+
+    from app.presentation import main_window as M
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.resize(1000, 700)
+    window.show()
+    window.add_paths([src])
+    window._width.setValue(700)
+    window._height.setValue(1950)
+    window.generate(blocking=True)
+    window._fit_view()
+    qapp.processEvents()
+
+    def n_rects():
+        return len([it for it in window._scene.items()
+                    if type(it).__name__ == "QGraphicsRectItem"])
+
+    antes = n_rects()
+    assert antes >= 1  # ao menos a chapa branca
+
+    last = window._result.sheets[-1]
+    dxs = (len(window._result.sheets) - 1) * (last.material.width + M.SHEET_GAP_MM)
+    vp = window._view.viewport()
+    pos = window._view.mapFromScene(QPointF(dxs + last.material.width * 0.5,
+                                            last.used_length - 15))
+    for _ in range(3):
+        for kind, btn in [(QEvent.MouseButtonPress, Qt.LeftButton),
+                          (QEvent.MouseButtonRelease, Qt.NoButton)]:
+            qapp.sendEvent(vp, QMouseEvent(kind, QPointF(pos), vp.mapToGlobal(pos),
+                                           Qt.LeftButton, btn, Qt.NoModifier))
+        gc.collect()
+        qapp.processEvents()
+    assert n_rects() == antes  # a chapa branca continua la
+
+
+def test_rotacionar_mantem_duplicatas_manuais(qapp, tmp_path):
+    # Rotacionar (mudanca de geometria) NAO pode perder as copias duplicadas.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.generate(blocking=True)
+    window._select_all()
+    window._duplicate_selected()  # dobra a quantidade
+    n_dup = sum(s.item_count for s in window._result.sheets)
+    assert n_dup > 2
+
+    window._rotation.setCurrentText("90")  # rotaciona TODOS
+    assert sum(s.item_count for s in window._result.sheets) == n_dup  # mantem as copias
+
+    window._offset.setValue(3)  # outra mudanca de geometria tambem preserva
+    assert sum(s.item_count for s in window._result.sheets) == n_dup
+
+
+def test_clique_com_tremor_nao_move_a_peca(qapp, tmp_path):
+    # "Somente clicando" (com leve tremor do mouse) NAO pode mover/sumir a peca.
+    from app.presentation.main_window import PieceItem
+    from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.resize(1000, 700)
+    window.show()
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._fit_view()
+    qapp.processEvents()
+
+    def count():
+        return len([it for it in window._scene.items() if isinstance(it, PieceItem)])
+
+    piece = window._piece_items[0]
+    antes = (round(piece.scenePos().x(), 1), round(piece.scenePos().y(), 1))
+    vp = window._view.viewport()
+    center = piece.scenePos() + QPointF(
+        piece.rect().width() / 2, piece.rect().height() / 2
+    )
+    start = window._view.mapFromScene(center)
+    end = QPoint(start.x() + 3, start.y() + 2)  # tremor < zona morta (6px)
+
+    def send(kind, pos, buttons=Qt.LeftButton):
+        ev = QMouseEvent(kind, QPointF(pos), vp.mapToGlobal(pos),
+                         Qt.LeftButton, buttons, Qt.NoModifier)
+        qapp.sendEvent(vp, ev)
+
+    send(QEvent.MouseButtonPress, start)
+    send(QEvent.MouseMove, end)
+    send(QEvent.MouseButtonRelease, end, buttons=Qt.NoButton)
+    qapp.processEvents()
+
+    assert count() == 2  # nenhuma peca sumiu
+    depois = (round(piece.scenePos().x(), 1), round(piece.scenePos().y(), 1))
+    assert depois == antes  # nao moveu (clique dentro da zona morta)
+    assert window._undo.count() == 0  # nao virou um movimento
+
+
+def test_ctrlz_ilimitado_sobrevive_a_mudanca_de_parametro(qapp, tmp_path):
+    # Regressao: mudar um parametro NAO pode apagar o historico de desfazer.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    assert window._undo.count() == 0  # gerar = recomeco limpo
+
+    window._piece_items[0].setSelected(True)
+    window._nudge(50.0, 0.0)
+    assert window._undo.count() == 1  # 1 movimento
+
+    window._offset.setValue(window._offset.value() + 3)  # muda parametro -> relayout
+    assert window._undo.count() == 2  # mover + ajustar (historico PRESERVADO)
+
+    # desfaz tudo sem quebrar
+    while window._undo.canUndo():
+        window._undo.undo()
+    assert window._result is not None
+
+
+def test_desfazer_recupera_arranjo_apos_mudar_parametro(qapp, tmp_path):
+    # A "pagina em branco"/arranjo manual nao se perde: Ctrl+Z volta o estado.
+    src = _n_page_pdf(tmp_path, 3)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._width.setValue(3000)
+    window.generate(blocking=True)
+
+    window._piece_items[0].setSelected(True)
+    window._delete_selected()  # deixa um "vazio" (2 pecas)
+    n_apagado = sum(s.item_count for s in window._result.sheets)
+    assert n_apagado == 2
+
+    window._offset.setValue(window._offset.value() + 2)  # re-nesta (mexe no arranjo)
+    window._undo.undo()  # volta ao arranjo com a peca apagada
+    assert sum(s.item_count for s in window._result.sheets) == n_apagado
+
+
+def test_relayouts_seguidos_se_fundem_num_passo(qapp, tmp_path):
+    # Arrastar a setinha de um campo varias vezes vira UM passo de desfazer.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    for _ in range(5):
+        window._offset.setValue(window._offset.value() + 1)
+    assert window._undo.count() == 1  # 5 ajustes -> 1 passo (merge)
 
 
 def test_arrastar_arquivo_da_biblioteca_para_producao(qapp, tmp_path):
