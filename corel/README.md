@@ -23,6 +23,9 @@ Você desenha no Corel, clica no botão e o arquivo cai no PrintNest já pronto.
 4. Ainda no editor, abra o módulo **PrintNest** e ajuste a constante
    `PRINTNEST_EXE` com o caminho do seu `PrintNest.exe` (se não estiver no
    padrão `C:\Program Files\PrintNest\PrintNest.exe`).
+   - **Para testar sem buildar o .exe** (durante o desenvolvimento): aponte
+     `PRINTNEST_EXE` para `corel\run_printnest_dev.bat` (caminho completo). Ele
+     roda o PrintNest direto do código.
 5. Feche o editor (Alt+Q).
 
 ### Criar o botão na barra
