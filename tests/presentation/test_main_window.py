@@ -55,6 +55,29 @@ def _window(tmp_path):
     )
 
 
+def _vector_cut_pdf(tmp_path):
+    """PDF com a faca do cliente desenhada como vetor (um circulo de corte)."""
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=200)
+    page.draw_circle((100, 100), 80, color=(1, 0, 1), width=1.0)
+    path = tmp_path / "cliente.pdf"
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_faca_do_cliente_usa_o_vetor_do_pdf(qapp, tmp_path):
+    window = _window(tmp_path)
+    window.add_paths([_vector_cut_pdf(tmp_path)])
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("vector"))
+    window.generate(blocking=True)
+    art = window._result.artworks[0]
+    assert art.cut_contour is not None
+    # circulo vetorial -> muitos pontos (nao o retangulo de 4 pontos)
+    assert len(art.cut_contour.points) > 5
+    assert window._faca_notice is not None and window._faca_notice[0] == "info"
+
+
 def test_fluxo_completo_da_ui(qapp, tmp_path):
     src = _two_page_pdf(tmp_path)
     window = _window(tmp_path)
@@ -552,8 +575,8 @@ def test_step_repeat_grade_2x2(qapp, tmp_path):
 
 
 def test_guia_arrastada_cria_seleciona_move_e_exclui(qapp, tmp_path):
-    from PySide6.QtCore import QPointF
     from app.presentation.main_window import GuideItem
+    from PySide6.QtCore import QPointF
 
     src = _two_page_pdf(tmp_path)
     window = _window(tmp_path)

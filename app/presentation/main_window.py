@@ -25,8 +25,11 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
     QFrame,
     QGraphicsItem,
     QGraphicsItemGroup,
@@ -36,9 +39,6 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsView,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
@@ -55,9 +55,9 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QToolBar,
     QToolButton,
     QVBoxLayout,
@@ -94,12 +94,14 @@ from app.application.use_cases.run_production_pipeline import (
     RunProductionPipelineUseCase,
 )
 from app.domain.cut.contour_ops import crop_and_rotate_contour, offset_contour, smooth_contour
+from app.domain.cut.vector import VectorContourGenerator
 from app.domain.geometry import Point2D, Size
 from app.domain.model.image_artwork import ImageArtwork
-from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
+from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
+from app.infrastructure.importers.pymupdf_vector_extractor import PyMuPdfVectorExtractor
 from app.presentation import icons, measurements, messages, theme, units
 from app.presentation.panels import ribbon as ribbon_panel
 from app.presentation.panels.status_bar import StatusBarController
@@ -847,6 +849,11 @@ class MainWindow(QMainWindow):
         # faca "pelo contorno" de PDF: detecta o contorno da pagina rasterizada.
         self._contour_detector = Cv2ImageImporter()
         self._pdf_contours: dict = {}  # (caminho, pagina) -> contorno detectado
+        # faca "do cliente" (vetor do PDF): usa o contorno vetorial enviado.
+        self._vector_extractor = PyMuPdfVectorExtractor()
+        self._vector_generator = VectorContourGenerator()
+        self._vector_contours: dict = {}  # (caminho, pagina) -> contorno vetorial | None
+        self._faca_notice: tuple[str, str] | None = None  # (nivel, texto) da deteccao
         self._selected_path: str | None = None
         self._selected_is_image = False
         self._pf_loading = False        # carregando controles da peca (nao gravar)
@@ -898,6 +905,8 @@ class MainWindow(QMainWindow):
                                "Troca o arquivo da linha selecionada (ex.: arquivo nao encontrado)")
         gerar = self._act("Gerar Producao", self.generate, "F5",
                           "Importa, gera a faca e organiza o nesting")
+        gerar_faca = self._act("Gerar Faca", self._regenerate_faca, "Shift+F5",
+                               "Recria a faca das pecas (refaz a deteccao da faca do cliente)")
         fit = self._act("Ajustar a tela", self._fit_view, "F4",
                         "Enquadra todo o trabalho na tela (F4 ou Ctrl+0)")
         fit.setShortcuts([QKeySequence("F4"), QKeySequence("Ctrl+0")])
@@ -984,13 +993,15 @@ class MainWindow(QMainWindow):
         m_exib.addAction(limpar_guias)
         m_ferr = bar.addMenu("&Ferramentas")
         m_ferr.addAction(gerar)
+        m_ferr.addAction(gerar_faca)
         bar.addMenu("A&juda").addAction(sobre)
 
         # icones nas acoes (aparecem no menu e na ribbon)
         for action, name in (
             (novo, "file-plus"), (abrir, "folder-open"), (salvar, "save"),
             (salvar_como, "save"), (add, "plus"), (substituir, "replace"),
-            (gerar, "zap"), (fit, "maximize"), (undo, "rotate-ccw"), (redo, "rotate-cw"),
+            (gerar, "zap"), (gerar_faca, "scissors"),
+            (fit, "maximize"), (undo, "rotate-ccw"), (redo, "rotate-cw"),
             (grp, "group"), (ungrp, "ungroup"), (sel_all, "layers"), (excluir, "trash-2"),
             (reset, "rotate-ccw"), (rem, "trash-2"), (dup, "copy"), (step, "grid-3x3"),
             (al_l, "align-horizontal-justify-start"), (al_r, "align-horizontal-justify-end"),
@@ -1063,6 +1074,7 @@ class MainWindow(QMainWindow):
             ]),
             ("Producao", [
                 tb.tool_button(gerar, "zap", accent=True),
+                tb.tool_button(gerar_faca, "scissors"),
                 tb.menu_button("Exportar", "download",
                                [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img],
                                tip="Exportar producao"),
@@ -1830,7 +1842,8 @@ class MainWindow(QMainWindow):
             if not pm.isNull():
                 logo = QLabel()
                 logo.setPixmap(pm.scaledToWidth(200, Qt.SmoothTransformation))
-                logo.setContentsMargins(2, 2, 0, 4)
+                logo.setAlignment(Qt.AlignHCenter)  # centraliza sobre o botao "+ Adicionar"
+                logo.setContentsMargins(0, 2, 0, 4)
                 lay.addWidget(logo)
 
         header = QLabel("Biblioteca")
@@ -1940,10 +1953,12 @@ class MainWindow(QMainWindow):
         self._faca_mode = QComboBox()
         self._faca_mode.addItem("Retangulo (por fora)", "rect")
         self._faca_mode.addItem("Pelo contorno (rasteriza)", "contour")
+        self._faca_mode.addItem("Faca do cliente (vetor do PDF)", "vector")
         self._faca_mode.setToolTip(
             "Retangulo: corta a caixa do PDF (por fora).\n"
             "Pelo contorno: rasteriza a pagina e corta no formato do desenho\n"
-            "(ex.: circulo), removendo o fundo branco."
+            "(ex.: circulo), removendo o fundo branco.\n"
+            "Faca do cliente: usa a linha de corte vetorial que veio no PDF."
         )
         self._faca_mode.currentIndexChanged.connect(lambda _: self._relayout())
         lay.addWidget(self._faca_mode)
@@ -2175,9 +2190,49 @@ class MainWindow(QMainWindow):
         params = self._params_for(self._path_of(base.id))
         if isinstance(base, ImageArtwork):
             return self._image_faca(base, params)
+        if params.get("mode") == "vector":  # faca do cliente (linha vetorial do PDF)
+            return self._contour_faca(base, self._pdf_vector_contour(base), params)
         if params.get("mode") == "contour":  # PDF cortado pelo contorno (rasteriza)
             return self._contour_faca(base, self._pdf_raster_contour(base), params)
         return self._faca_uc.execute(self._transform(base, params), params["offset"])
+
+    def _pdf_vector_contour(self, base):
+        """Faca do cliente: extrai o contorno vetorial do PDF (a linha de corte
+        que o cliente ja desenhou). Cacheado por (caminho, pagina). Se nao houver
+        vetor utilizavel, registra um aviso e cai no retangulo (raw=None)."""
+        key = self._sources.get(base.id)
+        if key is None:
+            return None
+        if key in self._vector_contours:
+            return self._vector_contours[key]
+        path, page = key
+        try:
+            rings = self._vector_extractor.extract_rings(path, page)
+            contour = self._vector_generator.generate(rings)
+            self._faca_notice = (
+                "info",
+                f"Faca do cliente detectada no vetor do PDF ({len(contour.points)} pontos).",
+            )
+        except Exception:  # sem vetor de corte utilizavel -> retangulo
+            contour = None
+            self._faca_notice = (
+                "warning",
+                "Nao encontrei linha de corte vetorial no PDF; usei o retangulo. "
+                "Verifique se o corte foi enviado como vetor.",
+            )
+        self._vector_contours[key] = contour
+        return contour
+
+    def _regenerate_faca(self) -> None:
+        """Botao 'Gerar Faca': refaz a deteccao da faca (contorno/cliente) e
+        recalcula, sem precisar reimportar nem refazer o nesting do zero."""
+        if not self._loaded:
+            self._toasts.info("Gere a producao primeiro (Gerar Producao).")
+            return
+        self._pdf_contours = {}
+        self._vector_contours = {}
+        self._relayout()
+        self._toasts.success("Faca gerada")
 
     def _pdf_raster_contour(self, base):
         """Contorno de uma pagina de PDF: rasteriza e detecta (igual imagem).
@@ -2451,7 +2506,7 @@ class MainWindow(QMainWindow):
                              spins["right"].value(), spins["bottom"].value())
 
         def pull_from_preview():
-            for k, v in zip(("left", "top", "right", "bottom"), preview.crop()):
+            for k, v in zip(("left", "top", "right", "bottom"), preview.crop(), strict=False):
                 spins[k].blockSignals(True)
                 spins[k].setValue(v)
                 spins[k].blockSignals(False)
@@ -2487,8 +2542,10 @@ class MainWindow(QMainWindow):
         if dlg.exec() != QDialog.Accepted:
             return
 
-        left = float(spins["left"].value()); top = float(spins["top"].value())
-        right = float(spins["right"].value()); bottom = float(spins["bottom"].value())
+        left = float(spins["left"].value())
+        top = float(spins["top"].value())
+        right = float(spins["right"].value())
+        bottom = float(spins["bottom"].value())
         spec = pages_edit.text().strip().lower()
         if spec in ("", "todas", "all"):
             pages = list(range(total))
@@ -2635,6 +2692,7 @@ class MainWindow(QMainWindow):
     def _load_production(self, result: ProductionResult, png_map: dict) -> None:
         self._base_artworks = result.artworks
         self._pdf_contours = {}  # recomputa contornos de PDF na nova producao
+        self._vector_contours = {}  # recomputa facas vetoriais (cliente)
         self._sources = result.sources
         self._origins = dict(result.origins) or {
             art_id: src[0] for art_id, src in result.sources.items()
@@ -2666,6 +2724,7 @@ class MainWindow(QMainWindow):
         if not self._loaded or self._suspend_relayout:
             return
         self._undo.clear()  # arranjo regenerado do zero: zera o historico
+        self._faca_notice = None  # avisos de deteccao (faca do cliente) sao refeitos
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
@@ -2720,6 +2779,11 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self._alert.show_message(level, first.text)
+        elif self._faca_notice is not None:
+            level = {"warning": AlertLevel.WARNING, "error": AlertLevel.ERROR}.get(
+                self._faca_notice[0], AlertLevel.INFO
+            )
+            self._alert.show_message(level, self._faca_notice[1])
         else:
             self._alert.clear()
 
@@ -2769,6 +2833,8 @@ class MainWindow(QMainWindow):
         material_pen.setCosmetic(True)
         faca_pen = QPen(QColor(220, 0, 0))
         faca_pen.setCosmetic(True)
+        client_pen = QPen(QColor(theme.SUCCESS))  # faca do cliente (vetor) em verde
+        client_pen.setCosmetic(True)
         mark_pen = QPen(QColor(0, 90, 180))
         mark_pen.setCosmetic(True)
         mark_brush = QBrush(QColor(0, 90, 180))
@@ -2819,10 +2885,14 @@ class MainWindow(QMainWindow):
                         rect.setBrush(empty_brush)
                         rect.setPen(material_pen)
                 if draw_cut and art.has_cut and not shared:
+                    is_client = (
+                        self._params_for(self._path_of(item.artwork_id)).get("mode")
+                        == "vector"
+                    )
                     faca = art.cut_contour
                     poly = QPolygonF([QPointF(ax + p.x, ay + p.y) for p in faca.points])
                     poly_item = QGraphicsPolygonItem(poly, piece)
-                    poly_item.setPen(faca_pen)
+                    poly_item.setPen(client_pen if is_client else faca_pen)
                     poly_item.setBrush(Qt.NoBrush)
                 self._scene.addItem(piece)
 

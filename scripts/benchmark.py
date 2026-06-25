@@ -22,14 +22,13 @@ from pathlib import Path
 
 import fitz
 import numpy as np
-from PIL import Image
-
 from app.application.use_cases.generate_rectangular_cut import GenerateRectangularCutUseCase
 from app.application.use_cases.import_pdf import ImportPdfUseCase
 from app.application.use_cases.run_grid_nesting import RunGridNestingUseCase
 from app.domain.model.material import Material
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
+from PIL import Image
 
 
 def _timer():
