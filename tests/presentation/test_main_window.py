@@ -757,6 +757,19 @@ def test_reset_all_defaults_zera_espacamento(qapp, tmp_path):
     assert window._file_sizes == {}  # tamanhos personalizados descartados
 
 
+def test_open_external_files_adiciona_a_producao(qapp, tmp_path):
+    # Integracao CorelDRAW/CLI: receber um arquivo de fora joga na producao.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.open_external_files([src])
+    assert window._result is not None
+    assert any(window._path_of(a.id) == src for a in window._result.artworks)
+    # arquivo inexistente e ignorado (nao quebra)
+    window.open_external_files(["nao_existe.pdf"])
+
+
 def test_exportar_apenas_a_selecao(qapp, tmp_path):
     # Selecionar pecas e exportar SO elas (recortado, sem o resto / sem branco).
     import ezdxf

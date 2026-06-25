@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
@@ -18,9 +19,20 @@ from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
 from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer
 from app.presentation import theme
 from app.presentation.main_window import MainWindow
+from app.presentation.single_instance import forward_to_running, start_server
 from app.shared.config import AppPaths, SettingsStore
 from app.shared.logging import setup_logging
 from app.shared.resources import resource_path
+
+_FILE_EXTS = (".pdf", ".png", ".jpg", ".jpeg", ".webp")
+
+
+def _file_args(argv: list[str]) -> list[str]:
+    """Caminhos de arquivo passados na linha de comando (ignora flags)."""
+    return [
+        a for a in argv[1:]
+        if not a.startswith("-") and Path(a).suffix.lower() in _FILE_EXTS
+    ]
 
 
 def main() -> int:
@@ -30,6 +42,12 @@ def main() -> int:
     setup_logging(settings.log_level, paths.logs_dir)
 
     app = QApplication(sys.argv)
+
+    # instancia unica: se o PrintNest ja estiver aberto, entrega os arquivos
+    # (ex.: vindos da macro do CorelDRAW) para a sessao atual e encerra.
+    file_args = _file_args(sys.argv)
+    if forward_to_running(file_args):
+        return 0
     # Trava o tema em Claro: a interface fica igual em qualquer PC,
     # independente do modo Claro/Escuro do Windows (Qt 6 segue o sistema).
     app.styleHints().setColorScheme(Qt.ColorScheme.Light)
@@ -56,7 +74,14 @@ def main() -> int:
     )
     if app_icon is not None:
         window.setWindowIcon(app_icon)  # garante a logo na barra de titulo
+
+    # primeira instancia: escuta caminhos de outras chamadas (CorelDRAW/CLI).
+    # guarda a referencia no app para nao ser coletado pelo GC.
+    app._ipc_server = start_server(window.open_external_files)
+
     window.show()
+    if file_args:  # arquivos passados na linha de comando -> abre ja na sessao
+        window.open_external_files(file_args)
     return app.exec()
 
 

@@ -4223,6 +4223,31 @@ class MainWindow(QMainWindow):
             return
         ExportCenterDialog(self).exec()
 
+    # ---- integracao externa (CorelDRAW / linha de comando) ----
+    def _raise_to_front(self) -> None:
+        """Restaura e traz a janela para a frente (ao receber arquivo externo)."""
+        self.setWindowState(
+            (self.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive
+        )
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def open_external_files(self, paths: list[str]) -> None:
+        """Recebe arquivos de fora (macro do CorelDRAW ou linha de comando):
+        adiciona a biblioteca, joga na producao (organizando) e traz a janela
+        para a frente. Lista vazia apenas traz a janela para a frente."""
+        valid = [str(Path(p)) for p in (paths or []) if Path(p).exists()]
+        self._raise_to_front()
+        if not valid:
+            return
+        novos = [p for p in valid if p not in self._paths]
+        if novos:
+            self.add_paths(novos)
+        for p in valid:
+            self._add_file_to_production(p, QPointF(20.0, 20.0))
+        self._toasts.success(f"{len(valid)} arquivo(s) recebido(s) do CorelDRAW")
+
     def export_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
         if self._result is None:
             return
