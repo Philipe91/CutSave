@@ -59,39 +59,20 @@ Private Sub Disparar(arquivoPdf As String)
     End If
 End Sub
 
-' Botao principal: envia a PAGINA atual para o PrintNest.
-Public Sub EnviarParaPrintNest()
-    On Error GoTo erro
+' ---- logica interna ----
+Private Sub EnviarPagina()
     Dim doc As Document
     Set doc = ActiveDocument
-    If doc Is Nothing Then
-        MsgBox "Abra um documento no CorelDRAW primeiro.", vbExclamation, "PrintNest"
-        Exit Sub
-    End If
     Dim pdf As String
     pdf = CaminhoTemp("printnest")
-    ' PublishToPDF preserva os vetores (a linha de corte vai como vetor).
+    ' PublishToPDF preserva os VETORES (a linha de corte vai como vetor).
     doc.PublishToPDF pdf
     Disparar pdf
-    Exit Sub
-erro:
-    MsgBox "Erro ao enviar para o PrintNest: " & Err.Description, vbCritical, "PrintNest"
 End Sub
 
-' Botao alternativo: envia APENAS a selecao (copia para um doc temporario,
-' exporta e fecha). Sem selecao, envia a pagina.
-Public Sub EnviarSelecaoParaPrintNest()
-    On Error GoTo erro
+Private Sub EnviarSelecao()
     Dim src As Document
     Set src = ActiveDocument
-    If src Is Nothing Then
-        MsgBox "Abra um documento no CorelDRAW primeiro.", vbExclamation, "PrintNest"
-        Exit Sub
-    End If
-    If src.Selection.Shapes.Count = 0 Then
-        EnviarParaPrintNest   ' nada selecionado -> manda a pagina
-        Exit Sub
-    End If
     src.Selection.Copy
     Dim tmpDoc As Document
     Set tmpDoc = Application.CreateDocument
@@ -101,7 +82,46 @@ Public Sub EnviarSelecaoParaPrintNest()
     tmpDoc.PublishToPDF pdf
     tmpDoc.Close
     Disparar pdf
+End Sub
+
+' ===== BOTAO PRINCIPAL (inteligente) =====
+' Se houver SELECAO, envia so a selecao (recortado). Senao, envia a pagina.
+' Um clique so faz a coisa certa -> mais facil para o operador.
+Public Sub EnviarParaPrintNest()
+    On Error GoTo erro
+    If ActiveDocument Is Nothing Then
+        MsgBox "Abra um documento no CorelDRAW primeiro.", vbExclamation, "PrintNest"
+        Exit Sub
+    End If
+    If ActiveDocument.Selection.Shapes.Count > 0 Then
+        EnviarSelecao
+    Else
+        EnviarPagina
+    End If
+    Exit Sub
+erro:
+    MsgBox "Erro ao enviar para o PrintNest: " & Err.Description, vbCritical, "PrintNest"
+End Sub
+
+' Botoes explicitos (opcionais), caso queira forcar um modo:
+Public Sub EnviarSelecaoParaPrintNest()
+    On Error GoTo erro
+    If ActiveDocument Is Nothing Then Exit Sub
+    If ActiveDocument.Selection.Shapes.Count = 0 Then
+        EnviarPagina
+    Else
+        EnviarSelecao
+    End If
     Exit Sub
 erro:
     MsgBox "Erro ao enviar a selecao: " & Err.Description, vbCritical, "PrintNest"
+End Sub
+
+Public Sub EnviarPaginaParaPrintNest()
+    On Error GoTo erro
+    If ActiveDocument Is Nothing Then Exit Sub
+    EnviarPagina
+    Exit Sub
+erro:
+    MsgBox "Erro ao enviar a pagina: " & Err.Description, vbCritical, "PrintNest"
 End Sub

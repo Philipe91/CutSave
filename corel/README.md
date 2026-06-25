@@ -28,21 +28,41 @@ Você desenha no Corel, clica no botão e o arquivo cai no PrintNest já pronto.
      roda o PrintNest direto do código.
 5. Feche o editor (Alt+Q).
 
-### Criar o botão na barra
+### Criar o botão na barra (com a logo do PrintNest)
 1. CorelDRAW → **Ferramentas → Opções → Personalização → Comandos** (o caminho
    varia por versão; procure por *Macros* na lista de comandos).
-2. Encontre **PrintNest.EnviarParaPrintNest** (e/ou
-   **PrintNest.EnviarSelecaoParaPrintNest**).
-3. **Arraste** o comando para uma barra de ferramentas. Pode trocar o
-   ícone/nome (ex.: "Enviar p/ PrintNest").
+2. Encontre **PrintNest.EnviarParaPrintNest** (é o **botão inteligente**: com
+   algo selecionado envia a seleção; sem seleção envia a página).
+3. **Arraste** o comando para uma barra de ferramentas.
+4. Para colocar a **logo**: com o botão ainda selecionado na janela de
+   Personalização, vá na aba **Aparência** (Appearance) → **Importar** e
+   escolha:
+   ```
+   c:\projetos\Cutph\assets\printnest_symbol.png
+   ```
+   Em **Estilo**, escolha "Imagem" (ou "Imagem e texto"). Defina o nome para
+   "Enviar p/ PrintNest".
 
 > Atalho alternativo: dá para rodar por **Ferramentas → Macros → Executar
 > Macro**, escolher `EnviarParaPrintNest` e clicar Executar.
 
 ## Macros disponíveis
-- **EnviarParaPrintNest** — envia a **página** atual.
-- **EnviarSelecaoParaPrintNest** — envia **apenas a seleção** (se nada estiver
-  selecionado, envia a página).
+- **EnviarParaPrintNest** — **botão principal (inteligente)**: com objetos
+  selecionados, envia **só a seleção** (recortado); sem seleção, envia a
+  **página** inteira. Um clique faz o certo.
+- **EnviarSelecaoParaPrintNest** — força o envio da **seleção**.
+- **EnviarPaginaParaPrintNest** — força o envio da **página** inteira.
+
+## "Chegou como imagem?" (vetor vs. raster)
+A **visualização** no PrintNest é sempre um *render* (imagem) da página — isso
+vale para qualquer PDF e **não** quer dizer que o dado virou raster. O que
+importa:
+- Se você desenhou em **vetor** no Corel (curvas/linhas), o PDF mantém o vetor.
+- A **linha de corte** desenhada como vetor é lida pelo PrintNest em
+  **Faca de PDF → "Faca do cliente (vetor do PDF)"** → a faca sai como vetor
+  real (DXF de corte).
+- Arte com **imagem/foto** (JPG colado) continua raster — porque já era raster
+  no Corel. Só o que era vetor permanece vetor.
 
 ## Dicas de produção
 - Desenhe a **linha de corte como vetor** (uma curva/linha). No PrintNest,
