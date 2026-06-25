@@ -4246,6 +4246,7 @@ class MainWindow(QMainWindow):
             self.add_paths(novos)
         for p in valid:
             self._add_file_to_production(p, QPointF(20.0, 20.0))
+        self._fit_view()  # enquadra para o arquivo recebido aparecer na tela
         self._toasts.success(f"{len(valid)} arquivo(s) recebido(s) do CorelDRAW")
 
     def export_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
