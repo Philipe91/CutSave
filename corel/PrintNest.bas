@@ -16,11 +16,13 @@ Private Const PRINTNEST_EXE As String = "C:\Program Files\PrintNest\PrintNest.ex
 ' Localiza o executavel do PrintNest (tenta o caminho configurado e alguns
 ' lugares comuns). Retorna "" se nao achar.
 Private Function PrintNestExe() As String
-    Dim candidatos(3) As String
+    Dim candidatos(4) As String
     candidatos(0) = PRINTNEST_EXE
     candidatos(1) = Environ$("LOCALAPPDATA") & "\Programs\PrintNest\PrintNest.exe"
     candidatos(2) = Environ$("ProgramFiles") & "\PrintNest\PrintNest.exe"
     candidatos(3) = Environ$("USERPROFILE") & "\Desktop\PrintNest\PrintNest.exe"
+    ' fallback de desenvolvimento (roda o PrintNest direto do codigo)
+    candidatos(4) = "c:\projetos\Cutph\corel\run_printnest_dev.bat"
     Dim i As Integer
     For i = 0 To UBound(candidatos)
         If Len(candidatos(i)) > 0 Then
@@ -49,7 +51,12 @@ Private Sub Disparar(arquivoPdf As String)
     End If
     ' aspas para suportar espacos nos caminhos. O PrintNest e instancia unica:
     ' se ja estiver aberto, o arquivo entra na sessao atual.
-    Shell """" & exe & """ """ & arquivoPdf & """", vbNormalFocus
+    ' .bat precisa ser disparado via "cmd /c" (Shell nao roda .bat direto).
+    If LCase$(Right$(exe, 4)) = ".bat" Then
+        Shell "cmd /c """ & exe & """ """ & arquivoPdf & """", vbHide
+    Else
+        Shell """" & exe & """ """ & arquivoPdf & """", vbNormalFocus
+    End If
 End Sub
 
 ' Botao principal: envia a PAGINA atual para o PrintNest.
