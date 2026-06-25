@@ -22,11 +22,11 @@ SERVER_NAME = "PrintNestPro.singleton.v1"
 _TIMEOUT_MS = 800
 
 
-def forward_to_running(paths: list[str]) -> bool:
+def forward_to_running(paths: list[str], name: str = SERVER_NAME) -> bool:
     """Se houver uma instancia aberta, entrega os caminhos a ela e retorna True.
     Lista vazia tambem e valida (so traz a janela existente para a frente)."""
     sock = QLocalSocket()
-    sock.connectToServer(SERVER_NAME)
+    sock.connectToServer(name)
     if not sock.waitForConnected(_TIMEOUT_MS):
         sock.abort()
         return False
@@ -39,13 +39,13 @@ def forward_to_running(paths: list[str]) -> bool:
     return True
 
 
-def start_server(on_paths: Callable[[list[str]], None]) -> QLocalServer:
+def start_server(on_paths: Callable[[list[str]], None], name: str = SERVER_NAME) -> QLocalServer:
     """Cria o servidor local desta (primeira) instancia. Ao receber uma conexao,
     decodifica os caminhos e chama on_paths(list[str]) (vazia = so trazer a
     frente). Mantenha uma referencia ao retorno (senao o GC o fecha)."""
-    QLocalServer.removeServer(SERVER_NAME)  # limpa socket orfao de um crash anterior
+    QLocalServer.removeServer(name)  # limpa socket orfao de um crash anterior
     server = QLocalServer()
-    server.listen(SERVER_NAME)
+    server.listen(name)
 
     def _handle() -> None:
         conn = server.nextPendingConnection()

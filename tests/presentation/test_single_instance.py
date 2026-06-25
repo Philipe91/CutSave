@@ -5,9 +5,12 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
-from app.presentation.single_instance import SERVER_NAME, start_server  # noqa: E402
+from app.presentation.single_instance import start_server  # noqa: E402
 from PySide6.QtNetwork import QLocalSocket  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+
+# nome unico de teste: nao colide com um PrintNest real em execucao
+_TEST_NAME = "PrintNestPro.test.ipc"
 
 
 @pytest.fixture(scope="session")
@@ -17,10 +20,12 @@ def qapp():
 
 def test_servidor_recebe_os_caminhos(qapp):
     recebidos = {}
-    server = start_server(lambda files: recebidos.setdefault("files", files))
+    server = start_server(
+        lambda files: recebidos.setdefault("files", files), name=_TEST_NAME
+    )
     try:
         sock = QLocalSocket()
-        sock.connectToServer(SERVER_NAME)
+        sock.connectToServer(_TEST_NAME)
         assert sock.waitForConnected(800)
         for _ in range(5):
             qapp.processEvents()
