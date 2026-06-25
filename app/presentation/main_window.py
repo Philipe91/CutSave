@@ -2828,8 +2828,11 @@ class MainWindow(QMainWindow):
             spacing_y=float(self._spacing_v.value()),
         )
 
-    def generate(self, *, blocking: bool = False) -> None:
-        if not self._paths:
+    def generate(self, *, blocking: bool = False, paths: list | None = None) -> None:
+        # paths=None -> todos os arquivos da biblioteca; uma lista -> so esses
+        # (usado ao arrastar UM arquivo para a area de trabalho vazia).
+        target_paths = paths if paths is not None else self._paths
+        if not target_paths:
             QMessageBox.warning(self, "PrintNest", "Adicione ao menos um arquivo.")
             return
         self._save_settings()
@@ -2840,7 +2843,7 @@ class MainWindow(QMainWindow):
         sensitivity = float(self._auto_sensitivity.value())
         ignore_white = self._auto_ignore_white.isChecked()
         self._fit_next = True  # ajusta o zoom uma vez apos gerar
-        eff_paths = self._effective_paths()  # PDFs recortados quando houver recorte
+        eff_paths = [self._effective_path(p) for p in target_paths]  # recorte quando houver
 
         if blocking:
             result = self._pipeline.execute(
@@ -3137,6 +3140,11 @@ class MainWindow(QMainWindow):
                     piece.snap = self._snap
                     piece.sheet_rect = (dx, dy, layout.material.width, layout.used_length)
                     self._piece_items.append(piece)
+                else:
+                    # pecas nao-interativas (tela dividida, so-corte, so-impressao)
+                    # tambem precisam de referencia Python, senao o PySide as coleta
+                    # e o Qt as remove ao clicar (sumiam na tela dividida).
+                    self._decor_items.append(piece)
 
                 ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
                 if draw_art:
@@ -3360,9 +3368,9 @@ class MainWindow(QMainWindow):
         """Adiciona um arquivo da biblioteca a producao na posicao do drop, sem
         refazer o nesting das pecas que ja estao na chapa."""
         if self._result is None or not self._loaded:
-            # ainda nao gerou: o drop ja monta a producao (sem precisar clicar
-            # em "Gerar Producao"). O usuario organiza e segue dali.
-            self.generate(blocking=True)
+            # ainda nao gerou: o drop monta a producao com SOMENTE o arquivo
+            # arrastado (nao todos os da biblioteca). O usuario organiza dali.
+            self.generate(blocking=True, paths=[path])
             return
         bases = [b for b in self._base_artworks if self._path_of(b.id) == path]
         if not bases:  # arquivo ainda nao importado -> importa agora

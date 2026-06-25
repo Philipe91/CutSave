@@ -799,6 +799,49 @@ def test_chapa_branca_nao_some_ao_clicar_no_vazio(qapp, tmp_path):
     assert n_rects() == antes  # a chapa branca continua la
 
 
+def test_arrastar_um_arquivo_abre_so_ele(qapp, tmp_path):
+    # 3 arquivos na biblioteca, nada gerado: arrastar UM abre so ele (nao todos).
+    from PySide6.QtCore import QPointF
+
+    a = _two_page_pdf(tmp_path)
+    b = _n_page_pdf(tmp_path, 1, name="bbb")
+    c = _n_page_pdf(tmp_path, 1, name="ccc")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.add_paths([a, b, c])
+    assert window._result is None  # nada gerado ainda
+
+    window._add_file_to_production(b, QPointF(10, 10))  # arrasta so o b
+    na_producao = {window._path_of(art.id) for art in window._result.artworks}
+    assert na_producao == {b}  # SO o arquivo arrastado
+
+
+def test_pecas_nao_somem_na_tela_dividida(qapp, tmp_path):
+    # Regressao (GC): na tela dividida as pecas nao sao interativas e nao ficavam
+    # referenciadas -> sumiam ao clicar. Agora ficam guardadas.
+    import gc
+
+    from PySide6.QtWidgets import QGraphicsPixmapItem
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._view_mode.setCurrentIndex(window._view_mode.findData("split"))
+
+    def n_pix():
+        return len([it for it in window._scene.items()
+                    if isinstance(it, QGraphicsPixmapItem)])
+
+    antes = n_pix()
+    assert antes >= 1
+    for _ in range(3):
+        gc.collect()
+        qapp.processEvents()
+    assert n_pix() == antes  # arte continua na tela dividida apos GC
+
+
 def test_rotacionar_mantem_duplicatas_manuais(qapp, tmp_path):
     # Rotacionar (mudanca de geometria) NAO pode perder as copias duplicadas.
     src = _two_page_pdf(tmp_path)
