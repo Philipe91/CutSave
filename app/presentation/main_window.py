@@ -1157,6 +1157,13 @@ class MainWindow(QMainWindow):
         # arquivo mantem o tamanho original importado. Aplicado na arte base
         # antes da faca (escala arte + contornos); vale para todas as copias.
         self._file_sizes: dict[str, Size] = {}
+        # rotacao POR PECA: artwork_id -> giro extra (0/90/180/270) somado ao
+        # giro do arquivo. Permite girar so uma peca (ex.: a sobra solta) para
+        # encaixar melhor no nesting, sem mexer nas outras copias/paginas.
+        self._piece_rotations: dict[str, int] = {}
+        # centralizar o conteudo na LARGURA da chapa (margens iguais). A chapa
+        # cresce/diminui no comprimento conforme adiciona/remove pecas.
+        self._center_on_sheet = True
         self._ps_loading = False  # evita reentrancia ao carregar os campos
         # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
         # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
@@ -1252,6 +1259,10 @@ class MainWindow(QMainWindow):
                         "Remove o PDF selecionado da lista")
         dup = self._act("Duplicar", self._duplicate_selected, "Ctrl+D",
                         "Duplica as pecas selecionadas com um pequeno deslocamento")
+        dup_qty = self._act("Duplicar so esta pagina...", self._duplicate_selected_qty,
+                            "Ctrl+Shift+C",
+                            "Duplica SO a(s) pagina(s) selecionada(s) na quantidade "
+                            "escolhida e re-encaixa (nao duplica o PDF inteiro)")
         step = self._act("Repetir em grade...", self._step_repeat_dialog, "Ctrl+Shift+D",
                          "Cria varias copias em linhas e colunas (step and repeat)")
         al_l = self._act("Alinhar a esquerda", lambda: self._align("left"), None,
@@ -1277,6 +1288,14 @@ class MainWindow(QMainWindow):
         snap_act.setToolTip("Liga/desliga o encaixe ao arrastar pecas")
         snap_act.toggled.connect(self._set_snap)
         self._snap_action = snap_act
+        center_act = QAction("Centralizar na chapa", self)
+        center_act.setCheckable(True)
+        center_act.setChecked(self._center_on_sheet)
+        center_act.setToolTip(
+            "Mantem o conteudo centralizado na largura da chapa (margens iguais)"
+        )
+        center_act.toggled.connect(self._set_center_on_sheet)
+        self._center_action = center_act
         to_front = self._act("Trazer para frente", self._bring_to_front, "Shift+PgUp",
                              "Coloca as pecas selecionadas a frente das demais")
         to_back = self._act("Enviar para tras", self._send_to_back, "Shift+PgDown",
@@ -1305,11 +1324,11 @@ class MainWindow(QMainWindow):
                        None, sair):
             m_arq.addSeparator() if action is None else m_arq.addAction(action)
         m_edit = bar.addMenu("&Editar")
-        for action in (undo, redo, None, rot_l, rot_r, None, sel_all, dup, step, grp, ungrp,
-                       None, excluir, reset, rem):
+        for action in (undo, redo, None, rot_l, rot_r, None, sel_all, dup, dup_qty, step,
+                       grp, ungrp, None, excluir, reset, rem):
             m_edit.addSeparator() if action is None else m_edit.addAction(action)
         m_org = bar.addMenu("&Organizar")
-        for action in (organizar, None, grp, ungrp, None, to_front, to_back,
+        for action in (organizar, center_act, None, grp, ungrp, None, to_front, to_back,
                        None, al_l, al_r, al_t, al_b, al_cx, al_cy,
                        None, dist_h, dist_v, None, snap_act):
             m_org.addSeparator() if action is None else m_org.addAction(action)
@@ -1530,6 +1549,7 @@ class MainWindow(QMainWindow):
         self._faca_on = False      # volta ao modo "soltar sem faca"
         self._file_overrides = {}  # descarta facas personalizadas por arquivo
         self._file_sizes = {}      # descarta tamanhos personalizados por arquivo
+        self._piece_rotations = {}  # descarta giros por peca
         self._page_crops = {}      # descarta recortes de pagina
         self._baked_crops = {}
         self._crop_cache = {}
@@ -1945,6 +1965,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(self._actions_card([
             ("copy", "Duplicar", self._duplicate_selected),
+            ("copy-plus", "Duplicar so esta pagina...", self._duplicate_selected_qty),
             ("trash-2", "Excluir", self._delete_selected),
         ]))
         lay.addStretch()
@@ -2743,6 +2764,23 @@ class MainWindow(QMainWindow):
         override = self._file_overrides.get(path)
         return dict(override) if override else self._global_faca_params()
 
+    def _art_params(self, art_id) -> dict:
+        """Params efetivos de UMA peca: os do arquivo + o giro proprio da peca.
+
+        A rotacao da peca (self._piece_rotations) soma ao giro do arquivo, sem
+        afetar as outras paginas/copias. Como toda a geometria (tamanho, faca,
+        pixmap) sai daqui, girar uma peca se propaga ao nesting e a exportacao.
+        """
+        params = self._params_for(self._path_of(art_id))
+        extra = self._piece_rotations.get(art_id, 0)
+        if extra:
+            params["rotation"] = (int(params.get("rotation", 0)) + extra) % 360
+        return params
+
+    def _rotation_of(self, art_id) -> int:
+        """Giro efetivo (graus) de uma peca: arquivo + giro proprio."""
+        return int(self._art_params(art_id).get("rotation", 0))
+
     def _path_of(self, art_id) -> str | None:
         return self._origins.get(art_id) or self._sources.get(art_id, (None,))[0]
 
@@ -2754,7 +2792,7 @@ class MainWindow(QMainWindow):
         coerente em qualquer modo (retangulo, contorno, vetor ou imagem).
         """
         path = self._path_of(base.id)
-        params = self._params_for(path)
+        params = self._art_params(base.id)
         base, sx, sy = self._resized_base(base, path)
         if not self._faca_on:
             # modo "soltar sem faca": so a arte (com recorte/giro/tamanho), sem
@@ -2936,6 +2974,7 @@ class MainWindow(QMainWindow):
             self._suspend_relayout = False
         self._file_overrides = {}
         self._file_sizes = {}
+        self._piece_rotations = {}
         self._relayout()
 
     def _image_faca(self, base: ImageArtwork, params: dict):
@@ -3431,6 +3470,7 @@ class MainWindow(QMainWindow):
             sheets = uc.execute_sheets(instances, material, sheet_height)
         else:
             sheets = self._preserve_arrangement(by_id, material)
+        sheets = self._center_sheets_h(sheets, material, instances)  # centraliza na largura
         self._result = ProductionResult(sheets=sheets, artworks=instances, sources=self._sources)
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
@@ -3441,6 +3481,42 @@ class MainWindow(QMainWindow):
             self._undo.push(
                 SnapshotCommand(self, before, after, "ajustar", merge_id=RELAYOUT_MERGE_ID)
             )
+
+    def _center_sheets_h(self, sheets, material, artworks):
+        """Centraliza o conteudo de cada chapa na LARGURA do material (margens
+        iguais nos dois lados). Desloca o bloco inteiro por igual, entao o
+        arranjo relativo das pecas nao muda; so o comprimento (used_length) e
+        preservado. Sem efeito se a flag estiver desligada ou se nao couber."""
+        if not self._center_on_sheet:
+            return sheets
+        by_id = {a.id: a for a in artworks}
+        out = []
+        for layout in sheets:
+            lefts, rights = [], []
+            for it in layout.items:
+                art = by_id.get(it.artwork_id)
+                if art is None:
+                    continue
+                fp = artwork_footprint(art)
+                lefts.append(it.position.x)
+                rights.append(it.position.x + (fp.max_x - fp.min_x))
+            if not lefts:
+                out.append(layout)
+                continue
+            content_w = max(rights) - min(lefts)
+            if content_w >= material.width:
+                shift = -min(lefts)  # nao cabe na largura: encosta na esquerda
+            else:
+                shift = (material.width - content_w) / 2.0 - min(lefts)
+            if abs(shift) < 0.01:
+                out.append(layout)
+                continue
+            items = [
+                replace(it, position=Point2D(it.position.x + shift, it.position.y))
+                for it in layout.items
+            ]
+            out.append(Layout(material, items, layout.used_length))
+        return out
 
     def _preserve_arrangement(self, by_id, material):
         """Mantem o arranjo manual atual (posicoes, duplicatas e chapas/areas em
@@ -3567,9 +3643,10 @@ class MainWindow(QMainWindow):
         faca_pen.setCosmetic(True)
         client_pen = QPen(QColor(theme.SUCCESS))  # faca do cliente (vetor) em verde
         client_pen.setCosmetic(True)
-        mark_pen = QPen(QColor(0, 90, 180))
+        # marcas de registro em PRETO solido (a impressora/leitor optico le melhor)
+        mark_pen = QPen(QColor(0, 0, 0))
         mark_pen.setCosmetic(True)
-        mark_brush = QBrush(QColor(0, 90, 180))
+        mark_brush = QBrush(QColor(0, 0, 0))
         empty_brush = QBrush(QColor(200, 200, 200, 120))
 
         shared = self._shared.currentIndex() == 1
@@ -3608,7 +3685,7 @@ class MainWindow(QMainWindow):
 
                 ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
                 if draw_art:
-                    p = self._params_for(self._path_of(item.artwork_id))
+                    p = self._art_params(item.artwork_id)
                     key = self._sources.get(item.artwork_id)
                     pixmap = self._pixmaps.get(key)
                     if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
@@ -3640,7 +3717,10 @@ class MainWindow(QMainWindow):
                         dx + seg.start.x, dy + seg.start.y,
                         dx + seg.end.x, dy + seg.end.y, faca_pen,
                     ))
-            if draw_cut:
+            # marcas de registro aparecem dos DOIS lados (impressao E corte): na
+            # tela dividida elas saem tanto na metade de impressao quanto na de
+            # corte, espelhando o que vai pra exportacao.
+            if draw_art or draw_cut:
                 self._draw_marks(
                     layout, result.artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen
                 )
@@ -3706,6 +3786,13 @@ class MainWindow(QMainWindow):
             self._snap_check.setChecked(enabled)
         if hasattr(self, "_snap_action") and self._snap_action.isChecked() != enabled:
             self._snap_action.setChecked(enabled)
+
+    def _set_center_on_sheet(self, enabled) -> None:
+        """Liga/desliga a centralizacao na largura e re-encaixa para o efeito
+        aparecer na hora (centraliza ao ligar, encosta na esquerda ao desligar)."""
+        self._center_on_sheet = bool(enabled)
+        if self._result is not None and self._loaded:
+            self._relayout(renest=True)
 
     def _selected_movable(self) -> list:
         return [
@@ -3914,6 +4001,52 @@ class MainWindow(QMainWindow):
             )
         self._add_placed(add)
 
+    def _duplicate_selected_qty(self) -> None:
+        """Duplica SO a(s) pagina(s)/peca(s) selecionada(s) numa quantidade
+        escolhida e re-encaixa, sem mexer na quantidade das outras paginas.
+
+        Resolve o caso do PDF com varias paginas: selecionar uma pagina e pedir
+        N copias dela, sem duplicar o documento inteiro (a quantidade da tabela
+        e por arquivo e duplicaria todas as paginas)."""
+        if self._result is None:
+            return
+        sel = self._selected_pieces()
+        if not sel:
+            QMessageBox.information(
+                self, "PrintNest", "Selecione a(s) pagina(s) que quer duplicar."
+            )
+            return
+        n, ok = QInputDialog.getInt(
+            self, "Duplicar pagina",
+            f"Quantas copias a mais de cada peca selecionada ({len(sel)})?",
+            1, 1, 500,
+        )
+        if not ok or n < 1:
+            return
+        before = self._state_snapshot()
+        by_id = {a.id: a for a in self._result.artworks}
+        # contagem ATUAL do arranjo (mantem o que ja esta na chapa) + as copias
+        instances = [
+            by_id[it.artwork_id]
+            for layout in self._effective_sheets()
+            for it in layout.items
+            if it.artwork_id in by_id
+        ]
+        for piece in sel:
+            art = by_id.get(piece.artwork_id)
+            if art is not None:
+                instances.extend([art] * n)
+        material = self._material()
+        uc = self._grid_nesting_uc if self._shared.currentIndex() == 1 else self._nesting_uc
+        sheets = uc.execute_sheets(instances, material, float(self._height.value()))
+        after = (sheets, instances)
+        self._apply_state(after)
+        self._undo.push(SnapshotCommand(self, before, after, "duplicar pagina"))
+        self._update_status_and_alerts(
+            sheets, sum(s.item_count for s in sheets), instances, material
+        )
+        self._toasts.success(f"{len(sel)} pagina(s) duplicada(s) (+{n} cada)")
+
     def _step_repeat(self, cols: int, rows: int, gap: float) -> None:
         """Cria copias em grade das pecas selecionadas (step and repeat)."""
         if self._result is None:
@@ -4033,23 +4166,32 @@ class MainWindow(QMainWindow):
             return
         before = self._snapshot_sheets()
         self._piece_items = [p for p in self._piece_items if p not in to_remove]
-        after = self._effective_sheets()
+        # ao remover, recentraliza o que sobrou na largura da chapa
+        after = self._center_sheets_h(
+            self._effective_sheets(), self._material(), self._result.artworks
+        )
         self._commit_arrangement(before, after, "excluir")
 
     def _rotate_selected(self, delta: int) -> None:
-        """Gira em +-90 graus o(s) arquivo(s) da(s) peca(s) selecionada(s); sem
-        selecao, gira TODOS (rotacao global). Re-encaixa o nesting depois."""
+        """Gira em +-90 graus SO a(s) peca(s) selecionada(s) e re-encaixa o
+        nesting (mantendo a contagem) para a peca girada aproveitar o vao.
+
+        Cada peca gira sozinha (por artwork_id): selecionar a sobra solta e
+        girar nao mexe nas outras paginas/copias. Sem selecao, gira TODOS
+        (rotacao global do documento)."""
         if not self._loaded:
             self._toasts.info("Gere a producao primeiro (Gerar Producao).")
             return
-        paths = {self._path_of(p.artwork_id) for p in self._selected_pieces()}
-        paths.discard(None)
-        if paths:
-            for path in paths:
-                p = dict(self._params_for(path))
-                p["rotation"] = (int(p.get("rotation", 0)) + delta) % 360
-                self._file_overrides[path] = p
+        ids = {p.artwork_id for p in self._selected_pieces()}
+        if ids:
+            for art_id in ids:
+                atual = self._piece_rotations.get(art_id, 0)
+                self._piece_rotations[art_id] = (atual + delta) % 360
             self._relayout(renest=True)  # re-encaixa girado, mantendo a contagem
+            self._toasts.success(
+                f"Girou {len(ids)} peca(s) {abs(delta)}°" if len(ids) > 1
+                else f"Peca girada {abs(delta)}°"
+            )
         else:
             # nada selecionado: gira todos (rotacao global do documento)
             novo = (self._rotation_value() + delta) % 360
@@ -4136,6 +4278,10 @@ class MainWindow(QMainWindow):
             "mimaki_thickness_mm": float(self._mk_thickness.value()),
             "crop_mm": float(self._crop.value()),
             "rotate": self._rotation_value(),
+            # giro por peca: sobrepoe o giro padrao para pecas giradas sozinhas
+            "rotations": {
+                a.id: self._rotation_of(a.id) for a in self._result.artworks
+            } if self._result is not None else None,
             "box": self._import_box.currentData(),
         }
 
@@ -4442,9 +4588,19 @@ class MainWindow(QMainWindow):
         if interactive:
             self._toasts.success(f"{len(gerados)} DXF de corte exportado(s)")
 
+    def _faca_pad(self) -> float:
+        """Folga (mm) ao redor da faca para as marcas de registro caberem na
+        pagina (mesma conta do PDF de impressao)."""
+        reg = self._reg()
+        if reg == "circles":
+            return float(self._reg_margin.value()) + float(self._reg_diameter.value())
+        if reg == "mimaki":
+            return float(self._mk_distance.value()) + float(self._mk_thickness.value())
+        return 0.0
+
     def export_faca_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
         """Exporta a faca (linhas de corte) em PDF vetorial, uma pagina por chapa.
-        Mesma geometria do DXF (so a faca, sem marcas de registro)."""
+        Inclui as marcas de registro (bolinhas), igual ao DXF e a impressao."""
         if self._result is None:
             return
         interactive = not isinstance(path, str) or not path
@@ -4467,22 +4623,33 @@ class MainWindow(QMainWindow):
         import fitz
 
         mm2pt = 72.0 / 25.4
+        pad = self._faca_pad()  # folga para as marcas caberem na pagina
         doc = fitz.open()
         try:
             for sheet in sheets:
                 page = doc.new_page(
-                    width=sheet.material.width * mm2pt, height=sheet.used_length * mm2pt
+                    width=(sheet.material.width + 2 * pad) * mm2pt,
+                    height=(sheet.used_length + 2 * pad) * mm2pt,
                 )
-                contours, segments, _marks, _mk = self._dxf_payload([sheet])
-                pen = {"color": (0.86, 0.0, 0.0), "width": 0.5}
+                contours, segments, marks, _mk = self._dxf_payload([sheet])
+                pen = {"color": (0.86, 0.0, 0.0), "width": 0.5}  # faca (vermelho)
                 for contour in contours:
-                    pts = [fitz.Point(p.x * mm2pt, p.y * mm2pt) for p in contour.points]
+                    pts = [
+                        fitz.Point((p.x + pad) * mm2pt, (p.y + pad) * mm2pt)
+                        for p in contour.points
+                    ]
                     if len(pts) >= 2:
                         page.draw_polyline(pts + [pts[0]], **pen)  # fecha o contorno
                 for seg in segments:
                     page.draw_line(
-                        fitz.Point(seg.start.x * mm2pt, seg.start.y * mm2pt),
-                        fitz.Point(seg.end.x * mm2pt, seg.end.y * mm2pt), **pen,
+                        fitz.Point((seg.start.x + pad) * mm2pt, (seg.start.y + pad) * mm2pt),
+                        fitz.Point((seg.end.x + pad) * mm2pt, (seg.end.y + pad) * mm2pt),
+                        **pen,
+                    )
+                for mark in marks:  # bolinhas de registro: PRETO solido (igual impressao)
+                    page.draw_circle(
+                        fitz.Point((mark.center.x + pad) * mm2pt, (mark.center.y + pad) * mm2pt),
+                        mark.radius * mm2pt, color=(0, 0, 0), fill=(0, 0, 0),
                     )
             doc.save(path)
         finally:

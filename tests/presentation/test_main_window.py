@@ -286,10 +286,39 @@ def test_mover_peca_reflete_no_export(qapp, tmp_path):
     window.generate(blocking=True)
 
     piece = window._piece_items[0]
+    x0 = piece.x() - piece.dx  # posicao local antes do movimento (ja centralizada)
     piece.setPos(piece.x() + 100, piece.y() + 30)
     sheets = window._effective_sheets()
     xs = [it.position.x for s in sheets for it in s.items]
-    assert any(abs(x - 100) < 0.001 for x in xs)  # peca movida 100mm em x
+    assert any(abs(x - (x0 + 100)) < 0.001 for x in xs)  # peca movida 100mm em x
+
+
+def test_centraliza_na_largura_da_chapa(qapp, tmp_path):
+    # o conteudo fica centralizado na largura (margens iguais nos dois lados).
+    from app.application.footprint import artwork_footprint
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)   # chapa bem mais larga que as pecas -> sobra lateral
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    layout = window._result.sheets[0]
+    arts = {a.id: a for a in window._result.artworks}
+    lefts, rights = [], []
+    for it in layout.items:
+        fp = artwork_footprint(arts[it.artwork_id])
+        lefts.append(it.position.x)
+        rights.append(it.position.x + (fp.max_x - fp.min_x))
+    left_margin = min(lefts)
+    right_margin = window._material().width - max(rights)
+    assert abs(left_margin - right_margin) < 0.5  # margens iguais = centralizado
+
+    # desligar a centralizacao encosta o conteudo na esquerda (margem ~0)
+    window._set_center_on_sheet(False)
+    layout = window._result.sheets[0]
+    lefts = [it.position.x for it in layout.items]
+    assert min(lefts) < left_margin  # deixou de estar centralizado
 
 
 def test_zoom_preservado_ao_mudar_parametro(qapp, tmp_path):
@@ -403,6 +432,24 @@ def test_exportar_faca_pdf(qapp, tmp_path):
     window.export_faca_pdf(str(out))
     assert out.exists()
     assert fitz.open(str(out)).page_count == 1
+
+
+def test_faca_pdf_leva_bolinhas_de_registro(qapp, tmp_path):
+    # as marcas de registro (bolinhas) tem que sair na faca, igual ao DXF.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._reg_type.setCurrentIndex(window._reg_type.findData("circles"))
+    window.generate(blocking=True)
+    out = tmp_path / "FACA_REG.pdf"
+    window.export_faca_pdf(str(out))
+    page = fitz.open(str(out))[0]
+    drawings = page.get_drawings()
+    pretas = [
+        d for d in drawings
+        if d.get("fill") and max(d["fill"]) < 0.2  # preenchimento preto = bolinha
+    ]
+    assert pretas  # ha bolinhas de registro (pretas, preenchidas) alem da faca
 
 
 def test_dxf_mimaki_nao_leva_marcas_de_registro(qapp, tmp_path):
@@ -560,6 +607,34 @@ def test_duplicar_cria_copia(qapp, tmp_path):
     window._piece_items[0].setSelected(True)
     window._duplicate_selected()
     assert sum(s.item_count for s in window._result.sheets) == n0 + 1
+
+
+def test_duplicar_so_a_pagina_selecionada(qapp, tmp_path, monkeypatch):
+    # PDF com varias paginas: duplicar SO a pagina selecionada, sem duplicar tudo.
+    from collections import Counter
+
+    from PySide6.QtWidgets import QInputDialog
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    alvo = window._piece_items[0].artwork_id
+    outras = {p.artwork_id for p in window._piece_items if p.artwork_id != alvo}
+    assert outras  # ha outra pagina no mesmo PDF
+    n0 = sum(s.item_count for s in window._result.sheets)
+
+    monkeypatch.setattr(QInputDialog, "getInt", lambda *a, **k: (2, True))
+    window._piece_items[0].setSelected(True)
+    window._duplicate_selected_qty()
+
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 2  # +2 no total
+    cont = Counter(a.id for a in window._result.artworks)
+    assert cont[alvo] == 3  # 1 original + 2 copias
+    for o in outras:
+        assert cont[o] == 1  # as outras paginas NAO foram duplicadas
 
 
 def test_step_repeat_grade_2x2(qapp, tmp_path):
@@ -814,6 +889,34 @@ def test_girar_arquivo_selecionado_reencaixa(qapp, tmp_path):
         by_path.setdefault(window._path_of(a.id), a)
     rot = by_path[src]
     assert abs(rot.size.width - h0) < 0.5 and abs(rot.size.height - w0) < 0.5
+
+
+def test_girar_so_uma_peca_nao_afeta_as_outras(qapp, tmp_path):
+    # rotacao POR PECA: girar uma pagina nao gira as outras do mesmo PDF.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    antes = {a.id: (a.size.width, a.size.height) for a in window._result.artworks}
+    alvo = window._piece_items[0].artwork_id
+    outras = [aid for aid in antes if aid != alvo]
+    assert outras  # ha outra peca para comparar
+
+    window._piece_items[0].setSelected(True)
+    window._rotate_selected(90)
+
+    depois = {a.id: (a.size.width, a.size.height) for a in window._result.artworks}
+    w0, h0 = antes[alvo]
+    w1, h1 = depois[alvo]
+    assert abs(w1 - h0) < 0.5 and abs(h1 - w0) < 0.5  # a peca girou (L<->A)
+    for aid in outras:
+        assert depois[aid] == antes[aid]  # as outras ficaram iguais
+    # a exportacao leva o giro por peca (so a alvo girada)
+    assert window._print_kwargs()["rotations"][alvo] == 90
+    for aid in outras:
+        assert window._print_kwargs()["rotations"][aid] == 0
 
 
 def test_pecas_selecionaveis_na_tela_dividida(qapp, tmp_path):

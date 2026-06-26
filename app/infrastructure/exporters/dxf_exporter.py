@@ -13,7 +13,7 @@ from app.shared.errors import DxfExportError
 CUT_LAYER = "CUT"
 CUT_COLOR = 1  # vermelho (ACI), convencao comum para corte
 REGMARK_LAYER = "REGMARK"
-REGMARK_COLOR = 5  # azul (ACI), separa as marcas do corte
+REGMARK_COLOR = 7  # preto (ACI), marca de registro
 DXF_VERSION = "R2010"  # amplamente suportado por mesas de corte
 
 

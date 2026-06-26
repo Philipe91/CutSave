@@ -44,9 +44,15 @@ class ExportPrintPdfUseCase:
         mimaki_thickness_mm: float = 1.0,
         crop_mm: float = 0.0,
         rotate: int = 0,
+        rotations: Mapping[str, int] | None = None,
         box: str = "media",
     ) -> list[PrintSheet]:
-        """Monta os PrintSheet (posicao, escala e marcas) usados na exportacao."""
+        """Monta os PrintSheet (posicao, escala e marcas) usados na exportacao.
+
+        'rotate' e o giro padrao; 'rotations' (artwork_id -> graus) sobrepoe o
+        giro de pecas especificas (rotacao por peca). O tamanho de cada arte ja
+        vem girado, entao o exportador so rotaciona o conteudo da origem.
+        """
         layouts = [layout for layout in sheets if layout.items]
         if not layouts:
             raise ValidationError("Nenhuma chapa com pecas para imprimir.")
@@ -74,8 +80,9 @@ class ExportPrintPdfUseCase:
                     item.position.x - footprint.min_x + pad,
                     item.position.y - footprint.min_y + pad,
                 )
+                rot = rotations.get(item.artwork_id, rotate) if rotations else rotate
                 placements.append(
-                    PrintPlacement(source[0], source[1], position, art.size, crop_mm, rotate, box)
+                    PrintPlacement(source[0], source[1], position, art.size, crop_mm, rot, box)
                 )
 
             circles, lines = self._marks(
