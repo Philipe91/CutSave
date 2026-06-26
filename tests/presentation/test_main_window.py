@@ -293,32 +293,38 @@ def test_mover_peca_reflete_no_export(qapp, tmp_path):
     assert any(abs(x - (x0 + 100)) < 0.001 for x in xs)  # peca movida 100mm em x
 
 
-def test_centraliza_na_largura_da_chapa(qapp, tmp_path):
-    # o conteudo fica centralizado na largura (margens iguais nos dois lados).
+def test_centraliza_na_pagina(qapp, tmp_path):
+    # o conteudo fica centralizado na PAGINA: margens iguais em largura E altura.
     from app.application.footprint import artwork_footprint
 
     src = _two_page_pdf(tmp_path)
     window = _window(tmp_path)
-    window._width.setValue(2000)   # chapa bem mais larga que as pecas -> sobra lateral
+    window._width.setValue(2000)   # chapa bem maior que as pecas -> sobra em volta
     window._height.setValue(2000)
     window.add_paths([src])
     window.generate(blocking=True)
     layout = window._result.sheets[0]
     arts = {a.id: a for a in window._result.artworks}
-    lefts, rights = [], []
+    lefts, rights, tops, bottoms = [], [], [], []
     for it in layout.items:
         fp = artwork_footprint(arts[it.artwork_id])
         lefts.append(it.position.x)
         rights.append(it.position.x + (fp.max_x - fp.min_x))
+        tops.append(it.position.y)
+        bottoms.append(it.position.y + (fp.max_y - fp.min_y))
     left_margin = min(lefts)
     right_margin = window._material().width - max(rights)
-    assert abs(left_margin - right_margin) < 0.5  # margens iguais = centralizado
+    top_margin = min(tops)
+    bottom_margin = layout.used_length - max(bottoms)
+    assert abs(left_margin - right_margin) < 0.5   # centralizado na largura
+    assert abs(top_margin - bottom_margin) < 0.5   # centralizado na altura
+    assert top_margin > 1.0  # ha margem de fato (nao esta colado no topo)
 
-    # desligar a centralizacao encosta o conteudo na esquerda (margem ~0)
+    # desligar a centralizacao encosta o conteudo no canto (topo-esquerda)
     window._set_center_on_sheet(False)
     layout = window._result.sheets[0]
-    lefts = [it.position.x for it in layout.items]
-    assert min(lefts) < left_margin  # deixou de estar centralizado
+    assert min(it.position.x for it in layout.items) < left_margin
+    assert min(it.position.y for it in layout.items) < top_margin
 
 
 def test_zoom_preservado_ao_mudar_parametro(qapp, tmp_path):
@@ -773,7 +779,7 @@ def test_redimensionar_escala_faca_do_cliente_vetorial(qapp, tmp_path):
     window = _window(tmp_path)
     window.add_paths([_vector_cut_pdf(tmp_path)])
     window._faca_mode.setCurrentIndex(window._faca_mode.findData("vector"))
-    window._auto_offset.setValue(0)  # sem sangria -> testa a escala pura do contorno
+    window._offset.setValue(0)  # sem sangria (faca PDF) -> testa a escala pura do contorno
     window.generate(blocking=True)
     path = window._path_of(window._result.artworks[0].id)
     faca_w0 = window._result.artworks[0].cut_contour.size.width
@@ -1266,6 +1272,28 @@ def test_faca_pdf_pelo_contorno_nao_e_retangulo(qapp, tmp_path):
     window._faca_mode.setCurrentIndex(window._faca_mode.findData("contour"))
     contour_pts = len(window._result.artworks[0].cut_contour.points)
     assert contour_pts > 8  # circulo -> muitos pontos, nao um retangulo
+
+
+def test_sangria_pdf_vale_no_modo_contorno(qapp, tmp_path):
+    # Regressao: a "Sangria da faca (PDF)" tem que valer tambem no modo "pelo
+    # contorno" (antes so valia no modo retangulo -> "as vezes nao funcionava").
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=200)
+    page.draw_circle(fitz.Point(100, 100), 80, color=(0, 0.5, 0), fill=(0, 0.5, 0))
+    src = tmp_path / "circ.pdf"
+    doc.save(str(src))
+    doc.close()
+
+    window = _window(tmp_path)
+    window.add_paths([str(src)])
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("contour"))
+    window._offset.setValue(0)
+    window.generate(blocking=True)
+    w0 = window._result.artworks[0].cut_contour.size.width
+
+    window._offset.setValue(8)  # sangria para fora -> a faca cresce
+    w1 = window._result.artworks[0].cut_contour.size.width
+    assert w1 > w0 + 5
 
 
 def test_recorte_de_pagina_reduz_tamanho_e_mantem_path(qapp, tmp_path):

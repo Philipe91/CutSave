@@ -5,7 +5,18 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, QObject, QPointF, QRect, QRectF, QSize, Qt, QThread, Signal
+from PySide6.QtCore import (
+    QLocale,
+    QObject,
+    QPointF,
+    QRect,
+    QRectF,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -827,6 +838,20 @@ class LengthSpin(QDoubleSpinBox):
         _block_wheel(event)
 
 
+class _QtyLineSpin(QSpinBox):
+    """QSpinBox que seleciona todo o numero ao receber foco/clique, para o
+    usuario digitar a quantidade direto por cima (multiplicar rapido)."""
+
+    def focusInEvent(self, event) -> None:
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self.selectAll)
+
+    def mousePressEvent(self, event) -> None:
+        super().mousePressEvent(event)
+        if not self.lineEdit().hasSelectedText():
+            self.selectAll()
+
+
 class QuantityStepper(QWidget):
     """Seletor de quantidade moderno: botoes - / + ladeando o numero centralizado.
 
@@ -838,23 +863,29 @@ class QuantityStepper(QWidget):
 
     def __init__(self, minimum: int = 1, maximum: int = 100000, value: int = 1) -> None:
         super().__init__()
+        self.setFixedHeight(34)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setContentsMargins(3, 3, 3, 3)
+        lay.setSpacing(3)
         self._minus = QPushButton("−")  # minus sign
         self._minus.setObjectName("qtyMinus")
-        self._spin = QSpinBox()
+        self._spin = _QtyLineSpin()  # seleciona tudo ao focar (facil sobrescrever)
         self._spin.setRange(minimum, maximum)
         self._spin.setValue(value)
         self._spin.setButtonSymbols(QSpinBox.NoButtons)
         self._spin.setAlignment(Qt.AlignCenter)
+        # digitar nao recalcula a cada tecla: confirma no Enter ou ao sair do campo
+        self._spin.setKeyboardTracking(False)
+        self._spin.setToolTip("Digite a quantidade e tecle Enter (ou use − / +)")
         self._plus = QPushButton("+")
         self._plus.setObjectName("qtyPlus")
         for btn in (self._minus, self._plus):
-            btn.setFixedWidth(24)
+            btn.setFixedSize(26, 26)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setFocusPolicy(Qt.NoFocus)
             btn.setAutoRepeat(True)
+            btn.setAutoRepeatDelay(300)
+            btn.setAutoRepeatInterval(70)
         lay.addWidget(self._minus)
         lay.addWidget(self._spin, 1)
         lay.addWidget(self._plus)
@@ -862,15 +893,14 @@ class QuantityStepper(QWidget):
         self._plus.clicked.connect(lambda: self._spin.stepBy(1))
         self._spin.valueChanged.connect(self.valueChanged)
         self.setStyleSheet(
-            "QuantityStepper{background:white; border:1px solid #cfd6dd; border-radius:6px;}"
-            "QSpinBox{border:none; background:transparent; font-weight:bold;"
-            " font-size:13px; color:#2c3e50;}"
-            "QPushButton{border:none; background:#34495e; color:white; font-weight:bold;"
-            " font-size:15px; padding:3px 0;}"
-            "QPushButton:hover{background:#41617d;}"
-            "QPushButton:pressed{background:#2c3e50;}"
-            "QPushButton#qtyMinus{border-top-left-radius:5px; border-bottom-left-radius:5px;}"
-            "QPushButton#qtyPlus{border-top-right-radius:5px; border-bottom-right-radius:5px;}"
+            f"QuantityStepper{{background:{theme.SURFACE}; border:1px solid "
+            f"{theme.BORDER_STRONG}; border-radius:9px;}}"
+            f"QSpinBox{{border:none; background:transparent; font-weight:700;"
+            f" font-size:15px; color:{theme.TEXT};}}"
+            f"QPushButton{{border:none; border-radius:6px; background:{theme.ACCENT_SOFT};"
+            f" color:{theme.ACCENT}; font-weight:800; font-size:18px;}}"
+            f"QPushButton:hover{{background:{theme.ACCENT}; color:white;}}"
+            f"QPushButton:pressed{{background:{theme.ACCENT_HOVER}; color:white;}}"
         )
 
     def value(self) -> int:
@@ -2348,8 +2378,8 @@ class MainWindow(QMainWindow):
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Arquivo", "Qtd"])
         self._table.verticalHeader().setVisible(False)
-        self._table.setColumnWidth(0, 210)
-        self._table.setColumnWidth(1, 84)
+        self._table.setColumnWidth(0, 198)
+        self._table.setColumnWidth(1, 104)
         self._table.setIconSize(QSize(48, 48))
         self._table.setWordWrap(True)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -2465,11 +2495,12 @@ class MainWindow(QMainWindow):
         ])
         self._offset = LengthSpin(-100, 100)
         self._offset.setToolTip(
-            "Adiciona/recolhe material ao redor do corte. Positivo afasta a faca\n"
-            "para FORA da arte (sangria); negativo recolhe para DENTRO (recuo)."
+            "Sangria da faca de PDF (vale nos 3 modos: retangulo, pelo contorno e\n"
+            "faca do cliente). Positivo afasta a faca para FORA da arte (sangria);\n"
+            "negativo recolhe para DENTRO (recuo). Para imagens, use o campo proprio."
         )
         self._offset.valueChanged.connect(lambda _: self._relayout(renest=False))
-        card.body.addWidget(labeled("Sangria da faca  ( + fora  /  − dentro )", self._offset))
+        card.body.addWidget(labeled("Sangria da faca (PDF)  ( + fora  /  − dentro )", self._offset))
         return card
 
     def _build_acabamento_card(self) -> CollapsibleCard:
@@ -2802,10 +2833,10 @@ class MainWindow(QMainWindow):
             return self._image_faca(base, params)
         if params.get("mode") == "vector":  # faca do cliente (linha vetorial do PDF)
             raw = self._scaled_contour(self._pdf_vector_contour(base), sx, sy)
-            return self._contour_faca(base, raw, params)
+            return self._contour_faca(base, raw, params, params["offset"])
         if params.get("mode") == "contour":  # PDF cortado pelo contorno (rasteriza)
             raw = self._scaled_contour(self._pdf_raster_contour(base), sx, sy)
-            return self._contour_faca(base, raw, params)
+            return self._contour_faca(base, raw, params, params["offset"])
         return self._faca_uc.execute(self._transform(base, params), params["offset"])
 
     def _resized_base(self, base, path):
@@ -2895,28 +2926,26 @@ class MainWindow(QMainWindow):
         self._pdf_contours[key] = contour
         return contour
 
-    def _contour_faca(self, base, raw_contour, params):
-        """Monta a faca a partir de um contorno (imagem ou PDF rasterizado):
-        aplica recorte + giro + suavizar + sangria. Sem contorno, usa o retangulo
-        do proprio tamanho (recortado/girado)."""
+    def _contour_faca(self, base, raw_contour, params, sangria):
+        """Monta a faca a partir de um contorno (imagem, PDF rasterizado ou vetor
+        do cliente): aplica recorte + giro + suavizar + sangria. A 'sangria' vem
+        do chamador (PDF usa a "Sangria da faca"; imagem usa a sangria da imagem).
+        Sem contorno utilizavel, cai no RETANGULO com a mesma sangria (igual ao
+        modo retangulo), em vez de ignora-la."""
         crop = params["crop"]
         rotation = params["rotation"]
-        net_offset = params["auto_offset"]
-        if raw_contour is not None:
-            contour, w, h = crop_and_rotate_contour(
-                raw_contour, crop, rotation, base.size.width, base.size.height
-            )
-            smooth = int(params["smooth"])
-            if smooth > 0:
-                contour = smooth_contour(contour, smooth)
-            if net_offset != 0:
-                contour = offset_contour(contour, net_offset)
-            return replace(base, size=Size(w, h), cut_contour=contour)
-        w = base.size.width - 2 * crop
-        h = base.size.height - 2 * crop
-        if rotation % 360 in (90, 270):
-            w, h = h, w
-        return replace(base, size=Size(w, h), cut_contour=None)
+        if raw_contour is None:
+            # sem contorno: retangulo do tamanho da arte, COM a sangria aplicada
+            return self._faca_uc.execute(self._transform(base, params), sangria)
+        contour, w, h = crop_and_rotate_contour(
+            raw_contour, crop, rotation, base.size.width, base.size.height
+        )
+        smooth = int(params["smooth"])
+        if smooth > 0:
+            contour = smooth_contour(contour, smooth)
+        if sangria != 0:
+            contour = offset_contour(contour, sangria)
+        return replace(base, size=Size(w, h), cut_contour=contour)
 
     def _transform(self, art, params: dict):
         """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
@@ -2985,7 +3014,7 @@ class MainWindow(QMainWindow):
         e girado/cortado em _display_pixmap); senao a faca fica desalinhada e o
         tamanho usado no nesting/exportacao nao bate com a imagem girada.
         """
-        return self._contour_faca(base, base.raw_contour, params)
+        return self._contour_faca(base, base.raw_contour, params, params["auto_offset"])
 
     # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
@@ -3470,7 +3499,7 @@ class MainWindow(QMainWindow):
             sheets = uc.execute_sheets(instances, material, sheet_height)
         else:
             sheets = self._preserve_arrangement(by_id, material)
-        sheets = self._center_sheets_h(sheets, material, instances)  # centraliza na largura
+        sheets = self._center_sheets(sheets, material, instances)  # centraliza na pagina
         self._result = ProductionResult(sheets=sheets, artworks=instances, sources=self._sources)
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
@@ -3482,17 +3511,18 @@ class MainWindow(QMainWindow):
                 SnapshotCommand(self, before, after, "ajustar", merge_id=RELAYOUT_MERGE_ID)
             )
 
-    def _center_sheets_h(self, sheets, material, artworks):
-        """Centraliza o conteudo de cada chapa na LARGURA do material (margens
-        iguais nos dois lados). Desloca o bloco inteiro por igual, entao o
-        arranjo relativo das pecas nao muda; so o comprimento (used_length) e
-        preservado. Sem efeito se a flag estiver desligada ou se nao couber."""
+    def _center_sheets(self, sheets, material, artworks):
+        """Centraliza o conteudo de cada chapa na PAGINA: na largura (margens
+        iguais) e na altura (dentro do comprimento da chapa). Desloca o bloco
+        inteiro por igual, entao o arranjo relativo das pecas nao muda; o
+        comprimento (used_length) da chapa e preservado. Sem efeito se a flag
+        estiver desligada."""
         if not self._center_on_sheet:
             return sheets
         by_id = {a.id: a for a in artworks}
         out = []
         for layout in sheets:
-            lefts, rights = [], []
+            lefts, rights, tops, bottoms = [], [], [], []
             for it in layout.items:
                 art = by_id.get(it.artwork_id)
                 if art is None:
@@ -3500,19 +3530,31 @@ class MainWindow(QMainWindow):
                 fp = artwork_footprint(art)
                 lefts.append(it.position.x)
                 rights.append(it.position.x + (fp.max_x - fp.min_x))
+                tops.append(it.position.y)
+                bottoms.append(it.position.y + (fp.max_y - fp.min_y))
             if not lefts:
                 out.append(layout)
                 continue
             content_w = max(rights) - min(lefts)
-            if content_w >= material.width:
-                shift = -min(lefts)  # nao cabe na largura: encosta na esquerda
-            else:
-                shift = (material.width - content_w) / 2.0 - min(lefts)
-            if abs(shift) < 0.01:
+            content_h = max(bottoms) - min(tops)
+            page_h = layout.used_length
+            # centraliza; se nao couber, encosta no canto (esquerda / topo)
+            shift_x = (
+                -min(lefts) if content_w >= material.width
+                else (material.width - content_w) / 2.0 - min(lefts)
+            )
+            shift_y = (
+                -min(tops) if content_h >= page_h
+                else (page_h - content_h) / 2.0 - min(tops)
+            )
+            if abs(shift_x) < 0.01 and abs(shift_y) < 0.01:
                 out.append(layout)
                 continue
             items = [
-                replace(it, position=Point2D(it.position.x + shift, it.position.y))
+                replace(
+                    it,
+                    position=Point2D(it.position.x + shift_x, it.position.y + shift_y),
+                )
                 for it in layout.items
             ]
             out.append(Layout(material, items, layout.used_length))
@@ -4166,8 +4208,8 @@ class MainWindow(QMainWindow):
             return
         before = self._snapshot_sheets()
         self._piece_items = [p for p in self._piece_items if p not in to_remove]
-        # ao remover, recentraliza o que sobrou na largura da chapa
-        after = self._center_sheets_h(
+        # ao remover, recentraliza o que sobrou na pagina
+        after = self._center_sheets(
             self._effective_sheets(), self._material(), self._result.artworks
         )
         self._commit_arrangement(before, after, "excluir")
