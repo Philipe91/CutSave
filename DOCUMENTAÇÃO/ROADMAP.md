@@ -7,6 +7,13 @@
 
 ## Pendências combinadas (a fazer em breve)
 
+- **Concluído em 29/06** (ver `ESTADO-2026-06-29.md`): rotação **por peça**;
+  **marcas de registro na faca** (impressão/DXF/faca PDF + nos dois lados da tela
+  dividida) com **bolinhas pretas**; **duplicar só uma página** (Ctrl+Shift+C);
+  **centralizar na página** (largura + altura, toggle em Organizar); **quantidade
+  moderna** na Biblioteca (digitar/− +); e **correção da sangria** (a "Sangria da
+  faca (PDF)" passou a valer nos 3 modos de PDF e no fallback).
+
 - **Faca do cliente no PDF**: usar o contorno vetorial de corte enviado pelo cliente.
   - **Etapa 1 — FEITA (24/06):** modo "Faca do cliente (vetor do PDF)" usa o maior
     contorno vetorial; faca em verde + aviso de detecção; botão "Gerar Faca". Liga
