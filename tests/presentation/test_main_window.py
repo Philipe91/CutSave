@@ -615,6 +615,63 @@ def test_duplicar_cria_copia(qapp, tmp_path):
     assert sum(s.item_count for s in window._result.sheets) == n0 + 1
 
 
+def test_barra_propriedades_contextual(qapp, tmp_path):
+    # Barra contextual: Projeto (sem selecao) -> Objeto (1 peca) -> Grupo (varias).
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window._update_property_bar()
+    assert window._pbar_stack.currentIndex() == 0  # Projeto
+
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+    assert window._pbar_stack.currentIndex() == 1  # Objeto
+    p = window._piece_items[0]
+    assert abs(window._pb_x.value() - (p.scenePos().x() - p.dx)) < 0.01
+
+    window._piece_items[1].setSelected(True)
+    assert window._pbar_stack.currentIndex() == 2  # Grupo
+    assert "2" in window._pb_grp_count.text()
+
+
+def test_girar_mantem_a_selecao(qapp, tmp_path):
+    # Ao girar pelo botao, a peca deve CONTINUAR selecionada (para clicar de novo
+    # e seguir girando) e a barra deve permanecer no contexto Objeto.
+    src = _n_page_pdf(tmp_path, 1, name="grot")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+    aid = window._piece_items[0].artwork_id
+
+    window._rotate_selected(90)
+    sel = window._selected_pieces()
+    assert len(sel) == 1
+    assert sel[0].artwork_id == aid
+    assert window._pbar_stack.currentIndex() == 1  # continua em Objeto
+
+
+def test_barra_propriedades_edita_x_move_peca(qapp, tmp_path):
+    # Editar X na barra move a peca (via _nudge, entra no undo).
+    src = _n_page_pdf(tmp_path, 1, name="pbx")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+    p = window._piece_items[0]
+    x0 = p.scenePos().x() - p.dx
+    window._pb_x.setValue(x0 + 150)
+    window._pbar_apply_x()
+    xs = [it.position.x for s in window._effective_sheets() for it in s.items]
+    assert any(abs(x - (x0 + 150)) < 0.5 for x in xs)
+
+
 def test_transformar_duplicar_linear(qapp, tmp_path):
     # Aba Transformar: X=100, copias=5 (relativo) -> original + 5 = 6 pecas.
     src = _n_page_pdf(tmp_path, 1, name="t1")

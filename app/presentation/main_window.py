@@ -1154,6 +1154,7 @@ class MainWindow(QMainWindow):
         # centralizar o conteudo na LARGURA da chapa (margens iguais). A chapa
         # cresce/diminui no comprimento conforme adiciona/remove pecas.
         self._center_on_sheet = True
+        self._pbar_loading = False  # evita loop ao popular a barra de propriedades
         self._ps_loading = False  # evita reentrancia ao carregar os campos
         # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
         # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
@@ -1194,6 +1195,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("PrintNest Premium")
         self._build_ui()
         self._load_settings()
+        self._update_property_bar()  # mostra o Projeto (material) ja na abertura
         self._build_menu_toolbar()
         self._update_title()
         self._maybe_reopen_last()
@@ -1622,6 +1624,204 @@ class MainWindow(QMainWindow):
             with contextlib.suppress(Exception):
                 self.open_project(last)
 
+    # ==================== Barra de Propriedades contextual (V2.0 Fase A) =======
+    def _build_property_bar(self) -> QWidget:
+        """Barra horizontal abaixo da ribbon que muda com a selecao (estilo Corel):
+        sem selecao -> Projeto; 1 peca -> Objeto (X/Y editaveis, L/A, girar,
+        duplicar/excluir); varias -> Grupo (contagem, tamanho, alinhar/distribuir).
+
+        So UI: reusa _nudge (mover, com undo), _rotate_selected, _align,
+        _distribute, _duplicate_selected, _delete_selected, _group_selected.
+        """
+        bar = QFrame()
+        bar.setObjectName("propBar")
+        bar.setFixedHeight(40)
+        bar.setStyleSheet(
+            f"#propBar{{background:{theme.SURFACE_ALT}; border:1px solid {theme.BORDER};"
+            f" border-radius:8px;}}"
+        )
+        outer = QHBoxLayout(bar)
+        outer.setContentsMargins(theme.SPACE_MD, 2, theme.SPACE_MD, 2)
+        self._pbar_stack = QStackedWidget()
+        outer.addWidget(self._pbar_stack)
+
+        def _tag(text: str) -> QLabel:
+            lb = QLabel(text)
+            lb.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
+            return lb
+
+        def _sep() -> QLabel:
+            lb = QLabel("·")
+            lb.setStyleSheet(f"color:{theme.TEXT_MUTED};")
+            return lb
+
+        # --- pagina 0: PROJETO (sem selecao) ---
+        proj = QWidget()
+        pl = QHBoxLayout(proj)
+        pl.setContentsMargins(0, 0, 0, 0)
+        pl.setSpacing(theme.SPACE_MD)
+        self._pb_proj_material = QLabel("—")
+        self._pb_proj_pecas = QLabel("—")
+        self._pb_proj_chapas = QLabel("—")
+        pl.addWidget(_tag("📄 Projeto"))
+        pl.addWidget(_sep())
+        pl.addWidget(QLabel("Chapa:"))
+        pl.addWidget(self._pb_proj_material)
+        pl.addWidget(_sep())
+        pl.addWidget(QLabel("Peças:"))
+        pl.addWidget(self._pb_proj_pecas)
+        pl.addWidget(_sep())
+        pl.addWidget(QLabel("Chapas:"))
+        pl.addWidget(self._pb_proj_chapas)
+        pl.addStretch()
+        self._pbar_stack.addWidget(proj)
+
+        # --- pagina 1: OBJETO (1 peca) ---
+        obj = QWidget()
+        ol = QHBoxLayout(obj)
+        ol.setContentsMargins(0, 0, 0, 0)
+        ol.setSpacing(theme.SPACE_SM)
+        self._pb_x = LengthSpin(-100000, 100000)
+        self._pb_y = LengthSpin(-100000, 100000)
+        for sp in (self._pb_x, self._pb_y):
+            sp.setFixedWidth(96)
+        self._pb_x.editingFinished.connect(self._pbar_apply_x)
+        self._pb_y.editingFinished.connect(self._pbar_apply_y)
+        self._pb_la = QLabel("—")
+        b_rl = QPushButton()
+        b_rl.setIcon(icons.icon("rotate-ccw", theme.ICON))
+        b_rl.setToolTip("Girar -90° (só a peça)")
+        b_rl.clicked.connect(lambda: self._rotate_selected(-90))
+        b_rr = QPushButton()
+        b_rr.setIcon(icons.icon("rotate-cw", theme.ICON))
+        b_rr.setToolTip("Girar +90° (só a peça)")
+        b_rr.clicked.connect(lambda: self._rotate_selected(90))
+        b_dup = QPushButton("  Duplicar")
+        b_dup.setIcon(icons.icon("copy", theme.ICON))
+        b_dup.clicked.connect(self._duplicate_selected)
+        b_del = QPushButton("  Excluir")
+        b_del.setIcon(icons.icon("trash-2", theme.ICON))
+        b_del.clicked.connect(self._delete_selected)
+        ol.addWidget(_tag("⬚ Objeto"))
+        ol.addWidget(_sep())
+        ol.addWidget(QLabel("X"))
+        ol.addWidget(self._pb_x)
+        ol.addWidget(QLabel("Y"))
+        ol.addWidget(self._pb_y)
+        ol.addWidget(_sep())
+        ol.addWidget(self._pb_la)
+        ol.addWidget(_sep())
+        ol.addWidget(b_rl)
+        ol.addWidget(b_rr)
+        ol.addStretch()
+        ol.addWidget(b_dup)
+        ol.addWidget(b_del)
+        self._pbar_stack.addWidget(obj)
+
+        # --- pagina 2: GRUPO (varias pecas) ---
+        grp = QWidget()
+        gl = QHBoxLayout(grp)
+        gl.setContentsMargins(0, 0, 0, 0)
+        gl.setSpacing(theme.SPACE_SM)
+        self._pb_grp_count = QLabel("—")
+        self._pb_grp_size = QLabel("—")
+        b_align = QPushButton("  Alinhar")
+        b_align.setIcon(icons.icon("align-horizontal-justify-start", theme.ICON))
+        m_align = QMenu(b_align)
+        for label, mode in (
+            ("À esquerda", "left"), ("Centralizar horizontal", "hcenter"),
+            ("À direita", "right"), ("Ao topo", "top"),
+            ("Centralizar vertical", "vcenter"), ("À base", "bottom"),
+        ):
+            m_align.addAction(label, lambda _=False, m=mode: self._align(m))
+        b_align.setMenu(m_align)
+        b_dist = QPushButton("  Distribuir")
+        b_dist.setIcon(icons.icon("align-horizontal-justify-center", theme.ICON))
+        m_dist = QMenu(b_dist)
+        m_dist.addAction("Na horizontal", lambda: self._distribute("h"))
+        m_dist.addAction("Na vertical", lambda: self._distribute("v"))
+        b_dist.setMenu(m_dist)
+        b_group = QPushButton("  Agrupar")
+        b_group.setIcon(icons.icon("group", theme.ICON))
+        b_group.clicked.connect(self._group_selected)
+        gl.addWidget(_tag("▦ Grupo"))
+        gl.addWidget(_sep())
+        gl.addWidget(self._pb_grp_count)
+        gl.addWidget(_sep())
+        gl.addWidget(self._pb_grp_size)
+        gl.addStretch()
+        gl.addWidget(b_align)
+        gl.addWidget(b_dist)
+        gl.addWidget(b_group)
+        self._pbar_stack.addWidget(grp)
+
+        return bar
+
+    def _update_property_bar(self) -> None:
+        """Repinta a barra conforme a selecao atual (Projeto / Objeto / Grupo)."""
+        if not hasattr(self, "_pbar_stack"):
+            return
+        try:
+            pieces = self._selected_pieces()
+        except RuntimeError:
+            return
+        self._pbar_loading = True
+        try:
+            if len(pieces) == 1:
+                p = pieces[0]
+                self._pbar_stack.setCurrentIndex(1)
+                self._pb_x.setValue(p.scenePos().x() - p.dx)
+                self._pb_y.setValue(p.scenePos().y() - p.dy)
+                self._pb_la.setText(
+                    f"L {units.fmt_len(p.rect().width(), with_unit=False)} × "
+                    f"A {units.fmt_len(p.rect().height())}"
+                )
+            elif len(pieces) > 1:
+                self._pbar_stack.setCurrentIndex(2)
+                self._pb_grp_count.setText(f"{len(pieces)} selecionados")
+                r = self._selection_bbox_scene()
+                if r is not None:
+                    self._pb_grp_size.setText(
+                        f"L {units.fmt_len(r.width(), with_unit=False)} × "
+                        f"A {units.fmt_len(r.height())}"
+                    )
+            else:
+                self._pbar_stack.setCurrentIndex(0)
+                self._pb_proj_material.setText(
+                    f"{units.fmt_len(float(self._width.value()), with_unit=False)} × "
+                    f"{units.fmt_len(float(self._height.value()))}"
+                )
+                n = m = 0
+                if self._result is not None:
+                    m = len(self._result.sheets)
+                    n = sum(s.item_count for s in self._result.sheets)
+                self._pb_proj_pecas.setText(str(n))
+                self._pb_proj_chapas.setText(str(m))
+        finally:
+            self._pbar_loading = False
+
+    def _pbar_apply_x(self) -> None:
+        if self._pbar_loading:
+            return
+        sel = self._selected_pieces()
+        if len(sel) != 1:
+            return
+        p = sel[0]
+        delta = float(self._pb_x.value()) - (p.scenePos().x() - p.dx)
+        if abs(delta) > 0.01:
+            self._nudge(delta, 0.0)  # move e registra no undo
+
+    def _pbar_apply_y(self) -> None:
+        if self._pbar_loading:
+            return
+        sel = self._selected_pieces()
+        if len(sel) != 1:
+            return
+        p = sel[0]
+        delta = float(self._pb_y.value()) - (p.scenePos().y() - p.dy)
+        if abs(delta) > 0.01:
+            self._nudge(0.0, delta)
+
     # ---- construcao da UI ----
     def _build_ui(self) -> None:
         """Monta a janela: biblioteca | area de trabalho | propriedades, com
@@ -1654,6 +1854,7 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM, 0)
         root.setSpacing(theme.SPACE_SM)
+        root.addWidget(self._build_property_bar())  # barra contextual (Projeto/Objeto/Grupo)
         root.addWidget(self._alert)
         root.addWidget(self._progress)
         root.addWidget(splitter, 1)
@@ -2365,6 +2566,7 @@ class MainWindow(QMainWindow):
         self._sync_object_list_selection()
         self._update_overlay()
         self._refresh_transform_preview()  # atualiza os fantasmas da aba Transformar
+        self._update_property_bar()  # barra contextual (Projeto/Objeto/Grupo)
 
     def _update_piece_page(self, piece: PieceItem) -> None:
         by_id = {a.id: a for a in self._result.artworks} if self._result else {}
@@ -3825,6 +4027,7 @@ class MainWindow(QMainWindow):
             self._alert.show_message(level, self._faca_notice[1])
         else:
             self._alert.clear()
+        self._update_property_bar()  # mantem a barra Projeto (pecas/chapas) em dia
         self._update_resumo()  # mantem o card "Resumo da producao" sincronizado
 
     def _refresh_preview(self) -> None:
@@ -4462,6 +4665,9 @@ class MainWindow(QMainWindow):
                 atual = self._piece_rotations.get(art_id, 0)
                 self._piece_rotations[art_id] = (atual + delta) % 360
             self._relayout(renest=True)  # re-encaixa girado, mantendo a contagem
+            # o re-encaixe recria as pecas noutra posicao e a selecao (por posicao)
+            # se perdia -> re-seleciona pelo id para continuar girando/editando.
+            self._reselect_by_artwork(ids)
             self._toasts.success(
                 f"Girou {len(ids)} peca(s) {abs(delta)}°" if len(ids) > 1
                 else f"Peca girada {abs(delta)}°"
@@ -4470,6 +4676,17 @@ class MainWindow(QMainWindow):
             # nada selecionado: gira todos (rotacao global do documento)
             novo = (self._rotation_value() + delta) % 360
             self._rotation.setCurrentText(str(novo))  # dispara o relayout
+
+    def _reselect_by_artwork(self, ids) -> None:
+        """Re-seleciona as pecas cujo artwork_id esta em `ids`. Usado apos um
+        re-encaixe (que recria as pecas noutra posicao) para manter o objeto
+        selecionado — assim da para clicar de novo e continuar girando."""
+        if not ids:
+            return
+        self._scene.clearSelection()
+        for p in self._piece_items:
+            if p.artwork_id in ids:
+                p.setSelected(True)
 
     def _organize(self) -> None:
         """Reorganiza (nesting) mantendo a contagem atual do arranjo (inclui
