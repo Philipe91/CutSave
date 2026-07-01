@@ -8,11 +8,12 @@
 ## Pendências combinadas (a fazer em breve)
 
 - **Faca: densidade/detalhe, cantos e edição manual (estilo Contour do Corel)** —
-  ver `FACA-CONTORNO-SPEC.md`. Fase 1 (recomendada): controle de **densidade**
-  (tolerância de simplificação) para resolver "faca sai errada"; depois cantos
-  `round`, edição manual de nós no canvas e (opcional) núcleo pyclipper.
+  ver [../especificacoes/FACA-CONTORNO-SPEC.md](../especificacoes/FACA-CONTORNO-SPEC.md).
+  Cantos (round/miter/bevel) já FEITOS na ferramenta Contorno da barra; falta
+  densidade/detalhe, edição manual de nós no canvas e (opcional) núcleo pyclipper.
 
-- **V2.0 UX/UI (em andamento):** Fase A FEITA (barra de propriedades contextual
+- **V2.0 UX/UI (em andamento):** ver `../historico/ESTADO-2026-06-30.md`. Fase A
+  FEITA (barra de propriedades contextual
   Projeto/Objeto/Grupo; girar mantém a seleção). Fase B (assistente em 5 etapas)
   foi testada e revertida a pedido. Próximas: Básico/Avançado, biblioteca visual.
 

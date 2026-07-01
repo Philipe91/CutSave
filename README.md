@@ -31,7 +31,7 @@ python -m pytest
 ```bash
 build.bat            # gera o .exe via PyInstaller (PrintNest.spec)
 ```
-Veja [DOCUMENTAÇÃO/README_BUILD.txt](DOCUMENTAÇÃO/README_BUILD.txt) para detalhes do empacotamento.
+Veja [docs/build/BUILD.md](docs/build/BUILD.md) para detalhes do empacotamento.
 
 ---
 
@@ -54,14 +54,17 @@ Atalhos no padrão CorelDRAW (`Ctrl+I` importar, `Ctrl+O` abrir, `Ctrl+G/Ctrl+U`
 
 ## Documentação
 
-Toda a documentação está na pasta **[DOCUMENTAÇÃO/](DOCUMENTAÇÃO/)**:
+Toda a documentação está organizada por tema em **[docs/](docs/README.md)** — comece pelo índice:
 
-| Documento | Conteúdo |
+| Área | Documento |
 |---|---|
-| [ARQUITETURA.md](DOCUMENTAÇÃO/ARQUITETURA.md) | Arquitetura de software (Clean Architecture, camadas, decisões) |
-| [GUIA-DO-CODIGO.md](DOCUMENTAÇÃO/GUIA-DO-CODIGO.md) | **Mapa do código atual** — por onde começar, onde fica cada coisa |
-| [ROADMAP.md](DOCUMENTAÇÃO/ROADMAP.md) | Próximos passos |
-| [PLANO-COMERCIALIZACAO.md](DOCUMENTAÇÃO/PLANO-COMERCIALIZACAO.md) | **Tudo o que falta para vender** (licenciamento, segurança, legal, desempenho) |
+| 🏛️ Arquitetura | [docs/arquitetura/ARQUITETURA.md](docs/arquitetura/ARQUITETURA.md) · [GUIA-DO-CODIGO.md](docs/arquitetura/GUIA-DO-CODIGO.md) · [DESIGN.md](docs/arquitetura/DESIGN.md) |
+| 🗺️ Produto | [docs/produto/ROADMAP.md](docs/produto/ROADMAP.md) · [PLANO-COMERCIALIZACAO.md](docs/produto/PLANO-COMERCIALIZACAO.md) |
+| 📐 Especificações | [docs/especificacoes/FACA-CONTORNO-SPEC.md](docs/especificacoes/FACA-CONTORNO-SPEC.md) |
+| 🛠️ Build | [docs/build/BUILD.md](docs/build/BUILD.md) |
+| 📓 Histórico | [docs/historico/](docs/historico/) — session logs (um por sessão) |
+
+Mudanças por versão: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -78,7 +81,8 @@ app/
   domain/         # núcleo puro: modelo, geometria, faca, nesting
   infrastructure/ # adaptadores: importadores, exportadores, render
   shared/         # config, logging, erros
-tests/            # 380+ testes (domínio, aplicação, apresentação)
+tests/            # testes (domínio, aplicação, apresentação)
 scripts/          # ferramentas (ex.: benchmark de desempenho)
-DOCUMENTAÇÃO/     # toda a documentação
+corel/            # integração CorelDRAW (macro + guia do cliente)
+docs/             # documentação organizada por tema (ver docs/README.md)
 ```

@@ -9,7 +9,7 @@ Uso:
     python scripts/benchmark.py
     python scripts/benchmark.py --pages 20 --images 20 --copies 5000
 
-Compare os numeros com as metas em DOCUMENTAÇÃO/PLANO-COMERCIALIZACAO.md (secao Desempenho).
+Compare os numeros com as metas em docs/produto/PLANO-COMERCIALIZACAO.md (secao Desempenho).
 Nao altera nada do app: so cria arquivos temporarios e mede.
 """
 
@@ -110,7 +110,7 @@ def main() -> None:
         bench_pdf(tmp, args.pages)
         bench_image_contour(tmp, args.images)
         bench_nesting(tmp, args.copies)
-    print("Compare com as metas em DOCUMENTAÇÃO/PLANO-COMERCIALIZACAO.md (Desempenho).")
+    print("Compare com as metas em docs/produto/PLANO-COMERCIALIZACAO.md (Desempenho).")
 
 
 if __name__ == "__main__":
