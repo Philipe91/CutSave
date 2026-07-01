@@ -7,6 +7,15 @@
 
 ## Pendências combinadas (a fazer em breve)
 
+- **Faca: densidade/detalhe, cantos e edição manual (estilo Contour do Corel)** —
+  ver `FACA-CONTORNO-SPEC.md`. Fase 1 (recomendada): controle de **densidade**
+  (tolerância de simplificação) para resolver "faca sai errada"; depois cantos
+  `round`, edição manual de nós no canvas e (opcional) núcleo pyclipper.
+
+- **V2.0 UX/UI (em andamento):** Fase A FEITA (barra de propriedades contextual
+  Projeto/Objeto/Grupo; girar mantém a seleção). Fase B (assistente em 5 etapas)
+  foi testada e revertida a pedido. Próximas: Básico/Avançado, biblioteca visual.
+
 - **Concluído em 29/06** (ver `ESTADO-2026-06-29.md`): rotação **por peça**;
   **marcas de registro na faca** (impressão/DXF/faca PDF + nos dois lados da tela
   dividida) com **bolinhas pretas**; **duplicar só uma página** (Ctrl+Shift+C);
