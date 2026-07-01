@@ -1438,8 +1438,7 @@ class MainWindow(QMainWindow):
                 tb.tool_button(snap_act, "magnet", show_text=False),
             ]),
             ("Producao", [
-                tb.tool_button(gerar, "zap", accent=True),
-                tb.tool_button(gerar_faca, "scissors"),
+                tb.tool_button(gerar_faca, "scissors", accent=True),  # botao azul principal
                 tb.tool_button(exp_center, "download"),
                 tb.menu_button("Mais...", "download",
                                [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img],
