@@ -1217,6 +1217,9 @@ class MainWindow(QMainWindow):
         self._worker: ProductionWorker | None = None
         self._piece_items: list = []
         self._decor_items: list = []  # itens decorativos da cena (evita GC)
+        self._ghost_items: list = []  # previews "fantasma" da aba Transformar
+        self._transform_mode = "dup"  # ultimo preview: "dup" ou "grid"
+        self._suppress_ghost = False  # nao redesenhar fantasmas durante o "aplicar"
         self._undo = QUndoStack(self)
         self._undo.setUndoLimit(0)  # ilimitado (CorelDRAW): so zera ao gerar/abrir/novo
         self._fit_next = True  # ajusta o zoom so apos gerar; preserva no relayout
@@ -1909,6 +1912,10 @@ class MainWindow(QMainWindow):
         self._props_tabs.addTab(doc_scroll, "Documento")
         self._props_tabs.addTab(self._sel_stack, "Selecao")
         self._props_tabs.addTab(self._build_object_page(), "Objeto")
+        self._transform_page = self._build_transform_page()
+        self._props_tabs.addTab(self._transform_page, "Transformar")
+        # ao sair da aba Transformar, some com os fantasmas
+        self._props_tabs.currentChanged.connect(lambda _: self._refresh_transform_preview())
 
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
@@ -1918,6 +1925,248 @@ class MainWindow(QMainWindow):
         wrap.setMinimumWidth(280)
         wrap.setMaximumWidth(400)
         return wrap
+
+    # ==================== Aba "Transformar" (duplicacao inteligente) ==========
+    def _build_transform_page(self) -> QWidget:
+        """Aba 'Transformar' (estilo CorelDRAW): duplicar por posicao (X/Y +
+        copias), gerar grade (colunas x linhas) e girar. Preview 'fantasma' em
+        tempo real. So mexe na camada de edicao: as copias viram pecas reais via
+        _add_placed (entram no undo, no PDF, no DXF e no .printnest)."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(theme.SPACE_SM)
+
+        cap = QLabel("Selecione peca(s) e escolha como multiplicar.")
+        cap.setProperty("role", "caption")
+        cap.setWordWrap(True)
+        lay.addWidget(cap)
+
+        # ---- Duplicar (posicao) ----
+        dup = CollapsibleCard("Duplicar (posicao)")
+        self._td_x = LengthSpin(-20000, 20000)
+        self._td_x.setValue(100)
+        self._td_y = LengthSpin(-20000, 20000)
+        self._td_y.setValue(0)
+        self._td_x.valueChanged.connect(lambda _: self._preview_duplicate())
+        self._td_y.valueChanged.connect(lambda _: self._preview_duplicate())
+        self._grid_fields(dup.body, [
+            ("Deslocamento X", self._td_x, "Distancia entre copias no eixo X (mm)."),
+            ("Deslocamento Y", self._td_y, "Distancia entre copias no eixo Y (mm)."),
+        ])
+        self._td_relative = QCheckBox("Posicao relativa (cada copia a partir da anterior)")
+        self._td_relative.setChecked(True)
+        self._td_relative.setToolTip(
+            "Marcado: X/Y sao o passo entre copias (0, X, 2X, 3X...). Desmarcado: "
+            "todas as copias vao para a MESMA posicao (X, Y) informada."
+        )
+        self._td_relative.toggled.connect(lambda _: self._preview_duplicate())
+        dup.body.addWidget(self._td_relative)
+        self._td_copies = QuantityStepper(1, 1000, 1)
+        self._td_copies.valueChanged.connect(lambda _: self._preview_duplicate())
+        dup.body.addWidget(labeled("Copias", self._td_copies))
+        btn_dup = QPushButton("  Aplicar")
+        btn_dup.setIcon(icons.icon("copy-plus", theme.ICON))
+        btn_dup.clicked.connect(self._apply_transform_duplicate)
+        dup.body.addWidget(btn_dup)
+        lay.addWidget(dup)
+
+        # ---- Grade (colunas x linhas) ----
+        grid = CollapsibleCard("Grade (colunas x linhas)")
+        self._tg_cols = _spin(1, 200)
+        self._tg_cols.setValue(5)
+        self._tg_rows = _spin(1, 200)
+        self._tg_rows.setValue(4)
+        self._tg_gap_h = LengthSpin(0, 20000)
+        self._tg_gap_h.setValue(10)
+        self._tg_gap_v = LengthSpin(0, 20000)
+        self._tg_gap_v.setValue(10)
+        for w in (self._tg_cols, self._tg_rows, self._tg_gap_h, self._tg_gap_v):
+            w.valueChanged.connect(lambda _: self._preview_grid())
+        self._grid_fields(grid.body, [
+            ("Colunas", self._tg_cols, "Numero de colunas."),
+            ("Linhas", self._tg_rows, "Numero de linhas."),
+            ("Espaco H", self._tg_gap_h, "Espacamento horizontal entre copias (mm)."),
+            ("Espaco V", self._tg_gap_v, "Espacamento vertical entre copias (mm)."),
+        ])
+        btn_grid = QPushButton("  Gerar Grade")
+        btn_grid.setIcon(icons.icon("grid-3x3", theme.ICON))
+        btn_grid.clicked.connect(self._apply_transform_grid)
+        grid.body.addWidget(btn_grid)
+        lay.addWidget(grid)
+
+        # ---- Rotacao ----
+        rot = CollapsibleCard("Rotacao", collapsed=True)
+        row = QHBoxLayout()
+        b_l = QPushButton("  -90")
+        b_l.setIcon(icons.icon("rotate-ccw", theme.ICON))
+        b_l.clicked.connect(lambda: self._rotate_selected(-90))
+        b_r = QPushButton("  +90")
+        b_r.setIcon(icons.icon("rotate-cw", theme.ICON))
+        b_r.clicked.connect(lambda: self._rotate_selected(90))
+        row.addWidget(b_l)
+        row.addWidget(b_r)
+        rot.body.addLayout(row)
+        rot.body.addWidget(QLabel("Gira so a(s) peca(s) selecionada(s) e re-encaixa."))
+        lay.addWidget(rot)
+
+        lay.addStretch()
+        return page
+
+    def _transform_active(self) -> bool:
+        """True se a aba Transformar esta em foco (para mostrar/limpar fantasmas)."""
+        return (
+            hasattr(self, "_transform_page")
+            and self._props_tabs.currentWidget() is self._transform_page
+        )
+
+    def _clear_ghost(self) -> None:
+        """Remove os previews fantasma da cena."""
+        for it in self._ghost_items:
+            with contextlib.suppress(RuntimeError, ValueError):
+                self._scene.removeItem(it)  # pode ja ter saido no scene.clear
+        self._ghost_items = []
+
+    def _draw_ghosts(self, rects: list) -> None:
+        """Desenha copias fantasma (tracejado, opacidade 40%) nas posicoes dadas.
+        rects: lista de (x_cena, y_cena, largura, altura) em mm."""
+        self._clear_ghost()
+        pen = QPen(QColor(theme.ACCENT))
+        pen.setStyle(Qt.DashLine)
+        pen.setCosmetic(True)
+        pen.setWidth(2)
+        brush = QBrush(QColor(47, 111, 237, 40))  # azul do tema, bem leve
+        for (sx, sy, w, h) in rects:
+            it = self._scene.addRect(sx, sy, w, h, pen, brush)
+            it.setOpacity(0.4)
+            it.setZValue(1000)  # por cima das pecas
+            self._ghost_items.append(it)
+
+    def _refresh_transform_preview(self) -> None:
+        """Reaplica o preview conforme o ultimo modo usado (ou limpa se inativo)."""
+        if self._suppress_ghost:
+            return  # durante o 'aplicar' o redraw nao deve repintar fantasmas
+        if not self._transform_active():
+            self._clear_ghost()
+            return
+        if self._transform_mode == "grid":
+            self._preview_grid()
+        else:
+            self._preview_duplicate()
+
+    def _preview_duplicate(self) -> None:
+        self._transform_mode = "dup"
+        if not self._transform_active() or self._result is None:
+            self._clear_ghost()
+            return
+        sel = self._selected_pieces()
+        if not sel:
+            self._clear_ghost()
+            return
+        dx = float(self._td_x.value())
+        dy = float(self._td_y.value())
+        copies = int(self._td_copies.value())
+        relative = self._td_relative.isChecked()
+        rects = []
+        for piece in sel:
+            w, h = piece.rect().width(), piece.rect().height()
+            for k in range(1, copies + 1):
+                if relative:
+                    sx = piece.scenePos().x() + k * dx
+                    sy = piece.scenePos().y() + k * dy
+                else:
+                    sx = piece.dx + dx
+                    sy = piece.dy + dy
+                rects.append((sx, sy, w, h))
+        self._draw_ghosts(rects)
+
+    def _preview_grid(self) -> None:
+        self._transform_mode = "grid"
+        if not self._transform_active() or self._result is None:
+            self._clear_ghost()
+            return
+        sel = self._selected_pieces()
+        if not sel:
+            self._clear_ghost()
+            return
+        cols, rows = int(self._tg_cols.value()), int(self._tg_rows.value())
+        sh, sv = float(self._tg_gap_h.value()), float(self._tg_gap_v.value())
+        rects = []
+        for piece in sel:
+            w, h = piece.rect().width(), piece.rect().height()
+            for c in range(cols):
+                for r in range(rows):
+                    if c == 0 and r == 0:
+                        continue
+                    rects.append((
+                        piece.scenePos().x() + c * (w + sh),
+                        piece.scenePos().y() + r * (h + sv),
+                        w, h,
+                    ))
+        self._draw_ghosts(rects)
+
+    def _apply_transform_duplicate(self) -> None:
+        if self._result is None:
+            return
+        sel = self._selected_pieces()
+        if not sel:
+            self._toasts.info("Selecione a(s) peca(s) para duplicar.")
+            return
+        dx = float(self._td_x.value())
+        dy = float(self._td_y.value())
+        copies = int(self._td_copies.value())
+        relative = self._td_relative.isChecked()
+        add: dict[int, list] = {}
+        for piece in sel:
+            bx = piece.scenePos().x() - piece.dx
+            by = piece.scenePos().y() - piece.dy
+            for k in range(1, copies + 1):
+                if relative:
+                    px, py = bx + k * dx, by + k * dy
+                else:
+                    px, py = dx, dy
+                add.setdefault(piece.sheet_index, []).append(
+                    PlacedItem(piece.artwork_id, Point2D(px, py))
+                )
+        self._clear_ghost()
+        self._suppress_ghost = True
+        try:
+            self._add_placed(add, text="duplicar (transformar)")
+        finally:
+            self._suppress_ghost = False
+        self._toasts.success(f"{len(sel)} peca(s) x {copies} copia(s)")
+
+    def _apply_transform_grid(self) -> None:
+        if self._result is None:
+            return
+        sel = self._selected_pieces()
+        if not sel:
+            self._toasts.info("Selecione a(s) peca(s) para a grade.")
+            return
+        cols, rows = int(self._tg_cols.value()), int(self._tg_rows.value())
+        if cols < 1 or rows < 1 or (cols == 1 and rows == 1):
+            self._toasts.info("A grade precisa de mais de 1 celula.")
+            return
+        sh, sv = float(self._tg_gap_h.value()), float(self._tg_gap_v.value())
+        add: dict[int, list] = {}
+        for piece in sel:
+            w, h = piece.rect().width(), piece.rect().height()
+            bx = piece.scenePos().x() - piece.dx
+            by = piece.scenePos().y() - piece.dy
+            for c in range(cols):
+                for r in range(rows):
+                    if c == 0 and r == 0:
+                        continue
+                    add.setdefault(piece.sheet_index, []).append(
+                        PlacedItem(piece.artwork_id, Point2D(bx + c * (w + sh), by + r * (h + sv)))
+                    )
+        self._clear_ghost()
+        self._suppress_ghost = True
+        try:
+            self._add_placed(add, text="gerar grade")
+        finally:
+            self._suppress_ghost = False
+        self._toasts.success(f"Grade {cols}x{rows} gerada")
 
     def _build_piece_page(self) -> QWidget:
         """Propriedades de uma peca: medidas + acoes."""
@@ -2151,6 +2400,7 @@ class MainWindow(QMainWindow):
                 self._props_tabs.setCurrentIndex(1)
         self._sync_object_list_selection()
         self._update_overlay()
+        self._refresh_transform_preview()  # atualiza os fantasmas da aba Transformar
 
     def _update_piece_page(self, piece: PieceItem) -> None:
         by_id = {a.id: a for a in self._result.artworks} if self._result else {}
@@ -3111,8 +3361,15 @@ class MainWindow(QMainWindow):
         row = self._table.currentRow()
         if row < 0:
             return
+        path = self._paths[row]
         self._table.removeRow(row)
         del self._paths[row]
+        # remove tambem da PRODUCAO: senao a arte continua na chapa mesmo saindo
+        # da biblioteca (peca "presa" na tela, principalmente com um so arquivo).
+        removed = {b.id for b in self._base_artworks if self._path_of(b.id) == path}
+        if removed:
+            self._base_artworks = [b for b in self._base_artworks if b.id not in removed]
+            self._piece_items = [p for p in self._piece_items if p.artwork_id not in removed]
         self._relayout()
 
     def _update_selection_info(self) -> None:
@@ -3641,6 +3898,7 @@ class MainWindow(QMainWindow):
         # referencia Python, senao o PySide os coleta e o Qt remove o item orfao
         # durante o laco de selecao (a chapa "sumia" ao clicar no vazio).
         self._decor_items = []
+        self._ghost_items = []  # scene.clear() apaga os fantasmas; zera as refs
         # NAO limpa o historico aqui: senao excluir/duplicar/desfazer (que
         # redesenham) apagariam o proprio comando. O reset do historico acontece
         # so quando o arranjo e regenerado (em _relayout).
@@ -4208,10 +4466,20 @@ class MainWindow(QMainWindow):
             return
         before = self._snapshot_sheets()
         self._piece_items = [p for p in self._piece_items if p not in to_remove]
-        # ao remover, recentraliza o que sobrou na pagina
-        after = self._center_sheets(
-            self._effective_sheets(), self._material(), self._result.artworks
-        )
+        # reconstroi as chapas a partir das pecas RESTANTES. NAO usar
+        # _effective_sheets() aqui: com a lista vazia (excluir a ULTIMA peca) ele
+        # devolveria as chapas originais e a peca reaparecia.
+        moved: dict[int, list] = {}
+        for piece in self._piece_items:
+            pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
+            moved.setdefault(piece.sheet_index, []).append(
+                PlacedItem(piece.artwork_id, pos)
+            )
+        after = [
+            Layout(layout.material, moved.get(i, []), layout.used_length)
+            for i, layout in enumerate(self._result.sheets)
+        ]
+        after = self._center_sheets(after, self._material(), self._result.artworks)
         self._commit_arrangement(before, after, "excluir")
 
     def _rotate_selected(self, delta: int) -> None:

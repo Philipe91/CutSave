@@ -615,6 +615,96 @@ def test_duplicar_cria_copia(qapp, tmp_path):
     assert sum(s.item_count for s in window._result.sheets) == n0 + 1
 
 
+def test_transformar_duplicar_linear(qapp, tmp_path):
+    # Aba Transformar: X=100, copias=5 (relativo) -> original + 5 = 6 pecas.
+    src = _n_page_pdf(tmp_path, 1, name="t1")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+    window._piece_items[0].setSelected(True)
+    window._td_x.setValue(100)
+    window._td_y.setValue(0)
+    window._td_copies.setValue(5)
+    window._td_relative.setChecked(True)
+    window._apply_transform_duplicate()
+    assert sum(s.item_count for s in window._result.sheets) == 6
+
+
+def test_transformar_gerar_grade(qapp, tmp_path):
+    # Aba Transformar: grade 5x4 = 20 pecas.
+    src = _n_page_pdf(tmp_path, 1, name="tg")
+    window = _window(tmp_path)
+    window._width.setValue(6000)
+    window._height.setValue(6000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    window._piece_items[0].setSelected(True)
+    window._tg_cols.setValue(5)
+    window._tg_rows.setValue(4)
+    window._apply_transform_grid()
+    assert sum(s.item_count for s in window._result.sheets) == 20
+
+
+def test_transformar_preview_fantasma(qapp, tmp_path):
+    # Preview "fantasma" aparece na cena e some ao aplicar (vira peca real).
+    src = _n_page_pdf(tmp_path, 1, name="tp")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    window._props_tabs.setCurrentWidget(window._transform_page)  # ativa a aba
+    window._piece_items[0].setSelected(True)
+    window._td_copies.setValue(3)
+    window._preview_duplicate()
+    assert len(window._ghost_items) == 3  # 3 copias fantasma
+
+    window._apply_transform_duplicate()
+    assert window._ghost_items == []  # aplicou -> fantasmas somem
+    assert sum(s.item_count for s in window._result.sheets) == 4  # original + 3
+
+
+def test_excluir_ultima_peca_remove_da_tela(qapp, tmp_path):
+    # Bug: excluir a UNICA peca nao a removia (voltava do _effective_sheets).
+    src = _n_page_pdf(tmp_path, 1, name="uma")  # 1 pagina = 1 peca
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+    window._piece_items[0].setSelected(True)
+    window._delete_selected()
+    assert sum(s.item_count for s in window._result.sheets) == 0  # a peca sumiu
+    assert window._piece_items == []
+
+
+def test_remover_da_biblioteca_tira_a_peca_da_tela(qapp, tmp_path):
+    # Bug: remover o unico arquivo da biblioteca deixava a arte "presa" na chapa.
+    from app.presentation.main_window import PieceItem
+
+    src = _n_page_pdf(tmp_path, 1, name="lib1")
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+    window._table.setCurrentCell(0, 0)
+    window.remove_selected()
+    assert window._paths == []
+    # a peca nao pode mais estar na cena
+    assert not [it for it in window._scene.items() if isinstance(it, PieceItem)]
+
+
 def test_duplicar_so_a_pagina_selecionada(qapp, tmp_path, monkeypatch):
     # PDF com varias paginas: duplicar SO a pagina selecionada, sem duplicar tudo.
     from collections import Counter
