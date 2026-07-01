@@ -320,8 +320,14 @@ def test_centraliza_na_pagina(qapp, tmp_path):
     assert abs(top_margin - bottom_margin) < 0.5   # centralizado na altura
     assert top_margin > 1.0  # ha margem de fato (nao esta colado no topo)
 
+    # checkbox e menu ficam sincronizados com o estado
+    assert window._center_check.isChecked() is True
+    assert window._center_action.isChecked() is True
+
     # desligar a centralizacao encosta o conteudo no canto (topo-esquerda)
     window._set_center_on_sheet(False)
+    assert window._center_check.isChecked() is False  # checkbox acompanhou
+    assert window._center_action.isChecked() is False  # menu acompanhou
     layout = window._result.sheets[0]
     assert min(it.position.x for it in layout.items) < left_margin
     assert min(it.position.y for it in layout.items) < top_margin
@@ -1693,6 +1699,78 @@ def test_contorno_toolbar_offset_direcao_cantos(qapp, tmp_path):
     window._apply_contour_corner()
     assert window._faca_corner == "miter"
     assert window._global_faca_params()["corner"] == "miter"
+
+
+def test_cadeado_proporcao_na_alca(qapp, tmp_path):
+    # O cadeado (Objeto) controla a proporcao ao redimensionar pela alca do mouse.
+    from PySide6.QtCore import QPointF
+
+    src = _n_page_pdf(tmp_path, 1, name="rz")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window._offset.setValue(0)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+
+    ratio = window._result.artworks[0].size.width / window._result.artworks[0].size.height
+    p = window._piece_items[0]
+
+    # cadeado ligado -> arrastar so a borda direita mantem a proporcao
+    window._pb_lock.setChecked(True)
+    assert window._ps_lock.isChecked() is True  # cadeado sincronizado
+    alvo = QPointF(
+        p.scenePos().x() + p.rect().width() + 60, p.scenePos().y() + p.rect().height() / 2
+    )
+    window._end_resize(p, alvo, "w")
+    art = window._result.artworks[0]
+    assert abs(art.size.width / art.size.height - ratio) < 1e-2  # proporcao mantida
+
+
+def test_alca_redimensiona_por_arraste(qapp, tmp_path):
+    # Alcas na peca selecionada; arrastar o canto redimensiona a arte.
+    from PySide6.QtCore import QPointF
+
+    src = _n_page_pdf(tmp_path, 1, name="alca")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window._offset.setValue(0)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+    assert len(window._resize_handles) == 3  # 3 alcas (canto + 2 arestas)
+
+    p = window._piece_items[0]
+    w0 = window._result.artworks[0].size.width
+    window._ps_lock.setChecked(False)  # so largura
+    alvo = QPointF(
+        p.scenePos().x() + p.rect().width() + 40, p.scenePos().y() + p.rect().height()
+    )
+    window._end_resize(p, alvo, "w")
+    assert window._result.artworks[0].size.width > w0  # a peca cresceu
+    assert len(window._resize_handles) == 3  # alcas reaparecem na peca redimensionada
+
+
+def test_barra_faca_controla_globais(qapp, tmp_path):
+    # A faixa "Faca" da barra espelha os campos globais (modo/recorte/giro/suavizar).
+    src = _n_page_pdf(tmp_path, 1, name="fb")
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    # toolbar -> global
+    window._fb_mode.setCurrentIndex(window._fb_mode.findData("contour"))
+    assert window._faca_mode.currentData() == "contour"
+    window._fb_smooth.setValue(3)
+    window._on_faca_bar_changed()
+    assert window._auto_smooth.value() == 3
+
+    # global -> toolbar (sincroniza de volta)
+    window._auto_smooth.setValue(1)
+    window._sync_faca_bar()
+    assert window._fb_smooth.value() == 1
 
 
 def test_quantidade_de_imagem_multiplica(qapp, tmp_path):

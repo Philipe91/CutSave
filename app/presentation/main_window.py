@@ -700,6 +700,45 @@ class CropPreview(QWidget):
         self._drag = None
 
 
+class _ResizeHandle(QGraphicsRectItem):
+    """Alca de redimensionamento (estilo CorelDRAW) numa peca selecionada.
+
+    Fica no canto/aresta inferior-direito; arrastar redimensiona a arte
+    (ancorada no canto superior-esquerdo, entao a posicao nao muda). axis:
+    'wh' (canto = largura+altura), 'w' (so largura), 'h' (so altura). Tamanho
+    fixo na tela (ignora o zoom)."""
+
+    S = 10.0
+
+    def __init__(self, window, piece, axis: str) -> None:
+        super().__init__(-self.S / 2, -self.S / 2, self.S, self.S)
+        self._w = window
+        self._piece = piece
+        self._axis = axis
+        self.setBrush(QBrush(QColor("white")))
+        pen = QPen(QColor(theme.ACCENT))
+        pen.setCosmetic(True)
+        pen.setWidth(2)
+        self.setPen(pen)
+        self.setZValue(2000)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self.setCursor({
+            "wh": Qt.SizeFDiagCursor, "w": Qt.SizeHorCursor, "h": Qt.SizeVerCursor,
+        }[axis])
+
+    def mousePressEvent(self, event) -> None:
+        self._w._begin_resize(self._piece)
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        self._w._update_resize_preview(self._piece, event.scenePos(), self._axis)
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._w._end_resize(self._piece, event.scenePos(), self._axis)
+        event.accept()
+
+
 class GuideItem(QGraphicsLineItem):
     """Guia pontilhada (estilo CorelDRAW): selecionavel e arrastavel, presa ao
     eixo perpendicular. 'record' e a entrada mutavel [is_h, valor_mm] guardada
@@ -1162,6 +1201,7 @@ class MainWindow(QMainWindow):
         self._pbar_loading = False  # evita loop ao popular a barra de propriedades
         self._faca_corner = "round"  # canto da faca (contorno): round/miter/bevel
         self._ct_loading = False  # evita loop ao sincronizar a toolbar de contorno
+        self._fb_loading = False  # evita loop ao sincronizar a toolbar de faca
         self._ps_loading = False  # evita reentrancia ao carregar os campos
         # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
         # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
@@ -1185,6 +1225,8 @@ class MainWindow(QMainWindow):
         self._worker: ProductionWorker | None = None
         self._piece_items: list = []
         self._decor_items: list = []  # itens decorativos da cena (evita GC)
+        self._resize_handles: list = []  # alcas de redimensionar (peca selecionada)
+        self._resize_preview = None      # retangulo tracejado durante o arraste
         self._ghost_items: list = []  # previews "fantasma" da aba Transformar
         self._transform_mode = "dup"  # ultimo preview: "dup" ou "grid"
         self._suppress_ghost = False  # nao redesenhar fantasmas durante o "aplicar"
@@ -1651,6 +1693,10 @@ class MainWindow(QMainWindow):
         self._pbar_stack = QStackedWidget()
         outer.addWidget(self._pbar_stack, 1)
         outer.addWidget(self._build_contour_tool())  # ferramenta Contorno (faca)
+        sep0 = QLabel("|")
+        sep0.setStyleSheet(f"color:{theme.BORDER_STRONG};")
+        outer.addWidget(sep0)
+        outer.addWidget(self._build_faca_tool())  # opcoes de faca (modo/recorte/giro/suavizar)
 
         def _tag(text: str) -> QLabel:
             lb = QLabel(text)
@@ -1694,7 +1740,14 @@ class MainWindow(QMainWindow):
             sp.setFixedWidth(96)
         self._pb_x.editingFinished.connect(self._pbar_apply_x)
         self._pb_y.editingFinished.connect(self._pbar_apply_y)
-        self._pb_la = QLabel("—")
+        # cadeado: mantem a proporcao ao redimensionar com as alcas do mouse.
+        self._pb_lock = QPushButton()
+        self._pb_lock.setIcon(icons.icon("lock", theme.ICON))
+        self._pb_lock.setCheckable(True)
+        self._pb_lock.setChecked(True)
+        self._pb_lock.setFixedSize(28, 28)
+        self._pb_lock.setToolTip("Manter proporcao ao redimensionar (arrastar as alcas).")
+        self._pb_lock.toggled.connect(lambda on: self._ps_lock.setChecked(on))
         b_rl = QPushButton()
         b_rl.setIcon(icons.icon("rotate-ccw", theme.ICON))
         b_rl.setToolTip("Girar -90° (só a peça)")
@@ -1716,7 +1769,7 @@ class MainWindow(QMainWindow):
         ol.addWidget(QLabel("Y"))
         ol.addWidget(self._pb_y)
         ol.addWidget(_sep())
-        ol.addWidget(self._pb_la)
+        ol.addWidget(self._pb_lock)
         ol.addWidget(_sep())
         ol.addWidget(b_rl)
         ol.addWidget(b_rr)
@@ -1864,11 +1917,90 @@ class MainWindow(QMainWindow):
         finally:
             self._ct_loading = False
 
+    def _build_faca_tool(self) -> QWidget:
+        """Opcoes de faca na barra (GLOBAL, estilo Corel), a direita do Contorno:
+        Modo (Faca de PDF) + Recorte + Giro + Suavizar. Espelha os campos globais
+        do Documento (sincronizado nos dois sentidos). A Sangria e o Offset do
+        Contorno; por isso nao se repete aqui."""
+        w = QFrame()
+        fl = QHBoxLayout(w)
+        fl.setContentsMargins(0, 0, 0, 0)
+        fl.setSpacing(theme.SPACE_XS)
+        tag = QLabel("Faca")
+        tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
+        fl.addWidget(tag)
+
+        self._fb_mode = NoWheelComboBox()
+        self._fb_mode.addItem("Retangulo", "rect")
+        self._fb_mode.addItem("Contorno", "contour")
+        self._fb_mode.addItem("Vetor", "vector")
+        self._fb_mode.setToolTip(
+            "Faca de PDF: Retangulo (por fora), pelo Contorno (rasteriza) ou "
+            "Vetor (faca do cliente no PDF)."
+        )
+        self._fb_mode.currentIndexChanged.connect(lambda _: self._on_faca_bar_changed())
+        fl.addWidget(self._fb_mode)
+
+        self._fb_crop = LengthSpin(0, 100)
+        self._fb_crop.setFixedWidth(84)
+        self._fb_crop.setToolTip("Recorte da arte: corta as bordas (mm) antes de gerar a faca.")
+        self._fb_crop.editingFinished.connect(self._on_faca_bar_changed)
+        fl.addWidget(QLabel("Recorte"))
+        fl.addWidget(self._fb_crop)
+
+        self._fb_rot = NoWheelComboBox()
+        for g in ("0", "90", "180", "270"):
+            self._fb_rot.addItem(g, g)
+        self._fb_rot.setToolTip("Giro (graus) de todos os arquivos.")
+        self._fb_rot.currentIndexChanged.connect(lambda _: self._on_faca_bar_changed())
+        fl.addWidget(QLabel("Giro"))
+        fl.addWidget(self._fb_rot)
+
+        self._fb_smooth = _spin(0, 5)
+        self._fb_smooth.setFixedWidth(52)
+        self._fb_smooth.setToolTip("Suavizar curvas da faca: 0 = reto, 5 = macio.")
+        self._fb_smooth.valueChanged.connect(lambda _: self._on_faca_bar_changed())
+        fl.addWidget(QLabel("Suavizar"))
+        fl.addWidget(self._fb_smooth)
+        return w
+
+    def _on_faca_bar_changed(self) -> None:
+        """Toolbar Faca -> grava nos campos globais do Documento e re-gera a faca."""
+        if self._fb_loading:
+            return
+        for widget in (self._faca_mode, self._crop, self._rotation, self._auto_smooth):
+            widget.blockSignals(True)
+        try:
+            self._faca_mode.setCurrentIndex(self._fb_mode.currentIndex())
+            self._crop.setValue(float(self._fb_crop.value()))
+            self._rotation.setCurrentText(self._fb_rot.currentData())
+            self._auto_smooth.setValue(int(self._fb_smooth.value()))
+        finally:
+            for widget in (self._faca_mode, self._crop, self._rotation, self._auto_smooth):
+                widget.blockSignals(False)
+        if self._loaded:
+            self._relayout(renest=False)
+
+    def _sync_faca_bar(self) -> None:
+        """Reflete os campos globais de faca na toolbar (ex.: ao abrir projeto ou
+        ao editar pelo card do Documento)."""
+        if not hasattr(self, "_fb_mode"):
+            return
+        self._fb_loading = True
+        try:
+            self._fb_mode.setCurrentIndex(self._faca_mode.currentIndex())
+            self._fb_crop.setValue(float(self._crop.value()))
+            self._fb_rot.setCurrentText(str(self._rotation_value()))
+            self._fb_smooth.setValue(int(self._auto_smooth.value()))
+        finally:
+            self._fb_loading = False
+
     def _update_property_bar(self) -> None:
         """Repinta a barra conforme a selecao atual (Projeto / Objeto / Grupo)."""
         if not hasattr(self, "_pbar_stack"):
             return
         self._sync_contour_tool()  # reflete offset/cantos atuais na toolbar
+        self._sync_faca_bar()      # reflete modo/recorte/giro/suavizar na toolbar
         try:
             pieces = self._selected_pieces()
         except RuntimeError:
@@ -1880,10 +2012,7 @@ class MainWindow(QMainWindow):
                 self._pbar_stack.setCurrentIndex(1)
                 self._pb_x.setValue(p.scenePos().x() - p.dx)
                 self._pb_y.setValue(p.scenePos().y() - p.dy)
-                self._pb_la.setText(
-                    f"L {units.fmt_len(p.rect().width(), with_unit=False)} × "
-                    f"A {units.fmt_len(p.rect().height())}"
-                )
+                self._pb_lock.setChecked(self._ps_lock.isChecked())
             elif len(pieces) > 1:
                 self._pbar_stack.setCurrentIndex(2)
                 self._pb_grp_count.setText(f"{len(pieces)} selecionados")
@@ -1929,6 +2058,98 @@ class MainWindow(QMainWindow):
         delta = float(self._pb_y.value()) - (p.scenePos().y() - p.dy)
         if abs(delta) > 0.01:
             self._nudge(0.0, delta)
+
+    # ---- alcas de redimensionamento no canvas (arrastar com o mouse) ----
+    def _update_resize_handles(self) -> None:
+        """Mostra alcas na peca quando ha UMA selecionada; some com o resto.
+
+        As alcas sao FILHAS da peca (em coordenadas locais), entao seguem a peca
+        ao mover/redimensionar, sem ficar para tras."""
+        for h in self._resize_handles:
+            with contextlib.suppress(RuntimeError, ValueError):
+                h.setParentItem(None)
+                self._scene.removeItem(h)
+        self._resize_handles = []
+        pieces = self._selected_pieces()
+        if len(pieces) != 1:
+            return
+        p = pieces[0]
+        w, h = p.rect().width(), p.rect().height()
+        for axis, hx, hy in (
+            ("wh", w, h), ("w", w, h / 2), ("h", w / 2, h),  # coords LOCAIS da peca
+        ):
+            handle = _ResizeHandle(self, p, axis)
+            handle.setParentItem(p)  # filha da peca: segue o movimento
+            handle.setPos(hx, hy)
+            self._resize_handles.append(handle)
+
+    def _clear_resize_preview(self) -> None:
+        if self._resize_preview is not None:
+            with contextlib.suppress(RuntimeError, ValueError):
+                self._scene.removeItem(self._resize_preview)
+            self._resize_preview = None
+
+    def _begin_resize(self, piece) -> None:
+        self._clear_resize_preview()
+        pen = QPen(QColor(theme.ACCENT))
+        pen.setStyle(Qt.DashLine)
+        pen.setCosmetic(True)
+        pen.setWidth(2)
+        self._resize_preview = self._scene.addRect(piece.sceneBoundingRect(), pen)
+        self._resize_preview.setZValue(1999)
+
+    def _resize_dims(self, piece, scene_pos, axis):
+        """(largura, altura) do footprint a partir do arraste, ancorado no topo-
+        esquerda; aplica proporcao quando o cadeado esta ligado."""
+        w = max(2.0, scene_pos.x() - piece.scenePos().x()) if axis in ("wh", "w") \
+            else piece.rect().width()
+        h = max(2.0, scene_pos.y() - piece.scenePos().y()) if axis in ("wh", "h") \
+            else piece.rect().height()
+        if self._ps_lock.isChecked() and piece.rect().height() > 0:
+            ratio = piece.rect().width() / piece.rect().height()
+            if axis == "h":
+                w = h * ratio
+            else:
+                h = w / ratio
+        return w, h
+
+    def _update_resize_preview(self, piece, scene_pos, axis) -> None:
+        if self._resize_preview is None:
+            return
+        w, h = self._resize_dims(piece, scene_pos, axis)
+        self._resize_preview.setRect(piece.scenePos().x(), piece.scenePos().y(), w, h)
+
+    def _end_resize(self, piece, scene_pos, axis) -> None:
+        self._clear_resize_preview()
+        path = self._path_of(piece.artwork_id)
+        base = next(
+            (b for b in self._base_artworks if self._path_of(b.id) == path), None
+        )
+        art = {a.id: a for a in self._result.artworks}.get(piece.artwork_id) \
+            if self._result else None
+        if not path or base is None or art is None:
+            return
+        cur_w, cur_h = piece.rect().width(), piece.rect().height()
+        if cur_w <= 0 or cur_h <= 0:
+            return
+        fw, fh = self._resize_dims(piece, scene_pos, axis)
+        # footprint -> tamanho da ARTE (mesma proporcao footprint/arte)
+        aw = art.size.width * (fw / cur_w)
+        ah = art.size.height * (fh / cur_h)
+        try:
+            new_size = Size(aw, ah)
+        except ValidationError:
+            return
+        if abs(aw - base.size.width) < 1e-6 and abs(ah - base.size.height) < 1e-6:
+            self._file_sizes.pop(path, None)
+        else:
+            self._file_sizes[path] = new_size
+        self._keep_tab = True
+        try:
+            self._relayout(renest=False)
+            self._reselect_path(path)
+        finally:
+            self._keep_tab = False
 
     # ---- construcao da UI ----
     def _build_ui(self) -> None:
@@ -2447,15 +2668,8 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(theme.SPACE_SM)
-        card = CollapsibleCard("Medidas da peca")
-        self._pm_w = MeasureField("Largura")
-        self._pm_h = MeasureField("Altura")
-        self._pm_area = MeasureField("Area")
-        self._pm_perim = MeasureField("Perimetro")
-        self._pm_pos = MeasureField("Posicao (X, Y)")
-        for field in (self._pm_w, self._pm_h, self._pm_area, self._pm_perim, self._pm_pos):
-            card.body.addWidget(field)
-        lay.addWidget(card)
+        # As medidas da peca (L x A, X, Y) ficam na barra de cima (contexto
+        # Objeto), estilo Corel — nao repetimos aqui para nao duplicar info.
 
         # ---- tamanho deste arquivo (redimensionar a arte) ----
         size_card = CollapsibleCard("Tamanho (redimensionar)")
@@ -2675,19 +2889,11 @@ class MainWindow(QMainWindow):
         self._update_overlay()
         self._refresh_transform_preview()  # atualiza os fantasmas da aba Transformar
         self._update_property_bar()  # barra contextual (Projeto/Objeto/Grupo)
+        self._update_resize_handles()  # alcas de redimensionar (peca selecionada)
 
     def _update_piece_page(self, piece: PieceItem) -> None:
-        by_id = {a.id: a for a in self._result.artworks} if self._result else {}
-        art = by_id.get(piece.artwork_id)
-        if art is not None:
-            m = measurements.piece_metrics(art)
-            self._pm_w.set_value(units.fmt_len(m.width))
-            self._pm_h.set_value(units.fmt_len(m.height))
-            self._pm_area.set_value(units.fmt_area(m.area))
-            self._pm_perim.set_value(units.fmt_len(m.perimeter))
-        x = piece.pos().x() - piece.dx
-        y = piece.pos().y() - piece.dy
-        self._pm_pos.set_value(units.fmt_xy(x, y))
+        # As medidas/posicao da peca ficam na barra de cima (contexto Objeto);
+        # aqui so carregamos a faca do arquivo, sem duplicar informacao.
         self._load_piece_faca(piece)
 
     def _load_piece_faca(self, piece: PieceItem) -> None:
@@ -3017,6 +3223,14 @@ class MainWindow(QMainWindow):
             ("Espacamento vertical", self._spacing_v,
              "Espaco entre as LINHAS (para cima/baixo). Negativo aproxima."),
         ])
+        self._center_check = QCheckBox("Manter centralizado na chapa")
+        self._center_check.setChecked(self._center_on_sheet)
+        self._center_check.setToolTip(
+            "Ligado: o conteudo fica centralizado na chapa automaticamente.\n"
+            "DESMARQUE para posicionar/arrastar as pecas livremente na pagina."
+        )
+        self._center_check.toggled.connect(self._set_center_on_sheet)
+        card.body.addWidget(self._center_check)
         self._offset = LengthSpin(-100, 100)
         self._offset.setToolTip(
             "Sangria da faca de PDF (vale nos 3 modos: retangulo, pelo contorno e\n"
@@ -4188,6 +4402,8 @@ class MainWindow(QMainWindow):
         # durante o laco de selecao (a chapa "sumia" ao clicar no vazio).
         self._decor_items = []
         self._ghost_items = []  # scene.clear() apaga os fantasmas; zera as refs
+        self._resize_handles = []  # idem para as alcas de redimensionar
+        self._resize_preview = None
         # NAO limpa o historico aqui: senao excluir/duplicar/desfazer (que
         # redesenham) apagariam o proprio comando. O reset do historico acontece
         # so quando o arranjo e regenerado (em _relayout).
@@ -4383,9 +4599,16 @@ class MainWindow(QMainWindow):
             self._snap_action.setChecked(enabled)
 
     def _set_center_on_sheet(self, enabled) -> None:
-        """Liga/desliga a centralizacao na largura e re-encaixa para o efeito
-        aparecer na hora (centraliza ao ligar, encosta na esquerda ao desligar)."""
-        self._center_on_sheet = bool(enabled)
+        """Liga/desliga a centralizacao na chapa e re-encaixa para o efeito
+        aparecer na hora (centraliza ao ligar, encosta no canto ao desligar).
+        Desligado, da para arrastar/posicionar as pecas livremente na pagina."""
+        enabled = bool(enabled)
+        self._center_on_sheet = enabled
+        # mantem o menu (Organizar) e o checkbox (Producao) em sincronia
+        if hasattr(self, "_center_action") and self._center_action.isChecked() != enabled:
+            self._center_action.setChecked(enabled)
+        if hasattr(self, "_center_check") and self._center_check.isChecked() != enabled:
+            self._center_check.setChecked(enabled)
         if self._result is not None and self._loaded:
             self._relayout(renest=True)
 
