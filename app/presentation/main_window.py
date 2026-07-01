@@ -852,62 +852,22 @@ class _QtyLineSpin(QSpinBox):
             self.selectAll()
 
 
-class QuantityStepper(QWidget):
-    """Seletor de quantidade moderno: botoes - / + ladeando o numero centralizado.
+class QuantityStepper(_QtyLineSpin):
+    """Campo de quantidade: QSpinBox NATIVO puro (mesmo visual do sistema, igual
+    aos campos de Largura/Altura), sem estilizacao custom.
 
-    Expoe value()/setValue()/valueChanged como um QSpinBox para o restante do
-    codigo (e os testes) usarem sem saber que e um widget composto.
+    Mantem value()/setValue()/valueChanged, entao a biblioteca, a aba Transformar
+    e os testes continuam funcionando igual. Digitar so recalcula ao confirmar
+    (Enter/ao sair); clicar seleciona o numero para sobrescrever rapido.
     """
-
-    valueChanged = Signal(int)
 
     def __init__(self, minimum: int = 1, maximum: int = 100000, value: int = 1) -> None:
         super().__init__()
-        self.setFixedHeight(34)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(3, 3, 3, 3)
-        lay.setSpacing(3)
-        self._minus = QPushButton("−")  # minus sign
-        self._minus.setObjectName("qtyMinus")
-        self._spin = _QtyLineSpin()  # seleciona tudo ao focar (facil sobrescrever)
-        self._spin.setRange(minimum, maximum)
-        self._spin.setValue(value)
-        self._spin.setButtonSymbols(QSpinBox.NoButtons)
-        self._spin.setAlignment(Qt.AlignCenter)
-        # digitar nao recalcula a cada tecla: confirma no Enter ou ao sair do campo
-        self._spin.setKeyboardTracking(False)
-        self._spin.setToolTip("Digite a quantidade e tecle Enter (ou use − / +)")
-        self._plus = QPushButton("+")
-        self._plus.setObjectName("qtyPlus")
-        for btn in (self._minus, self._plus):
-            btn.setFixedSize(26, 26)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setFocusPolicy(Qt.NoFocus)
-            btn.setAutoRepeat(True)
-            btn.setAutoRepeatDelay(300)
-            btn.setAutoRepeatInterval(70)
-        lay.addWidget(self._minus)
-        lay.addWidget(self._spin, 1)
-        lay.addWidget(self._plus)
-        self._minus.clicked.connect(lambda: self._spin.stepBy(-1))
-        self._plus.clicked.connect(lambda: self._spin.stepBy(1))
-        self._spin.valueChanged.connect(self.valueChanged)
-        self.setStyleSheet(
-            f"QuantityStepper{{background:{theme.SURFACE}; border:1px solid "
-            f"{theme.BORDER_STRONG}; border-radius:9px;}}"
-            f"QSpinBox{{border:none; background:transparent; font-weight:700;"
-            f" font-size:15px; color:{theme.TEXT};}}"
-            f"QPushButton{{border:none; border-radius:6px; background:{theme.ACCENT_SOFT};"
-            f" color:{theme.ACCENT}; font-weight:800; font-size:18px;}}"
-            f"QPushButton:hover{{background:{theme.ACCENT}; color:white;}}"
-            f"QPushButton:pressed{{background:{theme.ACCENT_HOVER}; color:white;}}"
-        )
-
-    def value(self) -> int:
-        return self._spin.value()
-
-    def setValue(self, value: int) -> None:
-        self._spin.setValue(value)
+        self.setRange(minimum, maximum)
+        self.setValue(value)
+        self.setKeyboardTracking(False)  # confirma no Enter/ao sair, nao a cada tecla
+        self.setFixedHeight(26)  # nao estica na linha alta da tabela (evita ficar enorme)
+        self.setToolTip("Digite a quantidade ou use as setas")
 
 
 class ExportCenterDialog(QDialog):
@@ -2040,6 +2000,10 @@ class MainWindow(QMainWindow):
             it = self._scene.addRect(sx, sy, w, h, pen, brush)
             it.setOpacity(0.4)
             it.setZValue(1000)  # por cima das pecas
+            # transparente ao mouse: o clique passa direto para a peca embaixo
+            # (senao o fantasma "rouba" o clique e nao da pra selecionar/excluir).
+            it.setAcceptedMouseButtons(Qt.NoButton)
+            it.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
             self._ghost_items.append(it)
 
     def _refresh_transform_preview(self) -> None:
@@ -2628,9 +2592,9 @@ class MainWindow(QMainWindow):
         self._table = QTableWidget(0, 2)
         self._table.setHorizontalHeaderLabels(["Arquivo", "Qtd"])
         self._table.verticalHeader().setVisible(False)
-        self._table.setColumnWidth(0, 198)
-        self._table.setColumnWidth(1, 104)
-        self._table.setIconSize(QSize(48, 48))
+        self._table.setColumnWidth(0, 214)
+        self._table.setColumnWidth(1, 74)  # coluna Qtd estreita (campo pequeno)
+        self._table.setIconSize(QSize(40, 40))
         self._table.setWordWrap(True)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -3296,7 +3260,7 @@ class MainWindow(QMainWindow):
             spin = QuantityStepper(1, 100000, 1)
             spin.valueChanged.connect(lambda _: self._relayout(from_table=True))
             self._table.setCellWidget(row, 1, spin)
-            self._table.setRowHeight(row, 58)
+            self._table.setRowHeight(row, 46)  # linha mais compacta
             self._paths.append(path)
 
     @staticmethod
