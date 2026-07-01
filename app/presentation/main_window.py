@@ -108,7 +108,12 @@ from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
 )
-from app.domain.cut.contour_ops import crop_and_rotate_contour, offset_contour, smooth_contour
+from app.domain.cut.contour_ops import (
+    crop_and_rotate_contour,
+    offset_contour,
+    simplify_contour,
+    smooth_contour,
+)
 from app.domain.cut.vector import VectorContourGenerator
 from app.domain.geometry import Point2D, Size
 from app.domain.model.cut_contour import CutContour
@@ -1155,6 +1160,8 @@ class MainWindow(QMainWindow):
         # cresce/diminui no comprimento conforme adiciona/remove pecas.
         self._center_on_sheet = True
         self._pbar_loading = False  # evita loop ao popular a barra de propriedades
+        self._faca_corner = "round"  # canto da faca (contorno): round/miter/bevel
+        self._ct_loading = False  # evita loop ao sincronizar a toolbar de contorno
         self._ps_loading = False  # evita reentrancia ao carregar os campos
         # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
         # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
@@ -1642,7 +1649,8 @@ class MainWindow(QMainWindow):
         outer = QHBoxLayout(bar)
         outer.setContentsMargins(theme.SPACE_MD, 2, theme.SPACE_MD, 2)
         self._pbar_stack = QStackedWidget()
-        outer.addWidget(self._pbar_stack)
+        outer.addWidget(self._pbar_stack, 1)
+        outer.addWidget(self._build_contour_tool())  # ferramenta Contorno (faca)
 
         def _tag(text: str) -> QLabel:
             lb = QLabel(text)
@@ -1756,10 +1764,111 @@ class MainWindow(QMainWindow):
 
         return bar
 
+    def _build_contour_tool(self) -> QWidget:
+        """Ferramenta 'Contorno' (faca), estilo CorelDRAW, fixa a direita da barra:
+        Offset (mm) + Direcao (externo/interno) + Cantos (redondo/ponta/chanfro).
+        O offset controla a sangria da faca ao vivo; os cantos usam o join_style
+        do offset. Nao mexe em nesting/exportacao."""
+        w = QFrame()
+        cl = QHBoxLayout(w)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(theme.SPACE_XS)
+        tag = QLabel("✂ Contorno")
+        tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
+        cl.addWidget(tag)
+
+        self._ct_offset = LengthSpin(0, 100)
+        self._ct_offset.setFixedWidth(90)
+        self._ct_offset.setToolTip("Offset da faca: distancia da linha de corte ate a arte.")
+        self._ct_offset.editingFinished.connect(self._apply_contour_offset)
+        cl.addWidget(QLabel("Offset"))
+        cl.addWidget(self._ct_offset)
+
+        def _icon_btn(icon_name: str, tip: str, checked: bool = False) -> QPushButton:
+            """Botao so-icone (estilo Corel): nome no tooltip, sem texto."""
+            b = QPushButton()
+            b.setIcon(icons.icon(icon_name, theme.ICON))
+            b.setIconSize(QSize(18, 18))
+            b.setCheckable(True)
+            b.setChecked(checked)
+            b.setFixedSize(30, 28)
+            b.setToolTip(tip)
+            return b
+
+        self._ct_dir = QButtonGroup(self)
+        b_out = _icon_btn("arrows-out", "Contorno externo\nFaca para FORA da arte (sangria).", True)
+        b_in = _icon_btn("arrows-in", "Contorno interno\nFaca para DENTRO (recuo/vinco).")
+        self._ct_dir.addButton(b_out, 1)   # externo (id 1; evita -1, sentinela do Qt)
+        self._ct_dir.addButton(b_in, 2)    # interno
+        self._ct_dir.buttonClicked.connect(lambda _: self._apply_contour_offset())
+        cl.addWidget(b_out)
+        cl.addWidget(b_in)
+
+        sep = QLabel("·")
+        sep.setStyleSheet(f"color:{theme.TEXT_MUTED};")
+        cl.addWidget(sep)
+        self._ct_corner = QButtonGroup(self)
+        self._ct_corner_val = {}
+        corners = (
+            ("round", "corner-round",
+             "Arredondar cantos\nCantos arredondados (padrao seguro para a lamina)."),
+            ("miter", "corner-sharp",
+             "Cantos com esquadria\nCanto vivo (ponta), limitado para nao criar farpas."),
+            ("bevel", "corner-bevel",
+             "Chanfrar cantos\nCanto chanfrado (reto)."),
+        )
+        for i, (val, icon_name, tip) in enumerate(corners):
+            b = _icon_btn(icon_name, tip, checked=(val == "round"))
+            self._ct_corner.addButton(b, i)
+            self._ct_corner_val[i] = val
+            cl.addWidget(b)
+        self._ct_corner.buttonClicked.connect(lambda _: self._apply_contour_corner())
+        return w
+
+    def _apply_contour_offset(self) -> None:
+        """Toolbar Contorno -> grava a sangria (PDF + imagem) e re-gera a faca."""
+        if self._ct_loading:
+            return
+        sign = 1 if self._ct_dir.checkedId() == 1 else -1
+        val = float(self._ct_offset.value()) * sign
+        self._offset.blockSignals(True)
+        self._auto_offset.blockSignals(True)
+        self._offset.setValue(val)
+        self._auto_offset.setValue(val)
+        self._offset.blockSignals(False)
+        self._auto_offset.blockSignals(False)
+        if self._loaded:
+            self._relayout(renest=False)
+
+    def _apply_contour_corner(self) -> None:
+        self._faca_corner = self._ct_corner_val.get(self._ct_corner.checkedId(), "round")
+        if self._loaded:
+            self._relayout(renest=False)
+
+    def _sync_contour_tool(self) -> None:
+        """Reflete a sangria/cantos atuais na toolbar (ex.: ao abrir projeto)."""
+        if not hasattr(self, "_ct_offset"):
+            return
+        self._ct_loading = True
+        try:
+            signed = float(self._offset.value())
+            self._ct_offset.setValue(abs(signed))
+            btn = self._ct_dir.button(1 if signed >= 0 else 2)
+            if btn is not None:
+                btn.setChecked(True)
+            for i, val in self._ct_corner_val.items():
+                if val == self._faca_corner:
+                    b = self._ct_corner.button(i)
+                    if b is not None:
+                        b.setChecked(True)
+        finally:
+            self._ct_loading = False
+
     def _update_property_bar(self) -> None:
         """Repinta a barra conforme a selecao atual (Projeto / Objeto / Grupo)."""
         if not hasattr(self, "_pbar_stack"):
             return
+        self._sync_contour_tool()  # reflete offset/cantos atuais na toolbar
         try:
             pieces = self._selected_pieces()
         except RuntimeError:
@@ -3202,6 +3311,7 @@ class MainWindow(QMainWindow):
             "crop": float(self._crop.value()),
             "rotation": self._rotation_value(),
             "smooth": int(self._auto_smooth.value()),
+            "corner": self._faca_corner,  # canto do contorno: round/miter/bevel
             "mode": self._faca_mode.currentData(),  # "rect" | "contour" (PDF)
         }
 
@@ -3355,12 +3465,23 @@ class MainWindow(QMainWindow):
         contour, w, h = crop_and_rotate_contour(
             raw_contour, crop, rotation, base.size.width, base.size.height
         )
+        tol = self._density_tol()  # densidade: reduz nos/ruido antes de suavizar
+        if tol > 0:
+            contour = simplify_contour(contour, tol)
         smooth = int(params["smooth"])
         if smooth > 0:
             contour = smooth_contour(contour, smooth)
         if sangria != 0:
-            contour = offset_contour(contour, sangria)
+            contour = offset_contour(contour, sangria, params.get("corner", "round"))
         return replace(base, size=Size(w, h), cut_contour=contour)
+
+    def _density_tol(self) -> float:
+        """Tolerancia de simplificacao (mm) a partir da 'Densidade da faca'.
+        Densidade 10 = 0 (segue fiel, sem simplificar); menor = faca mais lisa."""
+        if not hasattr(self, "_auto_density"):
+            return 0.0
+        d = int(self._auto_density.value())
+        return max(0.0, (10 - d) * 0.12)
 
     def _transform(self, art, params: dict):
         """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
@@ -3387,6 +3508,7 @@ class MainWindow(QMainWindow):
             self._auto_smooth.setValue(0)
             self._auto_sensitivity.setValue(50)
             self._auto_ignore_white.setChecked(True)
+            self._faca_corner = "round"  # canto padrao seguro
             self._rotation.setCurrentIndex(0)  # 0 graus
             self._faca_mode.setCurrentIndex(0)  # retangulo (padrao)
         finally:
@@ -3412,6 +3534,7 @@ class MainWindow(QMainWindow):
             self._auto_smooth.setValue(0)
             self._auto_sensitivity.setValue(50)
             self._auto_ignore_white.setChecked(True)
+            self._faca_corner = "round"  # canto padrao seguro
             self._rotation.setCurrentIndex(0)
             self._faca_mode.setCurrentIndex(0)
         finally:
@@ -4093,9 +4216,15 @@ class MainWindow(QMainWindow):
         else:
             self._view.view_changed.emit()  # mantem o zoom; atualiza reguas
         if selected_keys:
-            for p in self._piece_items:
-                if self._piece_sel_key(p) in selected_keys:
-                    p.setSelected(True)
+            # re-selecionar apos o redraw NAO deve trocar de aba (ex.: mexer na
+            # densidade/largura na aba Documento nao pode jogar para a aba Peca).
+            self._keep_tab = True
+            try:
+                for p in self._piece_items:
+                    if self._piece_sel_key(p) in selected_keys:
+                        p.setSelected(True)
+            finally:
+                self._keep_tab = False
         self._refresh_object_list()
         self._update_overlay()
 

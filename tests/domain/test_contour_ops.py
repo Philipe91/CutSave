@@ -43,6 +43,17 @@ def test_encolher_demais_levanta():
         offset_contour(_square(10), -10)
 
 
+def test_offset_cantos_round_miter_bevel():
+    # round arredonda (arco = muitos pontos); miter = ponta (poucos); bevel = chanfro.
+    r_round = offset_contour(_square(10), 2, "round")
+    r_miter = offset_contour(_square(10), 2, "miter")
+    r_bevel = offset_contour(_square(10), 2, "bevel")
+    assert len(r_miter.points) < len(r_round.points)   # ponta tem menos nos que arco
+    assert len(r_bevel.points) <= len(r_round.points)
+    # miter num quadrado = quadrado maior (14x14), cantos vivos
+    assert r_miter.size.width == pytest.approx(14, abs=0.01)
+
+
 def test_suavizar_zero_nao_altera():
     c = _square(10)
     assert smooth_contour(c, 0) is c

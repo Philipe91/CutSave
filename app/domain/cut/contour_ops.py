@@ -20,6 +20,28 @@ def _largest_polygon(geometry):
     return max(polygons, key=lambda g: g.area)
 
 
+def simplify_contour(contour: CutContour, tolerance_mm: float) -> CutContour:
+    """Reduz os nos da faca (Douglas-Peucker via shapely) para tirar ruido/
+    serrilhado da deteccao sem perder a forma. tolerance 0 = sem efeito; maior =
+    faca mais lisa (menos nos). E o controle de 'densidade' da faca."""
+    if tolerance_mm <= 0 or len(contour.points) < 4:
+        return contour
+    try:
+        poly = ShapelyPolygon([(p.x, p.y) for p in contour.points])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        simp = poly.simplify(tolerance_mm, preserve_topology=True)
+        ring = _largest_polygon(simp)
+        if ring is None:
+            return contour
+        coords = list(ring.exterior.coords)[:-1]  # tira o ponto de fechamento repetido
+    except Exception:
+        return contour
+    if len(coords) < 3:
+        return contour
+    return CutContour([Point2D(float(x), float(y)) for x, y in coords])
+
+
 def smooth_contour(contour: CutContour, iterations: int, ratio: float = 0.25) -> CutContour:
     """Suaviza a faca arredondando os cantos (algoritmo de Chaikin, fechado).
 
@@ -70,20 +92,28 @@ def crop_and_rotate_contour(
     return CutContour([Point2D(x, y) for x, y in pts]), w, h
 
 
-def offset_contour(contour: CutContour, offset_mm: float) -> CutContour:
+# Estilo de canto do offset (igual ao "Corners" da ferramenta Contorno do Corel).
+_JOIN_STYLE = {"round": 1, "miter": 2, "bevel": 3}
+
+
+def offset_contour(
+    contour: CutContour, offset_mm: float, corner: str = "round", mitre_limit: float = 2.0
+) -> CutContour:
     """Aplica um offset (mm) ao contorno: positivo cresce, negativo encolhe.
 
-    Usa o anel externo do resultado (ignora furos). Offset zero devolve o
-    contorno original. Encolher demais (poligono vazio) levanta ValidationError.
+    `corner` define o estilo do canto (como a ferramenta Contorno do CorelDRAW):
+    'round' (redondo, padrao seguro para a lamina), 'miter' (ponta viva, limitada
+    por `mitre_limit` para nao criar farpas) ou 'bevel' (chanfro). Usa o anel
+    externo do resultado (ignora furos). Offset zero devolve o contorno original.
+    Encolher demais (poligono vazio) levanta ValidationError.
     """
     if offset_mm == 0:
         return contour
     poly = ShapelyPolygon([(p.x, p.y) for p in contour.points])
     if not poly.is_valid:
         poly = poly.buffer(0)
-    # join_style=1 (round): cantos arredondados, sem os bicos (spikes) que a
-    # juncao mitre cria em cantos agudos/concavos, principalmente apos suavizar.
-    grown = poly.buffer(offset_mm, join_style=1)
+    join = _JOIN_STYLE.get(corner, 1)
+    grown = poly.buffer(offset_mm, join_style=join, mitre_limit=mitre_limit)
     product = _largest_polygon(grown)
     if product is None or product.is_empty:
         raise ValidationError("Offset interno maior que o contorno da imagem.")

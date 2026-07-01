@@ -1668,6 +1668,33 @@ def test_offset_externo_de_imagem_aumenta_a_faca(qapp, tmp_path):
     assert depois > antes
 
 
+def test_contorno_toolbar_offset_direcao_cantos(qapp, tmp_path):
+    # A ferramenta Contorno (barra) controla sangria (PDF+imagem), direcao e cantos.
+    src = _n_page_pdf(tmp_path, 1, name="ct")
+    window = _window(tmp_path)
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("contour"))
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    # offset externo (positivo) grava nos dois campos de sangria
+    window._ct_offset.setValue(5)
+    window._ct_dir.button(1).setChecked(True)   # Externo
+    window._apply_contour_offset()
+    assert window._offset.value() == 5
+    assert window._auto_offset.value() == 5
+
+    # interno = negativo
+    window._ct_dir.button(2).setChecked(True)   # Interno
+    window._apply_contour_offset()
+    assert window._offset.value() == -5
+
+    # cantos
+    window._ct_corner.button(1).setChecked(True)  # Ponta (miter)
+    window._apply_contour_corner()
+    assert window._faca_corner == "miter"
+    assert window._global_faca_params()["corner"] == "miter"
+
+
 def test_quantidade_de_imagem_multiplica(qapp, tmp_path):
     img = si.jpg_white_square(tmp_path)
     window = _window(tmp_path)
