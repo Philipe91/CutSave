@@ -59,18 +59,18 @@ fica aprovável.
 ### QA-05 🔴→✅ Combo "Tipo de faca" cortava o texto (corrigido na hora)
 `AdjustToContents` — o combo dimensiona pelo item mais longo.
 
-## Pendências abertas (não bloqueiam, priorizadas)
+## Pendências — status pós-correções (02/07, 2ª rodada)
 
-| # | Sev. | Achado | Sugestão |
-|---|------|--------|----------|
-| QA-06 | 🟠 | Tokens `CUT`/`MARK`/`EMPTY` do tema não são usados; canvas usa RGB hardcoded levemente diferente (+ "azul do tema" com RGB errado em `main_window.py:2729`-ish) | trocar pelos tokens |
-| QA-07 | 🟡 | Duplicar/undo em cadeia degrada (1ª=3ms, 200ª=72ms; 200 undos=8s) — snapshot completo + redraw total por operação | profiling dedicado; operação incremental |
-| QA-08 | 🟡 | Fechar a janela durante geração: sem `closeEvent`, QThread órfã | `closeEvent` com `quit()`/`wait()` |
-| QA-09 | 🟡 | Alt+O ambíguo (menus Organizar × Opções) | trocar mnemônico de um deles |
-| QA-10 | 🟡 | 100+ strings de UI sem acento ("Producao", "Exportacao") | passada de acentuação |
-| QA-11 | 🟡 | Suíte: segfault de teardown do Qt após 446/446 passarem (exit 139 confundiria CI) | investigar fixture qapp |
-| QA-12 | 🟢 | Clipboard de peças não é por-aba (borda: arquivos homônimos entre abas) | limpar em `_apply_session` |
-| QA-13 | 🟢 | Espaçamentos 6/2px fora da grade em `fields.py` (deliberados); brancos escritos de 3 formas | opcional |
+| # | Sev. | Achado | Status |
+|---|------|--------|--------|
+| QA-06 | 🟠 | Drift de cores do canvas vs. tokens (`CUT`/`MARK`/`EMPTY`, "azul do tema" errado, vermelho fora da paleta, brancos) | ✅ **corrigido** — canvas 100% nos tokens |
+| QA-07 | 🟡 | Duplicar/undo em cadeia degrada (redraw total por operação) | 🔶 **mitigado** (-20%: memoização de footprint/params por id no redesenho). Correção definitiva = redesenho incremental (backlog) |
+| QA-08 | 🟡 | Fechar durante geração: QThread órfã (crash "fechou sozinho") | ✅ **corrigido** — `closeEvent` espera a thread (`quit`+`wait`) |
+| QA-09 | 🟡 | Alt+O ambíguo (Organizar × Opções) | ✅ **corrigido** — Opções virou Alt+P |
+| QA-10 | 🟡 | 100+ strings de UI sem acento ("Producao", "Exportacao") | ⏳ aberta — passada de acentuação (cuidado: testes comparam strings) |
+| QA-11 | 🟡 | Suíte: segfault de teardown do Qt após 100% verde (exit 139) | ⏳ aberta — investigar fixture qapp |
+| QA-12 | 🟢 | Clipboard de peças não era por-aba | ✅ **corrigido** — limpo em `_apply_session` |
+| QA-13 | 🟢 | Espaçamentos 6/2px deliberados em `fields.py` | mantido (decisão de design documentada) |
 
 ## O que aguentou o tranco (verificado)
 

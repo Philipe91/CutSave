@@ -35,6 +35,14 @@ sessão fica em [`docs/historico/`](docs/historico/).
 - 🟠 **QA-04** Importar o mesmo arquivo 2× soma a quantidade na linha existente
   (linhas duplicadas colidiam e a produção saía com quantidade errada).
 - 🔴 **QA-05** Combo "Tipo de faca" não corta mais o texto.
+- 🟠 **QA-06** Canvas 100% nos tokens do tema (faca/marcas/peça vazia/seleção/
+  aviso de arquivo ausente — fim do drift de cores).
+- 🟡 **QA-07** Duplicar/undo em cadeia ~20% mais rápido (memoização de
+  footprint/params por id no redesenho); correção definitiva no backlog.
+- 🟡 **QA-08** `closeEvent` espera a thread de geração (fim do risco de
+  "fechou sozinho" ao fechar durante o processamento).
+- 🟡 **QA-09** Menu Opções virou Alt+P (Alt+O era ambíguo com Organizar).
+- 🟢 **QA-12** Clipboard de peças é por trabalho (limpo ao trocar de aba).
 
 ## [Não lançado] — branch `v1.2-projeto`
 

@@ -636,7 +636,7 @@ class CropPreview(QWidget):
         if self._pm is not None and not self._pm.isNull():
             p.drawPixmap(target, self._pm, QRectF(self._pm.rect()))
         else:
-            p.fillRect(target, QColor(255, 255, 255))
+            p.fillRect(target, QColor(theme.SHEET))
         left, top, right, bottom = self._crop
         cx0, cy0 = ox + left * mmx, oy + top * mmy
         cx1, cy1 = ox + dw - right * mmx, oy + dh - bottom * mmy
@@ -717,7 +717,7 @@ class _ResizeHandle(QGraphicsRectItem):
         self._w = window
         self._piece = piece
         self._axis = axis
-        self.setBrush(QBrush(QColor("white")))
+        self.setBrush(QBrush(QColor(theme.SURFACE)))
         pen = QPen(QColor(theme.ACCENT))
         pen.setCosmetic(True)
         pen.setWidth(2)
@@ -1447,7 +1447,7 @@ class MainWindow(QMainWindow):
         m_ferr.addAction(gerar_faca)
 
         # Opcoes (ao lado de Ajuda): unidade de medida (cm/mm)
-        m_opt = bar.addMenu("&Opcoes")
+        m_opt = bar.addMenu("O&pcoes")  # Alt+P (Alt+O ja e do menu Organizar; QA-09)
         um = m_opt.addMenu("Unidade de medida")
         self._unit_group = QActionGroup(self)
         self._unit_group.setExclusive(True)
@@ -1644,7 +1644,7 @@ class MainWindow(QMainWindow):
         item = self._table.item(row, 0)
         if item is None:
             return
-        item.setForeground(QColor(192, 57, 43))
+        item.setForeground(QColor(theme.ERROR))
         item.setText(f"⚠ {item.text()}")
         item.setToolTip("Arquivo nao encontrado. Use 'Substituir arquivo' ou remova a linha.")
 
@@ -2295,6 +2295,10 @@ class MainWindow(QMainWindow):
 
     def _apply_session(self, s: dict) -> None:
         """Restaura uma sessao inteira (troca de aba) e redesenha."""
+        # o clipboard de pecas e por trabalho: colar numa aba posicoes copiadas
+        # de outra (ids homonimos) inseriria peca no lugar errado (QA-12).
+        self._piece_clipboard = []
+        self._paste_count = 0
         self._suspend_relayout = True
         try:
             self._restore_widget_values(s["widgets"])
@@ -2747,7 +2751,9 @@ class MainWindow(QMainWindow):
         pen.setStyle(Qt.DashLine)
         pen.setCosmetic(True)
         pen.setWidth(2)
-        brush = QBrush(QColor(47, 111, 237, 40))  # azul do tema, bem leve
+        accent_soft = QColor(theme.ACCENT)
+        accent_soft.setAlpha(40)  # azul do tema, bem leve
+        brush = QBrush(accent_soft)
         for (sx, sy, w, h) in rects:
             it = self._scene.addRect(sx, sy, w, h, pen, brush)
             it.setOpacity(0.4)
@@ -4459,6 +4465,17 @@ class MainWindow(QMainWindow):
         self._act_generate.setEnabled(not busy)
         self._btn_add.setEnabled(not busy)
 
+    def closeEvent(self, event) -> None:
+        """Fechar a janela DURANTE uma geracao: espera a thread terminar antes
+        de destruir a janela (QA-08). Sem isso o Qt aborta o processo com
+        "QThread: Destroyed while thread is still running" — visto como
+        "o programa fechou sozinho" na maquina do usuario."""
+        thread = self._thread
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            thread.wait(10000)  # geracao normal termina em segundos
+        super().closeEvent(event)
+
     def _set_exports_enabled(self, enabled: bool) -> None:
         for action in getattr(self, "_export_actions", []):
             action.setEnabled(enabled)
@@ -4768,24 +4785,46 @@ class MainWindow(QMainWindow):
     def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float, interactive: bool) -> None:
         result = self._result
         by_id = {a.id: a for a in result.artworks}
-        sheet_brush = QBrush(QColor(255, 255, 255))  # chapa = pagina branca
+        # cores do canvas SEMPRE pelos tokens do tema (QA-06: valores hardcoded
+        # levemente diferentes dos tokens davam "drift" na area mais critica).
+        sheet_brush = QBrush(QColor(theme.SHEET))  # chapa = pagina branca
         sheet_pen = QPen(QColor(theme.SHEET_BORDER))  # borda suave da chapa (mesa clara)
         sheet_pen.setCosmetic(True)
         material_pen = QPen(QColor(theme.BORDER_STRONG))  # contorno leve das pecas vazias
         material_pen.setCosmetic(True)
-        faca_pen = QPen(QColor(220, 0, 0))
+        faca_pen = QPen(QColor(theme.CUT))
         faca_pen.setCosmetic(True)
         client_pen = QPen(QColor(theme.SUCCESS))  # faca do cliente (vetor) em verde
         client_pen.setCosmetic(True)
-        # marcas de registro em PRETO solido (a impressora/leitor optico le melhor)
-        mark_pen = QPen(QColor(0, 0, 0))
+        # marcas de registro escuras no preview (a EXPORTACAO segue preto puro,
+        # que a leitora optica le melhor — isso aqui e so visualizacao)
+        mark_pen = QPen(QColor(theme.MARK))
         mark_pen.setCosmetic(True)
-        mark_brush = QBrush(QColor(0, 0, 0))
-        empty_brush = QBrush(QColor(200, 200, 200, 120))
+        mark_brush = QBrush(QColor(theme.MARK))
+        empty_color = QColor(theme.EMPTY)
+        empty_color.setAlpha(160)
+        empty_brush = QBrush(empty_color)
 
         shared = self._shared.currentIndex() == 1
         reg = self._reg()
         cropped_cache: dict = {}
+        # memoizacao por id DENTRO deste redesenho (QA-07): footprint e params
+        # eram recalculados para CADA peca (centenas de vezes por operacao com
+        # muitas copias do mesmo arquivo) — por id, calcula uma vez so.
+        fp_cache: dict = {}
+        params_cache: dict = {}
+
+        def fp_of(art):
+            fp = fp_cache.get(art.id)
+            if fp is None:
+                fp = fp_cache[art.id] = artwork_footprint(art)
+            return fp
+
+        def params_of(art_id):
+            p = params_cache.get(art_id)
+            if p is None:
+                p = params_cache[art_id] = self._art_params(art_id)
+            return p
 
         # sombra da chapa SEM QGraphicsDropShadowEffect: o efeito rasteriza a
         # chapa inteira num buffer a cada repaint e TRAVA o zoom de perto.
@@ -4807,7 +4846,7 @@ class MainWindow(QMainWindow):
                 art = by_id.get(item.artwork_id)
                 if art is None:
                     continue
-                fp = artwork_footprint(art)
+                fp = fp_of(art)
                 piece = PieceItem(
                     fp.max_x - fp.min_x, fp.max_y - fp.min_y,
                     artwork_id=item.artwork_id, name=art.name, art_size=art.size,
@@ -4830,7 +4869,7 @@ class MainWindow(QMainWindow):
 
                 ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
                 if draw_art:
-                    p = self._art_params(item.artwork_id)
+                    p = params_of(item.artwork_id)
                     key = self._sources.get(item.artwork_id)
                     pixmap = self._pixmaps.get(key)
                     if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
@@ -5098,6 +5137,7 @@ class MainWindow(QMainWindow):
             return
         before = self._snapshot_sheets()
         by_id = {a.id: a for a in self._result.artworks}
+        fp_cache: dict = {}  # footprint por id (QA-07: nao recalcular por peca)
         sheets = []
         for index, layout in enumerate(self._effective_sheets()):
             items = list(layout.items) + add_by_sheet.get(index, [])
@@ -5106,7 +5146,9 @@ class MainWindow(QMainWindow):
                 art = by_id.get(placed.artwork_id)
                 if art is None:
                     continue
-                fp = artwork_footprint(art)
+                fp = fp_cache.get(art.id)
+                if fp is None:
+                    fp = fp_cache[art.id] = artwork_footprint(art)
                 used = max(used, placed.position.y + (fp.max_y - fp.min_y))
             sheets.append(Layout(layout.material, items, used))
         self._commit_arrangement(before, sheets, text)
