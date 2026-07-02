@@ -984,11 +984,13 @@ def test_reset_all_defaults_zera_espacamento(qapp, tmp_path):
     window._spacing.setValue(10)
     window._offset.setValue(5)
     window._file_sizes["x.pdf"] = Size(10, 10)
+    window._reg_type.setCurrentIndex(window._reg_type.findData("circles"))  # marcas ligadas
     window._reset_all_defaults()
     assert window._spacing_v.value() == 0
     assert window._spacing.value() == 0
     assert window._offset.value() == 0
     assert window._file_sizes == {}  # tamanhos personalizados descartados
+    assert window._reg() == "none"   # trabalho novo comeca SEM marcas de registro
 
 
 def test_open_external_files_adiciona_a_producao(qapp, tmp_path):
@@ -1753,24 +1755,22 @@ def test_alca_redimensiona_por_arraste(qapp, tmp_path):
     assert len(window._resize_handles) == 3  # alcas reaparecem na peca redimensionada
 
 
-def test_barra_faca_controla_globais(qapp, tmp_path):
-    # A faixa "Faca" da barra espelha os campos globais (modo/recorte/giro/suavizar).
-    src = _n_page_pdf(tmp_path, 1, name="fb")
+def test_recortar_imagem_reduz_tamanho(qapp, tmp_path):
+    # "Recortar" agora vale para imagem tambem (mesmo esquema do PDF): cortar
+    # bordas reduz o tamanho da arte; a origem continua sendo o arquivo original.
+    img = si.jpg_white_square(tmp_path)
     window = _window(tmp_path)
-    window.add_paths([src])
+    window.add_paths([img])
     window.generate(blocking=True)
+    w0 = window._result.artworks[0].size.width
 
-    # toolbar -> global
-    window._fb_mode.setCurrentIndex(window._fb_mode.findData("contour"))
-    assert window._faca_mode.currentData() == "contour"
-    window._fb_smooth.setValue(3)
-    window._on_faca_bar_changed()
-    assert window._auto_smooth.value() == 3
-
-    # global -> toolbar (sincroniza de volta)
-    window._auto_smooth.setValue(1)
-    window._sync_faca_bar()
-    assert window._fb_smooth.value() == 1
+    # aplica recorte de 5mm em cada lado (como o dialogo "Recortar" faz)
+    window._page_crops[img] = {0: (5.0, 5.0, 5.0, 5.0)}
+    window._invalidate_crop_cache(img)
+    window.generate(blocking=True)
+    art = window._result.artworks[0]
+    assert art.size.width < w0                       # a imagem recortada ficou menor
+    assert window._path_of(art.id) == img            # origem = arquivo original
 
 
 def test_quantidade_de_imagem_multiplica(qapp, tmp_path):

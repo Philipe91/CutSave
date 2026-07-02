@@ -1201,7 +1201,6 @@ class MainWindow(QMainWindow):
         self._pbar_loading = False  # evita loop ao popular a barra de propriedades
         self._faca_corner = "round"  # canto da faca (contorno): round/miter/bevel
         self._ct_loading = False  # evita loop ao sincronizar a toolbar de contorno
-        self._fb_loading = False  # evita loop ao sincronizar a toolbar de faca
         self._ps_loading = False  # evita reentrancia ao carregar os campos
         # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
         # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
@@ -1693,10 +1692,6 @@ class MainWindow(QMainWindow):
         self._pbar_stack = QStackedWidget()
         outer.addWidget(self._pbar_stack, 1)
         outer.addWidget(self._build_contour_tool())  # ferramenta Contorno (faca)
-        sep0 = QLabel("|")
-        sep0.setStyleSheet(f"color:{theme.BORDER_STRONG};")
-        outer.addWidget(sep0)
-        outer.addWidget(self._build_faca_tool())  # opcoes de faca (modo/recorte/giro/suavizar)
 
         def _tag(text: str) -> QLabel:
             lb = QLabel(text)
@@ -1876,7 +1871,27 @@ class MainWindow(QMainWindow):
             self._ct_corner_val[i] = val
             cl.addWidget(b)
         self._ct_corner.buttonClicked.connect(lambda _: self._apply_contour_corner())
+
+        sep2 = QLabel("·")
+        sep2.setStyleSheet(f"color:{theme.TEXT_MUTED};")
+        cl.addWidget(sep2)
+        self._ct_smooth = _spin(0, 5)
+        self._ct_smooth.setFixedWidth(52)
+        self._ct_smooth.setToolTip("Suavizar curvas da faca: 0 = reto, 5 = macio.")
+        self._ct_smooth.valueChanged.connect(lambda _: self._apply_contour_smooth())
+        cl.addWidget(QLabel("Suavizar"))
+        cl.addWidget(self._ct_smooth)
         return w
+
+    def _apply_contour_smooth(self) -> None:
+        """Suavizar (barra) -> grava no campo global do Documento e re-gera a faca."""
+        if self._ct_loading:
+            return
+        self._auto_smooth.blockSignals(True)
+        self._auto_smooth.setValue(int(self._ct_smooth.value()))
+        self._auto_smooth.blockSignals(False)
+        if self._loaded:
+            self._relayout(renest=False)
 
     def _apply_contour_offset(self) -> None:
         """Toolbar Contorno -> grava a sangria (PDF + imagem) e re-gera a faca."""
@@ -1914,93 +1929,15 @@ class MainWindow(QMainWindow):
                     b = self._ct_corner.button(i)
                     if b is not None:
                         b.setChecked(True)
+            self._ct_smooth.setValue(int(self._auto_smooth.value()))
         finally:
             self._ct_loading = False
-
-    def _build_faca_tool(self) -> QWidget:
-        """Opcoes de faca na barra (GLOBAL, estilo Corel), a direita do Contorno:
-        Modo (Faca de PDF) + Recorte + Giro + Suavizar. Espelha os campos globais
-        do Documento (sincronizado nos dois sentidos). A Sangria e o Offset do
-        Contorno; por isso nao se repete aqui."""
-        w = QFrame()
-        fl = QHBoxLayout(w)
-        fl.setContentsMargins(0, 0, 0, 0)
-        fl.setSpacing(theme.SPACE_XS)
-        tag = QLabel("Faca")
-        tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
-        fl.addWidget(tag)
-
-        self._fb_mode = NoWheelComboBox()
-        self._fb_mode.addItem("Retangulo", "rect")
-        self._fb_mode.addItem("Contorno", "contour")
-        self._fb_mode.addItem("Vetor", "vector")
-        self._fb_mode.setToolTip(
-            "Faca de PDF: Retangulo (por fora), pelo Contorno (rasteriza) ou "
-            "Vetor (faca do cliente no PDF)."
-        )
-        self._fb_mode.currentIndexChanged.connect(lambda _: self._on_faca_bar_changed())
-        fl.addWidget(self._fb_mode)
-
-        self._fb_crop = LengthSpin(0, 100)
-        self._fb_crop.setFixedWidth(84)
-        self._fb_crop.setToolTip("Recorte da arte: corta as bordas (mm) antes de gerar a faca.")
-        self._fb_crop.editingFinished.connect(self._on_faca_bar_changed)
-        fl.addWidget(QLabel("Recorte"))
-        fl.addWidget(self._fb_crop)
-
-        self._fb_rot = NoWheelComboBox()
-        for g in ("0", "90", "180", "270"):
-            self._fb_rot.addItem(g, g)
-        self._fb_rot.setToolTip("Giro (graus) de todos os arquivos.")
-        self._fb_rot.currentIndexChanged.connect(lambda _: self._on_faca_bar_changed())
-        fl.addWidget(QLabel("Giro"))
-        fl.addWidget(self._fb_rot)
-
-        self._fb_smooth = _spin(0, 5)
-        self._fb_smooth.setFixedWidth(52)
-        self._fb_smooth.setToolTip("Suavizar curvas da faca: 0 = reto, 5 = macio.")
-        self._fb_smooth.valueChanged.connect(lambda _: self._on_faca_bar_changed())
-        fl.addWidget(QLabel("Suavizar"))
-        fl.addWidget(self._fb_smooth)
-        return w
-
-    def _on_faca_bar_changed(self) -> None:
-        """Toolbar Faca -> grava nos campos globais do Documento e re-gera a faca."""
-        if self._fb_loading:
-            return
-        for widget in (self._faca_mode, self._crop, self._rotation, self._auto_smooth):
-            widget.blockSignals(True)
-        try:
-            self._faca_mode.setCurrentIndex(self._fb_mode.currentIndex())
-            self._crop.setValue(float(self._fb_crop.value()))
-            self._rotation.setCurrentText(self._fb_rot.currentData())
-            self._auto_smooth.setValue(int(self._fb_smooth.value()))
-        finally:
-            for widget in (self._faca_mode, self._crop, self._rotation, self._auto_smooth):
-                widget.blockSignals(False)
-        if self._loaded:
-            self._relayout(renest=False)
-
-    def _sync_faca_bar(self) -> None:
-        """Reflete os campos globais de faca na toolbar (ex.: ao abrir projeto ou
-        ao editar pelo card do Documento)."""
-        if not hasattr(self, "_fb_mode"):
-            return
-        self._fb_loading = True
-        try:
-            self._fb_mode.setCurrentIndex(self._faca_mode.currentIndex())
-            self._fb_crop.setValue(float(self._crop.value()))
-            self._fb_rot.setCurrentText(str(self._rotation_value()))
-            self._fb_smooth.setValue(int(self._auto_smooth.value()))
-        finally:
-            self._fb_loading = False
 
     def _update_property_bar(self) -> None:
         """Repinta a barra conforme a selecao atual (Projeto / Objeto / Grupo)."""
         if not hasattr(self, "_pbar_stack"):
             return
         self._sync_contour_tool()  # reflete offset/cantos atuais na toolbar
-        self._sync_faca_bar()      # reflete modo/recorte/giro/suavizar na toolbar
         try:
             pieces = self._selected_pieces()
         except RuntimeError:
@@ -3120,11 +3057,11 @@ class MainWindow(QMainWindow):
         self._table.itemSelectionChanged.connect(self._update_selection_info)
         lay.addWidget(self._table, 1)
 
-        self._btn_crop = QPushButton("  Recortar paginas...")
+        self._btn_crop = QPushButton("  Recortar...")
         self._btn_crop.setIcon(icons.icon("replace", theme.ICON))
         self._btn_crop.setToolTip(
-            "Corta as bordas das paginas do PDF selecionado (cima/baixo/esq/dir),\n"
-            "em todas as paginas ou nas que voce escolher."
+            "Corta as bordas do arquivo selecionado (PDF ou imagem): arraste as\n"
+            "bordas na previa. No PDF, vale para todas as paginas ou as que escolher."
         )
         self._btn_crop.clicked.connect(self._crop_pages_dialog)
         lay.addWidget(self._btn_crop)
@@ -3751,6 +3688,7 @@ class MainWindow(QMainWindow):
             self._faca_corner = "round"  # canto padrao seguro
             self._rotation.setCurrentIndex(0)
             self._faca_mode.setCurrentIndex(0)
+            self._reg_type.setCurrentIndex(0)  # SEM marcas por padrao (ligue quando quiser)
         finally:
             self._suspend_relayout = False
         self._file_overrides = {}
@@ -3907,27 +3845,26 @@ class MainWindow(QMainWindow):
         return result
 
     def _crop_pages_dialog(self) -> None:
-        """Dialogo de recorte de paginas do PDF selecionado na biblioteca."""
+        """Dialogo de recorte visual do arquivo selecionado (PDF ou imagem):
+        arraste as bordas para cortar. Mesmo esquema para os dois."""
         row = self._table.currentRow()
         if row < 0 or row >= len(self._paths):
             QMessageBox.information(self, "PrintNest", "Selecione um arquivo na biblioteca.")
             return
         path = self._paths[row]
-        if Path(path).suffix.lower() != ".pdf":
-            QMessageBox.information(
-                self, "PrintNest",
-                "O recorte de paginas e para PDF. Para imagens, use 'Recorte da arte'.",
-            )
-            return
-        try:
-            import fitz
-            total = fitz.open(path).page_count
-        except Exception:
-            QMessageBox.warning(self, "PrintNest", "Nao foi possivel abrir o PDF.")
-            return
+        is_pdf = Path(path).suffix.lower() == ".pdf"
+        if is_pdf:
+            try:
+                import fitz
+                total = fitz.open(path).page_count
+            except Exception:
+                QMessageBox.warning(self, "PrintNest", "Nao foi possivel abrir o PDF.")
+                return
+        else:
+            total = 1  # imagem = uma "pagina"
 
         dlg = QDialog(self)
-        dlg.setWindowTitle(f"Recortar paginas — {Path(path).name}")
+        dlg.setWindowTitle(f"Recortar — {Path(path).name}")
         dlg.resize(760, 480)
         root = QVBoxLayout(dlg)
         body = QHBoxLayout()
@@ -3936,7 +3873,8 @@ class MainWindow(QMainWindow):
         # --- coluna esquerda: campos ---
         left_col = QWidget()
         form = QFormLayout(left_col)
-        form.addRow(QLabel(f"PDF com {total} pagina(s).\nArraste as bordas ou digite (mm):"))
+        titulo = (f"PDF com {total} pagina(s)." if is_pdf else "Imagem.")
+        form.addRow(QLabel(f"{titulo}\nArraste as bordas ou digite (mm):"))
         spins = {}
         existing = self._page_crops.get(path, {})
         first = next(iter(existing.values()), (0.0, 0.0, 0.0, 0.0))
@@ -3949,10 +3887,11 @@ class MainWindow(QMainWindow):
             form.addRow(rotulo, sp)
         pages_edit = QLineEdit("todas")
         pages_edit.setToolTip("'todas' ou paginas especificas, ex.: 1,3-5")
-        form.addRow("Paginas", pages_edit)
         prev_page = QSpinBox()
         prev_page.setRange(1, total)
-        form.addRow("Pre-visualizar pagina", prev_page)
+        if is_pdf:  # paginas so fazem sentido em PDF; imagem tem uma so
+            form.addRow("Paginas", pages_edit)
+            form.addRow("Pre-visualizar pagina", prev_page)
         body.addWidget(left_col)
 
         # --- coluna direita: pre-visualizacao ---
@@ -4043,7 +3982,11 @@ class MainWindow(QMainWindow):
         cached = self._baked_crops.get((path, sig))
         if cached and Path(cached).exists():
             return cached
-        out = self._bake_cropped_pdf(path, crops, sig)
+        # mesmo esquema para PDF e imagem: gera uma versao recortada em cache
+        if Path(path).suffix.lower() == ".pdf":
+            out = self._bake_cropped_pdf(path, crops, sig)
+        else:
+            out = self._bake_cropped_image(path, crops, sig)
         if out is None:
             return path
         self._baked_crops[(path, sig)] = out
@@ -4076,6 +4019,38 @@ class MainWindow(QMainWindow):
             out = str(cache / f"crop_{abs(hash((path, sig))) & 0xffffffff:08x}.pdf")
             doc.save(out)
             doc.close()
+            return out
+        except Exception:
+            return None
+
+    def _bake_cropped_image(self, path: str, crops: dict, sig) -> str | None:
+        """Gera uma IMAGEM recortada em cache (corta as bordas em mm, usando o DPI
+        da imagem). Mesmo esquema do PDF; devolve o caminho ou None se falhar."""
+        try:
+            from PIL import Image
+
+            crop = crops.get(0) or next(iter(crops.values()), None)
+            if crop is None:
+                return None
+            left, top, right, bottom = crop
+            img = Image.open(path)
+            w, h = img.size
+            dpi = img.info.get("dpi", (96.0, 96.0))
+            d = float(dpi[0]) if isinstance(dpi, (tuple, list)) else float(dpi)
+            if d <= 0:
+                d = 96.0
+            ppm = d / 25.4  # pixels por mm
+            box = (
+                max(0, round(left * ppm)), max(0, round(top * ppm)),
+                min(w, max(round(left * ppm) + 1, w - round(right * ppm))),
+                min(h, max(round(top * ppm) + 1, h - round(bottom * ppm))),
+            )
+            cropped = img.crop(box)
+            cache = Path(tempfile.gettempdir()) / "printnest_crops"
+            cache.mkdir(parents=True, exist_ok=True)
+            ext = Path(path).suffix.lower() or ".png"
+            out = str(cache / f"cropimg_{abs(hash((path, sig))) & 0xffffffff:08x}{ext}")
+            cropped.save(out, dpi=(d, d))
             return out
         except Exception:
             return None
