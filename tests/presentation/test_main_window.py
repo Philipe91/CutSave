@@ -635,7 +635,7 @@ def test_barra_propriedades_contextual(qapp, tmp_path):
     window._piece_items[0].setSelected(True)
     assert window._pbar_stack.currentIndex() == 1  # Objeto
     p = window._piece_items[0]
-    assert abs(window._pb_x.value() - (p.scenePos().x() - p.dx)) < 0.01
+    assert abs(window._pb_w.value() - p.rect().width()) < 0.5  # mostra a medida (L)
 
     window._piece_items[1].setSelected(True)
     assert window._pbar_stack.currentIndex() == 2  # Grupo
@@ -661,21 +661,6 @@ def test_girar_mantem_a_selecao(qapp, tmp_path):
     assert window._pbar_stack.currentIndex() == 1  # continua em Objeto
 
 
-def test_barra_propriedades_edita_x_move_peca(qapp, tmp_path):
-    # Editar X na barra move a peca (via _nudge, entra no undo).
-    src = _n_page_pdf(tmp_path, 1, name="pbx")
-    window = _window(tmp_path)
-    window._width.setValue(3000)
-    window._height.setValue(3000)
-    window.add_paths([src])
-    window.generate(blocking=True)
-    window._piece_items[0].setSelected(True)
-    p = window._piece_items[0]
-    x0 = p.scenePos().x() - p.dx
-    window._pb_x.setValue(x0 + 150)
-    window._pbar_apply_x()
-    xs = [it.position.x for s in window._effective_sheets() for it in s.items]
-    assert any(abs(x - (x0 + 150)) < 0.5 for x in xs)
 
 
 def test_transformar_duplicar_linear(qapp, tmp_path):
@@ -1703,6 +1688,28 @@ def test_contorno_toolbar_offset_direcao_cantos(qapp, tmp_path):
     assert window._global_faca_params()["corner"] == "miter"
 
 
+def test_objeto_barra_mostra_e_edita_tamanho(qapp, tmp_path):
+    # Objeto (barra): L/A mostram a medida do objeto clicado e redimensionam.
+    src = _n_page_pdf(tmp_path, 1, name="la")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window._offset.setValue(0)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+    p = window._piece_items[0]
+
+    assert abs(window._pb_w.value() - p.rect().width()) < 0.5   # mostra a largura
+    assert abs(window._pb_h.value() - p.rect().height()) < 0.5  # mostra a altura
+
+    window._pb_lock.setChecked(False)  # so largura
+    w0 = window._result.artworks[0].size.width
+    window._pb_w.setValue(w0 + 50)
+    window._pbar_resize("w")
+    assert window._result.artworks[0].size.width > w0  # editou o tamanho
+
+
 def test_cadeado_proporcao_na_alca(qapp, tmp_path):
     # O cadeado (Objeto) controla a proporcao ao redimensionar pela alca do mouse.
     from PySide6.QtCore import QPointF
@@ -1753,6 +1760,57 @@ def test_alca_redimensiona_por_arraste(qapp, tmp_path):
     window._end_resize(p, alvo, "w")
     assert window._result.artworks[0].size.width > w0  # a peca cresceu
     assert len(window._resize_handles) == 3  # alcas reaparecem na peca redimensionada
+
+
+def test_faca_png_apos_remover_pdf(qapp, tmp_path):
+    # Bug: soltar PDF, gerar faca, remover, soltar PNG -> gerar faca nao funciona.
+    from PySide6.QtCore import QPointF
+
+    pdf = _n_page_pdf(tmp_path, 1, name="doc")
+    png = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+
+    window.open_external_files([pdf])  # arrasta de fora (drag do desktop)
+    window._regenerate_faca()
+    assert all(a.has_cut for a in window._result.artworks)  # PDF com faca
+
+    window._table.setCurrentCell(0, 0)
+    window.remove_selected()  # remove pela biblioteca
+
+    window.open_external_files([png])  # arrasta o PNG de fora
+    window._regenerate_faca()
+    png_arts = [a for a in window._result.artworks if window._path_of(a.id) == png]
+    assert png_arts, "PNG nao entrou na producao"
+    assert all(a.has_cut for a in png_arts), "PNG ficou SEM faca"
+
+
+def test_gerar_faca_sem_producao_gera_do_zero(qapp, tmp_path):
+    # "Gerar Faca" sem producao ainda: gera a producao JA com faca (botao azul
+    # sempre funciona, mesmo depois de remover tudo e adicionar outro arquivo).
+    png = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([png])
+    assert window._loaded is False
+    window._regenerate_faca()
+    assert window._loaded is True
+    assert all(a.has_cut for a in window._result.artworks)
+
+
+def test_remover_ultimo_arquivo_limpa_producao(qapp, tmp_path):
+    # Remover o ultimo arquivo da biblioteca limpa a producao (nao deixa _result
+    # desatualizado) -> o proximo arquivo comeca do zero.
+    pdf = _n_page_pdf(tmp_path, 1, name="doc")
+    window = _window(tmp_path)
+    window.add_paths([pdf])
+    window.generate(blocking=True)
+    assert window._loaded is True
+    window._table.setCurrentCell(0, 0)
+    window.remove_selected()
+    assert window._result is None      # producao limpa
+    assert window._loaded is False
+    assert window._base_artworks == []
 
 
 def test_recortar_imagem_reduz_tamanho(qapp, tmp_path):

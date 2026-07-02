@@ -1729,13 +1729,14 @@ class MainWindow(QMainWindow):
         ol = QHBoxLayout(obj)
         ol.setContentsMargins(0, 0, 0, 0)
         ol.setSpacing(theme.SPACE_SM)
-        self._pb_x = LengthSpin(-100000, 100000)
-        self._pb_y = LengthSpin(-100000, 100000)
-        for sp in (self._pb_x, self._pb_y):
-            sp.setFixedWidth(96)
-        self._pb_x.editingFinished.connect(self._pbar_apply_x)
-        self._pb_y.editingFinished.connect(self._pbar_apply_y)
-        # cadeado: mantem a proporcao ao redimensionar com as alcas do mouse.
+        # medidas L x A do objeto: editaveis (mudar o tamanho pela numeracao)
+        self._pb_w = LengthSpin(1, 20000)
+        self._pb_h = LengthSpin(1, 20000)
+        for sp in (self._pb_w, self._pb_h):
+            sp.setFixedWidth(90)
+        self._pb_w.editingFinished.connect(lambda: self._pbar_resize("w"))
+        self._pb_h.editingFinished.connect(lambda: self._pbar_resize("h"))
+        # cadeado: mantem a proporcao ao mudar L/A ou arrastar as alcas.
         self._pb_lock = QPushButton()
         self._pb_lock.setIcon(icons.icon("lock", theme.ICON))
         self._pb_lock.setCheckable(True)
@@ -1759,12 +1760,11 @@ class MainWindow(QMainWindow):
         b_del.clicked.connect(self._delete_selected)
         ol.addWidget(_tag("⬚ Objeto"))
         ol.addWidget(_sep())
-        ol.addWidget(QLabel("X"))
-        ol.addWidget(self._pb_x)
-        ol.addWidget(QLabel("Y"))
-        ol.addWidget(self._pb_y)
-        ol.addWidget(_sep())
+        ol.addWidget(QLabel("L"))
+        ol.addWidget(self._pb_w)
         ol.addWidget(self._pb_lock)
+        ol.addWidget(QLabel("A"))
+        ol.addWidget(self._pb_h)
         ol.addWidget(_sep())
         ol.addWidget(b_rl)
         ol.addWidget(b_rr)
@@ -1947,8 +1947,8 @@ class MainWindow(QMainWindow):
             if len(pieces) == 1:
                 p = pieces[0]
                 self._pbar_stack.setCurrentIndex(1)
-                self._pb_x.setValue(p.scenePos().x() - p.dx)
-                self._pb_y.setValue(p.scenePos().y() - p.dy)
+                self._pb_w.setValue(p.rect().width())   # medida do objeto clicado
+                self._pb_h.setValue(p.rect().height())
                 self._pb_lock.setChecked(self._ps_lock.isChecked())
             elif len(pieces) > 1:
                 self._pbar_stack.setCurrentIndex(2)
@@ -1974,27 +1974,15 @@ class MainWindow(QMainWindow):
         finally:
             self._pbar_loading = False
 
-    def _pbar_apply_x(self) -> None:
-        if self._pbar_loading:
+    def _pbar_resize(self, which: str) -> None:
+        """Muda o tamanho da peca pela numeracao (L/A da barra Objeto), reusando o
+        redimensionar do painel Peca (respeita o cadeado / proporcao)."""
+        if self._pbar_loading or len(self._selected_pieces()) != 1:
             return
-        sel = self._selected_pieces()
-        if len(sel) != 1:
-            return
-        p = sel[0]
-        delta = float(self._pb_x.value()) - (p.scenePos().x() - p.dx)
-        if abs(delta) > 0.01:
-            self._nudge(delta, 0.0)  # move e registra no undo
-
-    def _pbar_apply_y(self) -> None:
-        if self._pbar_loading:
-            return
-        sel = self._selected_pieces()
-        if len(sel) != 1:
-            return
-        p = sel[0]
-        delta = float(self._pb_y.value()) - (p.scenePos().y() - p.dy)
-        if abs(delta) > 0.01:
-            self._nudge(0.0, delta)
+        if which == "w":
+            self._ps_w.setValue(float(self._pb_w.value()))
+        else:
+            self._ps_h.setValue(float(self._pb_h.value()))
 
     # ---- alcas de redimensionamento no canvas (arrastar com o mouse) ----
     def _update_resize_handles(self) -> None:
@@ -3568,9 +3556,15 @@ class MainWindow(QMainWindow):
 
     def _regenerate_faca(self) -> None:
         """Botao 'Gerar Faca': refaz a deteccao da faca (contorno/cliente) e
-        recalcula, sem precisar reimportar nem refazer o nesting do zero."""
+        recalcula, sem precisar reimportar nem refazer o nesting do zero.
+
+        Sem producao ainda: gera a producao JA com faca (assim o botao azul
+        sempre funciona, ex.: depois de remover tudo e soltar outro arquivo)."""
         if not self._loaded:
-            self._toasts.info("Gere a producao primeiro (Gerar Producao).")
+            if self._paths:
+                self.generate(blocking=True, faca=True)
+            else:
+                self._toasts.info("Adicione arquivos na biblioteca primeiro.")
             return
         self._pdf_contours = {}
         self._vector_contours = {}
@@ -3810,6 +3804,17 @@ class MainWindow(QMainWindow):
         if removed:
             self._base_artworks = [b for b in self._base_artworks if b.id not in removed]
             self._piece_items = [p for p in self._piece_items if p.artwork_id not in removed]
+        if not self._base_artworks:
+            # removeu tudo: limpa a producao para o proximo arquivo comecar do ZERO
+            # (senao _result fica desatualizado e o proximo drop/gerar nao funciona).
+            self._result = None
+            self._loaded = False
+            self._scene.clear()
+            self._decor_items = []
+            self._piece_items = []
+            self._status_ctl.set_production(0, 0)
+            self._alert.clear()
+            return
         self._relayout()
 
     def _update_selection_info(self) -> None:
