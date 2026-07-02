@@ -39,4 +39,13 @@ def test_servidor_recebe_os_caminhos(qapp):
             qapp.processEvents()
         assert recebidos.get("files") == ["/x/a.pdf", "/y/b.png"]
     finally:
+        # teardown explicito (QA-11): socket/servidor destruidos AGORA, com o
+        # QApplication vivo — deixa-los para o GC do fim do processo derrubava
+        # o teardown do Qt (segfault 139) quando rodava junto com a suite da
+        # MainWindow.
+        sock.abort()
+        sock.deleteLater()
         server.close()
+        server.deleteLater()
+        for _ in range(5):
+            qapp.processEvents()

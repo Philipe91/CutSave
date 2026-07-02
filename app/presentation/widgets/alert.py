@@ -1,7 +1,7 @@
 """Alert: faixa de aviso contextual padronizada (info / sucesso / aviso / erro).
 
 Usada para o software NUNCA falhar em silencio: explica o que houve e, quando
-util, oferece uma acao. Some quando nao ha aviso.
+útil, oferece uma ação. Some quando não ha aviso.
 
     alert = Alert()
     alert.show_message(AlertLevel.WARNING, "Faca compartilhada quadra o contorno.",
@@ -27,7 +27,7 @@ class AlertLevel(Enum):
 
 
 class Alert(QFrame):
-    """Faixa de aviso com icone, texto e botao de acao opcional."""
+    """Faixa de aviso com icone, texto e botão de ação opcional."""
 
     def __init__(self) -> None:
         super().__init__()

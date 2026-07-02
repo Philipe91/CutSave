@@ -67,8 +67,8 @@ fica aprovável.
 | QA-07 | 🟡 | Duplicar/undo em cadeia degrada (redraw total por operação) | 🔶 **mitigado** (-20%: memoização de footprint/params por id no redesenho). Correção definitiva = redesenho incremental (backlog) |
 | QA-08 | 🟡 | Fechar durante geração: QThread órfã (crash "fechou sozinho") | ✅ **corrigido** — `closeEvent` espera a thread (`quit`+`wait`) |
 | QA-09 | 🟡 | Alt+O ambíguo (Organizar × Opções) | ✅ **corrigido** — Opções virou Alt+P |
-| QA-10 | 🟡 | 100+ strings de UI sem acento ("Producao", "Exportacao") | ⏳ aberta — passada de acentuação (cuidado: testes comparam strings) |
-| QA-11 | 🟡 | Suíte: segfault de teardown do Qt após 100% verde (exit 139) | ⏳ aberta — investigar fixture qapp |
+| QA-10 | 🟡 | 100+ strings de UI sem acento | ✅ **corrigido** — passada via tokenize (só strings/comentários; identificadores e dados intactos; QSS simétrico) |
+| QA-11 | 🟡 | Suíte: segfault de teardown do Qt após 100% verde (exit 139) | 🔶 **investigado** — par reprodutor isolado (test_main_window + test_single_instance juntos; cada um sozinho = exit 0). gc por teste + teardown explícito adicionados (higiene), mas o crash é no shutdown do PySide6 com QLocalServer. Workaround p/ CI: rodar single_instance em processo separado (`pytest tests/presentation/test_single_instance.py` à parte) |
 | QA-12 | 🟢 | Clipboard de peças não era por-aba | ✅ **corrigido** — limpo em `_apply_session` |
 | QA-13 | 🟢 | Espaçamentos 6/2px deliberados em `fields.py` | mantido (decisão de design documentada) |
 

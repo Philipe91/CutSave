@@ -1,7 +1,7 @@
 """CollapsibleCard: cartao moderno e recolhivel.
 
 Substitui o antigo ``_section`` (faixas coloridas berrantes) por um cartao
-sobrio: borda suave unica, cabecalho discreto com seta, conteudo com padding
+sobrio: borda suave única, cabecalho discreto com seta, conteudo com padding
 uniforme. Clicar no cabecalho abre/fecha.
 
     card = CollapsibleCard("Material")
@@ -23,7 +23,7 @@ class CollapsibleCard(QFrame):
     def __init__(self, title: str, *, collapsed: bool = False, accent: str = "") -> None:
         super().__init__()
         self.setObjectName("card")
-        # faixa colorida por secao (Producao=azul, Acabamento=laranja, etc.).
+        # faixa colorida por secao (Produção=azul, Acabamento=laranja, etc.).
         # O QSS (theme.build_app_qss) define a borda esquerda por este valor.
         if accent:
             self.setProperty("accent", accent)
@@ -44,7 +44,7 @@ class CollapsibleCard(QFrame):
         self._content = QWidget()
         self.body = QVBoxLayout(self._content)
         # respiro generoso: 16px nas laterais/base + 4px sob o cabecalho, para o
-        # conteudo nao "colar" no titulo (hierarquia Titulo -> Grupo -> Campo)
+        # conteudo não "colar" no título (hierarquia Título -> Grupo -> Campo)
         self.body.setContentsMargins(
             theme.SPACE_LG, theme.SPACE_XS, theme.SPACE_LG, theme.SPACE_LG
         )

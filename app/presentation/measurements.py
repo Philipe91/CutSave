@@ -1,8 +1,8 @@
 """Calculo de medidas para o painel contextual e a barra de status.
 
 Logica PURA (sem Qt): recebe objetos de dominio e devolve numeros prontos para
-exibir. Reaproveita o que o dominio ja oferece (Polygon.area/perimeter,
-Size.area, artwork_footprint, Layout.used_length).
+exibir. Reaproveita o que o dominio já oferece (Polygon.área/perimeter,
+Size.área, artwork_footprint, Layout.used_length).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from app.domain.model.placement import PlacedItem
 class PieceMetrics:
     width: float       # mm
     height: float      # mm
-    area: float        # mm2 (do contorno da faca, ou retangulo da arte)
+    area: float        # mm2 (do contorno da faca, ou retângulo da arte)
     perimeter: float   # mm
 
 
@@ -37,13 +37,13 @@ class SheetMetrics:
     width: float       # mm
     length: float      # mm (comprimento consumido)
     sheet_area: float  # mm2
-    used_area: float   # mm2 ocupada pelas pecas
+    used_area: float   # mm2 ocupada pelas peças
     used_pct: float    # 0-100
     free_area: float   # mm2
 
 
 def piece_metrics(art: Artwork) -> PieceMetrics:
-    """Medidas de uma peca: usa o contorno da faca quando houver, senao a arte."""
+    """Medidas de uma peça: usa o contorno da faca quando houver, senao a arte."""
     if art.has_cut:
         contour = art.cut_contour
         poly = Polygon(contour.points)
@@ -54,7 +54,7 @@ def piece_metrics(art: Artwork) -> PieceMetrics:
 
 
 def group_metrics(boxes: Sequence[tuple[float, float, float, float]]) -> GroupMetrics:
-    """Medidas de um grupo a partir de caixas (x, y, w, h) em mm de cada peca."""
+    """Medidas de um grupo a partir de caixas (x, y, w, h) em mm de cada peça."""
     if not boxes:
         return GroupMetrics(0.0, 0.0, 0)
     min_x = min(x for x, _y, _w, _h in boxes)
@@ -65,7 +65,7 @@ def group_metrics(boxes: Sequence[tuple[float, float, float, float]]) -> GroupMe
 
 
 def sheet_metrics(layout: Layout, artworks: Sequence[Artwork]) -> SheetMetrics:
-    """Medidas de uma chapa: tamanho, area ocupada pelas pecas e % de uso."""
+    """Medidas de uma chapa: tamanho, área ocupada pelas peças e % de uso."""
     by_id = {a.id: a for a in artworks}
     width = layout.material.width
     length = layout.used_length

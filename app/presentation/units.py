@@ -1,8 +1,8 @@
 """Unidade de exibicao (mm/cm).
 
-Regra de ouro: TUDO e armazenado em milimetros (dominio, settings, posicoes da
-cena). Este modulo so converte/formata para EXIBIR e EDITAR na unidade que o
-usuario escolheu. Estado global simples (uma janela por processo), com funcoes
+Regra de ouro: TUDO e armazenado em milímetros (dominio, settings, posições da
+cena). Este modulo só converte/formata para EXIBIR e EDITAR na unidade que o
+usuário escolheu. Estado global simples (uma janela por processo), com funcoes
 puras de formatacao faceis de testar.
 """
 
@@ -17,7 +17,7 @@ _PER_MM = {MM: 1.0, CM: 0.1}
 # casas decimais usadas ao exibir/editar comprimentos
 _DECIMALS = {MM: 1, CM: 2}
 
-_current = CM  # padrao: centimetros (preferencia do usuario)
+_current = CM  # padrão: centímetros (preferencia do usuário)
 
 
 def set_unit(unit: str) -> None:
@@ -61,7 +61,7 @@ def fmt_len(mm: float, u: str | None = None, *, with_unit: bool = True) -> str:
 
 
 def fmt_area(mm2: float, u: str | None = None) -> str:
-    """Area formatada na unidade quadrada correspondente (cm2 ou mm2)."""
+    """Área formatada na unidade quadrada correspondente (cm2 ou mm2)."""
     if _u(u) == CM:
         return f"{mm2 / 100.0:.2f} cm²"
     return f"{mm2:.0f} mm²"

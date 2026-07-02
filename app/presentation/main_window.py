@@ -152,21 +152,21 @@ RULER_SIZE = 24
 NUDGE_MM = 1.0
 NUDGE_MICRO_MM = 0.1
 NUDGE_SUPER_MM = 10.0
-# DPI para rasterizar a pagina de PDF ao detectar a faca "pelo contorno".
+# DPI para rasterizar a página de PDF ao detectar a faca "pelo contorno".
 PDF_CONTOUR_DPI = 150
-SNAP_THRESHOLD_MM = 2.0  # distancia (mm) para o encaixe "grudar"
-# zona morta do arraste (px na tela): so move a peca depois de passar disso.
-# Evita que um clique com leve tremor do mouse arraste a peca sem querer.
+SNAP_THRESHOLD_MM = 2.0  # distância (mm) para o encaixe "grudar"
+# zona morta do arraste (px na tela): só move a peça depois de passar disso.
+# Evita que um clique com leve tremor do mouse arraste a peça sem querer.
 DRAG_DEADZONE_PX = 6
 
 
 class SnapConfig:
-    """Estado compartilhado do encaixe (snap) ao arrastar pecas."""
+    """Estado compartilhado do encaixe (snap) ao arrastar peças."""
 
     def __init__(self, enabled: bool = True, threshold_mm: float = SNAP_THRESHOLD_MM) -> None:
         self.enabled = enabled
         self.threshold_mm = threshold_mm
-        self.dragging = False  # snap so age durante o arraste com o mouse
+        self.dragging = False  # snap só age durante o arraste com o mouse
 
 
 class ZoomableGraphicsView(QGraphicsView):
@@ -176,27 +176,27 @@ class ZoomableGraphicsView(QGraphicsView):
     drag_started = Signal()
     drag_finished = Signal()
     nudge = Signal(float, float)  # deslocamento (dx, dy) em mm, via setas
-    cursor_moved = Signal(float, float)  # posicao do cursor (x, y) em mm na cena
+    cursor_moved = Signal(float, float)  # posição do cursor (x, y) em mm na cena
     library_drop = Signal(QPointF)  # arquivo arrastado da biblioteca, soltou na cena
 
     def __init__(self, scene: QGraphicsScene) -> None:
         super().__init__(scene)
-        # esquerdo: seleciona item / move; em area vazia faz laco de selecao.
+        # esquerdo: seleciona item / move; em área vazia faz laco de seleção.
         # meio faz pan; roda da zoom.
         self.setDragMode(QGraphicsView.NoDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(theme.CANVAS_BG))  # mesa clara (estilo Affinity)
-        self.setMouseTracking(True)  # cursor reportado mesmo sem botao pressionado
+        self.setMouseTracking(True)  # cursor reportado mesmo sem botão pressionado
         self.setAcceptDrops(True)  # aceita arquivos arrastados da biblioteca
-        # laco seleciona tudo que ele TOCAR (nao precisa envolver por inteiro)
+        # laco seleciona tudo que ele TOCAR (não precisa envolver por inteiro)
         self.setRubberBandSelectionMode(Qt.IntersectsItemShape)
         self._panning = False
         self._pan_last = None
         self._left_drag = False
-        self._press_view_pos = None  # posicao do clique (zona morta de arraste)
-        self._drag_armed = False  # vira True so apos passar a zona morta
+        self._press_view_pos = None  # posição do clique (zona morta de arraste)
+        self._drag_armed = False  # vira True só após passar a zona morta
 
-    # ---- arrastar da biblioteca para a area de trabalho ----
+    # ---- arrastar da biblioteca para a área de trabalho ----
     @staticmethod
     def _is_library_drag(event) -> bool:
         src = event.source()
@@ -234,7 +234,7 @@ class ZoomableGraphicsView(QGraphicsView):
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:
         super().scrollContentsBy(dx, dy)
-        self.view_changed.emit()  # mantem reguas/overlay/guias em sincronia
+        self.view_changed.emit()  # mantem réguas/overlay/guias em sincronia
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -269,8 +269,8 @@ class ZoomableGraphicsView(QGraphicsView):
             event.accept()
             return
         if event.button() == Qt.LeftButton:
-            # sobe ate achar um item selecionavel (peca/guia); ignora os filhos
-            # (imagem/faca) e a chapa. Em area "vazia" -> laco de selecao (marquee).
+            # sobe até achar um item selecionavel (peça/guia); ignora os filhos
+            # (imagem/faca) e a chapa. Em área "vazia" -> laco de seleção (marquee).
             target = self.itemAt(event.position().toPoint())
             sel = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             while target is not None and not (target.flags() & sel):
@@ -284,8 +284,8 @@ class ZoomableGraphicsView(QGraphicsView):
                 self.setDragMode(QGraphicsView.RubberBandDrag)
                 self._left_drag = False
         super().mousePressEvent(event)
-        # drag_started DEPOIS do super: o Qt ja selecionou a peca clicada, entao
-        # o snapshot do desfazer (_begin_move) inclui a peca que vai ser movida.
+        # drag_started DEPOIS do super: o Qt já selecionou a peça clicada, entao
+        # o snapshot do desfazer (_begin_move) inclui a peça que vai ser movida.
         if self._left_drag:
             self.drag_started.emit()
 
@@ -300,8 +300,8 @@ class ZoomableGraphicsView(QGraphicsView):
             vbar.setValue(vbar.value() - int(delta.y()))
             event.accept()
             return
-        # zona morta: enquanto nao passar do limiar, NAO move a peca (um clique
-        # com leve tremor nao deve arrastar a peca para cima das vizinhas).
+        # zona morta: enquanto não passar do limiar, NAO move a peça (um clique
+        # com leve tremor não deve arrastar a peça para cima das vizinhas).
         if self._left_drag and not self._drag_armed and self._press_view_pos is not None:
             if (event.position() - self._press_view_pos).manhattanLength() < DRAG_DEADZONE_PX:
                 event.accept()
@@ -330,14 +330,14 @@ RELAYOUT_MERGE_ID = 1
 
 class SnapshotCommand(QUndoCommand):
     """Desfaz/refaz QUALQUER mudanca (mover, excluir, duplicar, repetir, alinhar,
-    distribuir e tambem o recalculo por mudanca de parametro).
+    distribuir e também o recalculo por mudanca de parametro).
 
-    Guarda o ESTADO (chapas + artes) antes e depois e reaplica os DADOS, nao
-    referencias de itens graficos. Por isso sobrevive a redesenhos e nunca fica
-    com referencias mortas — a base do Ctrl+Z ilimitado e confiavel. A pilha so
+    Guarda o ESTADO (chapas + artes) antes e depois e reaplica os DADOS, não
+    referencias de itens gráficos. Por isso sobrevive a redesenhos e nunca fica
+    com referencias mortas — a base do Ctrl+Z ilimitado e confiavel. A pilha só
     e zerada ao gerar/abrir/criar projeto.
 
-    O primeiro 'redo' (disparado pelo push) e ignorado: a operacao ja foi
+    O primeiro 'redo' (disparado pelo push) e ignorado: a operacao já foi
     aplicada quando o comando entra na pilha.
     """
 
@@ -353,7 +353,7 @@ class SnapshotCommand(QUndoCommand):
         return self._merge_id
 
     def mergeWith(self, other) -> bool:
-        # funde recalculos consecutivos do mesmo tipo num passo so (mantem o
+        # funde recalculos consecutivos do mesmo tipo num passo só (mantem o
         # 'before' original e adota o 'after' mais novo).
         if self._merge_id < 0 or other.id() != self._merge_id:
             return False
@@ -371,7 +371,7 @@ class SnapshotCommand(QUndoCommand):
 
 
 class PieceItem(QGraphicsRectItem):
-    """Peca na area de trabalho: selecionavel e movel (arte + faca como filhos)."""
+    """Peça na área de trabalho: selecionavel e movel (arte + faca como filhos)."""
 
     def __init__(self, width, height, *, artwork_id, name, art_size, sheet_index, dx, dy):
         super().__init__(0.0, 0.0, width, height)
@@ -386,9 +386,9 @@ class PieceItem(QGraphicsRectItem):
         self.setPen(QPen(Qt.NoPen))
 
     def paint(self, painter, option, widget=None) -> None:  # noqa: ARG002
-        # a arte e a faca sao itens filhos; a peca em si so desenha o contorno
-        # AZUL quando esta selecionada (feedback de selecao, estilo CorelDRAW).
-        # Nao chama super().paint para nao mostrar o tracejado padrao do Qt.
+        # a arte e a faca sao itens filhos; a peça em si só desenha o contorno
+        # AZUL quando esta selecionada (feedback de seleção, estilo CorelDRAW).
+        # Não chama super().paint para não mostrar o tracejado padrão do Qt.
         if self.isSelected():
             pen = QPen(QColor(theme.ACCENT))
             pen.setCosmetic(True)
@@ -443,10 +443,10 @@ class PieceItem(QGraphicsRectItem):
 
 
 class Ruler(QWidget):
-    """Regua (mm) sincronizada com o view, no estilo de softwares de pre-impressao.
+    """Régua (mm) sincronizada com o view, no estilo de softwares de pre-impressao.
 
-    Arrastar a partir da regua cria uma guia (igual CorelDRAW): da regua de cima
-    (horizontal) nasce uma guia horizontal; da regua lateral, uma guia vertical.
+    Arrastar a partir da régua cria uma guia (igual CorelDRAW): da régua de cima
+    (horizontal) nasce uma guia horizontal; da régua lateral, uma guia vertical.
     """
 
     # (guia_horizontal, valor_mm na cena) durante o arraste e ao soltar
@@ -465,7 +465,7 @@ class Ruler(QWidget):
             self.setFixedWidth(RULER_SIZE)
 
     def _scene_value_at(self, gpos) -> tuple[float, bool]:
-        """Converte a posicao global do mouse no valor (mm) da cena e diz se
+        """Converte a posição global do mouse no valor (mm) da cena e diz se
         esta dentro do canvas. Guia horizontal usa Y; vertical usa X."""
         vp = self._view.viewport()
         local = vp.mapFromGlobal(gpos)
@@ -548,10 +548,10 @@ class Ruler(QWidget):
 
 
 class MeasureOverlay(QFrame):
-    """Caixinha flutuante no canto da area de trabalho com as medidas do que
-    esta selecionado (peca/grupo) ou da chapa quando nada esta selecionado.
+    """Caixinha flutuante no canto da área de trabalho com as medidas do que
+    esta selecionado (peça/grupo) ou da chapa quando nada esta selecionado.
 
-    Transparente a cliques (nao atrapalha selecao/arraste no canvas).
+    Transparente a cliques (não atrapalha seleção/arraste no canvas).
     """
 
     def __init__(self, parent: QWidget) -> None:
@@ -586,8 +586,8 @@ class MeasureOverlay(QFrame):
 
 
 class CropPreview(QWidget):
-    """Pre-visualizacao do recorte de pagina: mostra a pagina, sombreia o que
-    sera cortado e deixa arrastar as 4 bordas para definir o corte (mm)."""
+    """Pre-visualização do recorte de página: mostra a página, sombreia o que
+    será cortado e deixa arrastar as 4 bordas para definir o corte (mm)."""
 
     crop_changed = Signal()
 
@@ -703,11 +703,11 @@ class CropPreview(QWidget):
 
 
 class _ResizeHandle(QGraphicsRectItem):
-    """Alca de redimensionamento (estilo CorelDRAW) numa peca selecionada.
+    """Alça de redimensionamento (estilo CorelDRAW) numa peça selecionada.
 
     Fica no canto/aresta inferior-direito; arrastar redimensiona a arte
-    (ancorada no canto superior-esquerdo, entao a posicao nao muda). axis:
-    'wh' (canto = largura+altura), 'w' (so largura), 'h' (so altura). Tamanho
+    (ancorada no canto superior-esquerdo, entao a posição não muda). axis:
+    'wh' (canto = largura+altura), 'w' (só largura), 'h' (só altura). Tamanho
     fixo na tela (ignora o zoom)."""
 
     S = 10.0
@@ -752,14 +752,14 @@ class GuideItem(QGraphicsLineItem):
         self._is_h = bool(record[0])
         self._base = float(record[1])
         self.setPen(pen)
-        self.setZValue(1_000_000)  # sempre acima das pecas (mesmo apos z-order)
+        self.setZValue(1_000_000)  # sempre acima das peças (mesmo após z-order)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setCursor(Qt.SizeVerCursor if self._is_h else Qt.SizeHorCursor)
 
     def shape(self):
-        # area de clique mais larga que a linha fina (facilita selecionar)
+        # área de clique mais larga que a linha fina (facilita selecionar)
         stroker = QPainterPathStroker()
         stroker.setWidth(4.0)
         return stroker.createStroke(super().shape())
@@ -778,7 +778,7 @@ class GuideItem(QGraphicsLineItem):
 
 
 class ProductionWorker(QObject):
-    """Importa + monta producao e rasteriza as paginas, fora da thread da UI."""
+    """Importa + monta produção e rasteriza as páginas, fora da thread da UI."""
 
     progress = Signal(int, int)
     finished = Signal(object)
@@ -816,9 +816,9 @@ class ProductionWorker(QObject):
 
 
 def _block_wheel(event) -> None:
-    """Ignora o scroll do mouse: o valor NUNCA muda por rolagem (so setas, teclado
-    ou digitacao). O evento sobe para a area de rolagem (o painel rola normal).
-    Evita o erro de producao de alterar numeros sem querer ao rolar a tela."""
+    """Ignora o scroll do mouse: o valor NUNCA muda por rolagem (só setas, teclado
+    ou digitacao). O evento sobe para a área de rolagem (o painel rola normal).
+    Evita o erro de produção de alterar numeros sem querer ao rolar a tela."""
     event.ignore()
 
 
@@ -833,7 +833,7 @@ class _NoWheelDoubleSpinBox(QDoubleSpinBox):
 
 
 class NoWheelComboBox(QComboBox):
-    """QComboBox que ignora o scroll do mouse (nao troca de item ao rolar)."""
+    """QComboBox que ignora o scroll do mouse (não troca de item ao rolar)."""
 
     def wheelEvent(self, event) -> None:  # noqa: N802
         _block_wheel(event)
@@ -850,7 +850,7 @@ class LengthSpin(QDoubleSpinBox):
     edita na unidade atual (mm/cm).
 
     value()/setValue() continuam em mm (todo o app e os testes dependem disso);
-    so a apresentacao muda. A conversao acontece em textFromValue/valueFromText.
+    só a apresentacao muda. A conversao acontece em textFromValue/valueFromText.
     """
 
     def __init__(self, min_mm, max_mm) -> None:
@@ -880,13 +880,13 @@ class LengthSpin(QDoubleSpinBox):
         return units.to_mm(shown)
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        # scroll do mouse NAO altera a medida (so setas/teclado/digitacao)
+        # scroll do mouse NAO altera a medida (só setas/teclado/digitacao)
         _block_wheel(event)
 
 
 class _QtyLineSpin(QSpinBox):
-    """QSpinBox que seleciona todo o numero ao receber foco/clique, para o
-    usuario digitar a quantidade direto por cima (multiplicar rapido)."""
+    """QSpinBox que seleciona todo o número ao receber foco/clique, para o
+    usuário digitar a quantidade direto por cima (multiplicar rápido)."""
 
     def focusInEvent(self, event) -> None:
         super().focusInEvent(event)
@@ -903,28 +903,28 @@ class QuantityStepper(_QtyLineSpin):
     aos campos de Largura/Altura), sem estilizacao custom.
 
     Mantem value()/setValue()/valueChanged, entao a biblioteca, a aba Transformar
-    e os testes continuam funcionando igual. Digitar so recalcula ao confirmar
-    (Enter/ao sair); clicar seleciona o numero para sobrescrever rapido.
+    e os testes continuam funcionando igual. Digitar só recalcula ao confirmar
+    (Enter/ao sair); clicar seleciona o número para sobrescrever rápido.
     """
 
     def __init__(self, minimum: int = 1, maximum: int = 100000, value: int = 1) -> None:
         super().__init__()
         self.setRange(minimum, maximum)
         self.setValue(value)
-        self.setKeyboardTracking(False)  # confirma no Enter/ao sair, nao a cada tecla
-        self.setFixedHeight(26)  # nao estica na linha alta da tabela (evita ficar enorme)
+        self.setKeyboardTracking(False)  # confirma no Enter/ao sair, não a cada tecla
+        self.setFixedHeight(26)  # não estica na linha alta da tabela (evita ficar enorme)
         self.setToolTip("Digite a quantidade ou use as setas")
 
 
 class ExportCenterDialog(QDialog):
-    """Centro de Exportacao: escolha visual das chapas (miniaturas + checkbox),
+    """Centro de Exportação: escolha visual das chapas (miniaturas + checkbox),
     previa da chapa em foco e formato (PDF impressao / DXF corte / Faca PDF /
-    Imagem). Reusa os exportadores do MainWindow; aqui so e a parte de UI."""
+    Imagem). Reusa os exportadores do MainWindow; aqui só e a parte de UI."""
 
     def __init__(self, window: MainWindow) -> None:
         super().__init__(window)
         self._w = window
-        self.setWindowTitle("Centro de Exportacao")
+        self.setWindowTitle("Centro de Exportação")
         self.setMinimumSize(720, 480)
 
         sheets = window._effective_sheets()
@@ -966,7 +966,7 @@ class ExportCenterDialog(QDialog):
             rl.addWidget(thumb)
             chk = QCheckBox(
                 f"Chapa {i + 1}\n{units.fmt_len(layout.material.width, with_unit=False)} x "
-                f"{units.fmt_len(layout.used_length)}  ·  {layout.item_count} peca(s)"
+                f"{units.fmt_len(layout.used_length)}  ·  {layout.item_count} peça(s)"
             )
             chk.setChecked(i in pre or not pre)  # selecionadas no canvas; senao todas
             chk.toggled.connect(self._sync_options)
@@ -983,10 +983,10 @@ class ExportCenterDialog(QDialog):
         btn_all.clicked.connect(lambda: self._set_all(True))
         btn_none.clicked.connect(lambda: self._set_all(False))
 
-        # ---- direita: previa + formato + opcoes ----
+        # ---- direita: previa + formato + opções ----
         right = QVBoxLayout()
         right.setSpacing(theme.SPACE_SM)
-        prev_card = CollapsibleCard("Pre-visualizacao", accent="producao")
+        prev_card = CollapsibleCard("Pre-visualização", accent="produção")
         self._preview = QLabel()
         self._preview.setAlignment(Qt.AlignCenter)
         self._preview.setMinimumHeight(220)
@@ -994,23 +994,23 @@ class ExportCenterDialog(QDialog):
         prev_card.body.addWidget(self._preview)
         right.addWidget(prev_card)
 
-        # medidas do que sera exportado
+        # medidas do que será exportado
         self._dims = QLabel()
         self._dims.setProperty("role", "caption")
         right.addWidget(self._dims)
 
-        # o que exportar: chapas marcadas ou apenas a selecao (estilo Corel)
+        # o que exportar: chapas marcadas ou apenas a seleção (estilo Corel)
         self._mode_sel = QRadioButton()
         self._mode_sheets = QRadioButton("Chapas marcadas")
         if self._sel_export is not None:
             n = len(self._w._selected_pieces())
-            self._mode_sel.setText(f"Apenas a selecao ({n} peca(s))")
+            self._mode_sel.setText(f"Apenas a seleção ({n} peça(s))")
             mode_box = QGroupBox("O que exportar")
             mb = QVBoxLayout(mode_box)
             mb.addWidget(self._mode_sel)
             mb.addWidget(self._mode_sheets)
             right.addWidget(mode_box)
-            self._mode_sel.setChecked(True)  # com selecao, exporta so ela por padrao
+            self._mode_sel.setChecked(True)  # com seleção, exporta só ela por padrão
             self._mode_sel.toggled.connect(lambda *_: self._sync_options())
         else:
             self._mode_sheets.setChecked(True)
@@ -1033,7 +1033,7 @@ class ExportCenterDialog(QDialog):
         self._fmt_group.buttonToggled.connect(lambda *_: self._sync_options())
         right.addWidget(fmt_box)
 
-        # opcoes especificas
+        # opções especificas
         self._opt_dxf_per = QCheckBox("Um arquivo DXF por chapa")
         right.addWidget(self._opt_dxf_per)
         dpi_row = QHBoxLayout()
@@ -1078,9 +1078,9 @@ class ExportCenterDialog(QDialog):
     def _sync_options(self, *_) -> None:
         fmt = self._current_format()
         sel = self._selection_mode()
-        self._opt_dxf_per.setVisible(fmt == "dxf" and not sel)  # nao se aplica a selecao
+        self._opt_dxf_per.setVisible(fmt == "dxf" and not sel)  # não se aplica a seleção
         self._dpi_host.setVisible(fmt == "img")
-        self._scroll.setEnabled(not sel)  # "apenas selecao" ignora a lista de chapas
+        self._scroll.setEnabled(not sel)  # "apenas seleção" ignora a lista de chapas
         self._update_dims()
         self._update_preview()
 
@@ -1105,7 +1105,7 @@ class ExportCenterDialog(QDialog):
         if self._selection_mode():
             pm = self._w._selection_thumbnail(360)
             if pm.isNull():
-                self._preview.setText("Selecao vazia.")
+                self._preview.setText("Seleção vazia.")
             else:
                 self._preview.setPixmap(pm)
             return
@@ -1148,25 +1148,25 @@ class ExportCenterDialog(QDialog):
 
 
 def _guard_export(method):
-    """Decorator das acoes de exportar: QUALQUER falha vira dialogo amigavel.
+    """Decorator das ações de exportar: QUALQUER falha vira dialogo amigavel.
 
-    Sem isso, um erro de disco/permissao/caminho (inclusive as excecoes novas
+    Sem isso, um erro de disco/permissao/caminho (inclusive as exceções novas
     do PyMuPDF >= 1.26) subia cru e, no executavel (sem console), o clique em
-    Exportar simplesmente "nao fazia nada" (bug QA-02). Ultima linha de defesa
+    Exportar simplesmente "não fazia nada" (bug QA-02). Última linha de defesa
     da UI — os exportadores continuam levantando erros tipados normalmente.
     """
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
-        except Exception as exc:  # ultima defesa: mostrar, nunca silenciar
+        except Exception as exc:  # última defesa: mostrar, nunca silenciar
             QMessageBox.critical(self, "PrintNest", f"Falha ao exportar:\n{exc}")
             return None
     return wrapper
 
 
 class MainWindow(QMainWindow):
-    """Tela unica do MVP PrintNest, organizada por categorias."""
+    """Tela única do MVP PrintNest, organizada por categorias."""
 
     def __init__(
         self,
@@ -1187,7 +1187,7 @@ class MainWindow(QMainWindow):
 
         self._faca_uc = GenerateRectangularCutUseCase()
         # MaxRects = maximo aproveitamento (preenche os vaos). O grid (em linhas)
-        # so e usado na faca compartilhada, que precisa das pecas alinhadas.
+        # só e usado na faca compartilhada, que precisa das peças alinhadas.
         self._nesting_uc = RunGridNestingUseCase(MaxRectsPacker())
         self._grid_nesting_uc = RunGridNestingUseCase()
 
@@ -1198,25 +1198,25 @@ class MainWindow(QMainWindow):
         self._pixmaps: dict[tuple[str, int], QPixmap] = {}
         self._thumb_cache: dict[str, QIcon] = {}
         self._loaded = False
-        self._suspend_relayout = False  # agrupa varias mudancas num so relayout
-        self._suspend_undo = False  # ao gerar/abrir, nao registra passo de desfazer
-        self._faca_on = False  # faca so e gerada ao clicar "Gerar Faca"/"Gerar Producao"
+        self._suspend_relayout = False  # agrupa varias mudancas num só relayout
+        self._suspend_undo = False  # ao gerar/abrir, não registra passo de desfazer
+        self._faca_on = False  # faca só e gerada ao clicar "Gerar Faca"/"Gerar Produção"
         self._move_before = None  # snapshot do arranjo no inicio de um arraste
         self._guides: list[tuple[bool, float]] = []  # (horizontal, valor_mm)
         self._guide_preview_item = None
         # faca por arquivo: caminho -> params proprios (override). Sem override,
-        # o arquivo segue o padrao do painel Documento.
+        # o arquivo segue o padrão do painel Documento.
         self._file_overrides: dict[str, dict] = {}
         # tamanho por arquivo: caminho -> Size (mm) desejado. Sem entrada, o
         # arquivo mantem o tamanho original importado. Aplicado na arte base
         # antes da faca (escala arte + contornos); vale para todas as copias.
         self._file_sizes: dict[str, Size] = {}
-        # rotacao POR PECA: artwork_id -> giro extra (0/90/180/270) somado ao
-        # giro do arquivo. Permite girar so uma peca (ex.: a sobra solta) para
-        # encaixar melhor no nesting, sem mexer nas outras copias/paginas.
+        # rotação POR PECA: artwork_id -> giro extra (0/90/180/270) somado ao
+        # giro do arquivo. Permite girar só uma peça (ex.: a sobra solta) para
+        # encaixar melhor no nesting, sem mexer nas outras copias/páginas.
         self._piece_rotations: dict[str, int] = {}
         # centralizar o conteudo na LARGURA da chapa (margens iguais). A chapa
-        # cresce/diminui no comprimento conforme adiciona/remove pecas.
+        # cresce/diminui no comprimento conforme adiciona/remove peças.
         self._center_on_sheet = True
         self._pbar_loading = False  # evita loop ao popular a barra de propriedades
         self._faca_corner = "round"  # canto da faca (contorno): round/miter/bevel
@@ -1228,48 +1228,48 @@ class MainWindow(QMainWindow):
         self._switching_tab = False
         self._tab_counter = 1
         self._ps_loading = False  # evita reentrancia ao carregar os campos
-        # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
-        # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
+        # recorte de página (por arquivo/página): caminho -> {página: (l,t,r,b) mm}.
+        # Aplicado "assando" um PDF recortado em cache; o resto do fluxo não muda.
         self._page_crops: dict[str, dict[int, tuple]] = {}
         self._baked_crops: dict = {}      # (caminho, assinatura) -> PDF recortado em cache
         self._crop_cache: dict[str, str] = {}  # PDF recortado -> caminho original
-        # faca "pelo contorno" de PDF: detecta o contorno da pagina rasterizada.
+        # faca "pelo contorno" de PDF: detecta o contorno da página rasterizada.
         self._contour_detector = Cv2ImageImporter()
-        self._pdf_contours: dict = {}  # (caminho, pagina) -> contorno detectado
+        self._pdf_contours: dict = {}  # (caminho, página) -> contorno detectado
         # faca "do cliente" (vetor do PDF): usa o contorno vetorial enviado.
         self._vector_extractor = PyMuPdfVectorExtractor()
         self._vector_generator = VectorContourGenerator()
-        self._vector_contours: dict = {}  # (caminho, pagina) -> contorno vetorial | None
-        self._faca_notice: tuple[str, str] | None = None  # (nivel, texto) da deteccao
+        self._vector_contours: dict = {}  # (caminho, página) -> contorno vetorial | None
+        self._faca_notice: tuple[str, str] | None = None  # (nivel, texto) da detecção
         self._selected_path: str | None = None
         self._selected_is_image = False
-        self._pf_loading = False        # carregando controles da peca (nao gravar)
-        self._keep_tab = False          # nao trocar de aba durante reselecao
+        self._pf_loading = False        # carregando controles da peça (não gravar)
+        self._keep_tab = False          # não trocar de aba durante reselecao
         self._result: ProductionResult | None = None
         self._thread: QThread | None = None
         self._worker: ProductionWorker | None = None
         self._piece_items: list = []
         self._decor_items: list = []  # itens decorativos da cena (evita GC)
-        self._resize_handles: list = []  # alcas de redimensionar (peca selecionada)
-        self._resize_preview = None      # retangulo tracejado durante o arraste
+        self._resize_handles: list = []  # alças de redimensionar (peça selecionada)
+        self._resize_preview = None      # retângulo tracejado durante o arraste
         self._ghost_items: list = []  # previews "fantasma" da aba Transformar
-        self._transform_mode = "dup"  # ultimo preview: "dup" ou "grid"
-        self._suppress_ghost = False  # nao redesenhar fantasmas durante o "aplicar"
+        self._transform_mode = "dup"  # último preview: "dup" ou "grid"
+        self._suppress_ghost = False  # não redesenhar fantasmas durante o "aplicar"
         self._undo = QUndoStack(self)
-        self._undo.setUndoLimit(0)  # ilimitado (CorelDRAW): so zera ao gerar/abrir/novo
-        self._fit_next = True  # ajusta o zoom so apos gerar; preserva no relayout
+        self._undo.setUndoLimit(0)  # ilimitado (CorelDRAW): só zera ao gerar/abrir/novo
+        self._fit_next = True  # ajusta o zoom só após gerar; preserva no relayout
         self._snap = SnapConfig()
         self._project_store = ProjectStore()
         self._project_path: str | None = None
 
-        # unidade definida ANTES de montar a UI, para os campos ja nascerem na
+        # unidade definida ANTES de montar a UI, para os campos já nascerem na
         # unidade certa (LengthSpin le units.unit() ao ser criado).
         units.set_unit(getattr(settings, "unit", units.CM))
 
         self.setWindowTitle("PrintNest Premium")
         self._build_ui()
         self._load_settings()
-        self._update_property_bar()  # mostra o Projeto (material) ja na abertura
+        self._update_property_bar()  # mostra o Projeto (material) já na abertura
         self._build_menu_toolbar()
         self._update_title()
         self._maybe_reopen_last()
@@ -1299,48 +1299,48 @@ class MainWindow(QMainWindow):
         add = self._act("Adicionar arquivos...", self.add_pdfs, "Ctrl+I",
                         "Importa arquivos (PDF/imagens) para a lista")
         substituir = self._act("Substituir arquivo selecionado...", self.replace_selected, None,
-                               "Troca o arquivo da linha selecionada (ex.: arquivo nao encontrado)")
-        gerar = self._act("Gerar Producao", self.generate, "F5",
+                               "Troca o arquivo da linha selecionada (ex.: arquivo não encontrado)")
+        gerar = self._act("Gerar Produção", self.generate, "F5",
                           "Importa, gera a faca e organiza o nesting")
         gerar_faca = self._act("Gerar Faca", self._regenerate_faca, "Shift+F5",
-                               "Recria a faca das pecas (refaz a deteccao da faca do cliente)")
+                               "Recria a faca das peças (refaz a detecção da faca do cliente)")
         fit = self._act("Ajustar a tela", self._fit_view, "F4",
                         "Enquadra todo o trabalho na tela (F4 ou Ctrl+0)")
         fit.setShortcuts([QKeySequence("F4"), QKeySequence("Ctrl+0")])
         undo = self._act("Desfazer", self._undo.undo, "Ctrl+Z",
-                         "Desfaz a ultima acao (mover, excluir, duplicar, repetir)")
-        redo = self._act("Refazer", self._undo.redo, "Ctrl+Y", "Refaz a acao desfeita")
+                         "Desfaz a última ação (mover, excluir, duplicar, repetir)")
+        redo = self._act("Refazer", self._undo.redo, "Ctrl+Y", "Refaz a ação desfeita")
         redo.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
         rot_l = self._act("Girar 90 a esquerda", lambda: self._rotate_selected(-90), "Ctrl+[",
                           "Gira o arquivo selecionado 90 graus anti-horario (re-encaixa)")
         rot_r = self._act("Girar 90 a direita", lambda: self._rotate_selected(90), "Ctrl+]",
                           "Gira o arquivo selecionado 90 graus horario (re-encaixa)")
         grp = self._act("Agrupar", self._group_selected, "Ctrl+G",
-                        "Agrupa as pecas selecionadas")
+                        "Agrupa as peças selecionadas")
         ungrp = self._act("Desagrupar", self._ungroup_selected, "Ctrl+U",
-                          "Desagrupa as pecas")
+                          "Desagrupa as peças")
         sel_all = self._act("Selecionar tudo", self._select_all, "Ctrl+A",
-                            "Seleciona todas as pecas na area de trabalho")
+                            "Seleciona todas as peças na área de trabalho")
         excluir = self._act("Excluir selecionado", self._delete_selected, "Del",
-                            "Exclui as pecas selecionadas do arranjo")
+                            "Exclui as peças selecionadas do arranjo")
         organizar = self._act("Organizar (nesting)", self._organize, "Ctrl+L",
-                              "Reorganiza as pecas na chapa mantendo a quantidade atual")
+                              "Reorganiza as peças na chapa mantendo a quantidade atual")
         reset = self._act("Resetar arranjo", self._reset_arrangement, None,
                           "Refaz o nesting do zero (descarta ajustes manuais)")
         rem = self._act("Remover PDF selecionado", self.remove_selected, None,
                         "Remove o PDF selecionado da lista")
         dup = self._act("Duplicar", self._duplicate_selected, "Ctrl+D",
-                        "Duplica as pecas selecionadas com um pequeno deslocamento")
-        dup_qty = self._act("Duplicar so esta pagina...", self._duplicate_selected_qty,
+                        "Duplica as peças selecionadas com um pequeno deslocamento")
+        dup_qty = self._act("Duplicar só esta página...", self._duplicate_selected_qty,
                             "Ctrl+Shift+C",
-                            "Duplica SO a(s) pagina(s) selecionada(s) na quantidade "
-                            "escolhida e re-encaixa (nao duplica o PDF inteiro)")
+                            "Duplica SO a(s) página(s) selecionada(s) na quantidade "
+                            "escolhida e re-encaixa (não duplica o PDF inteiro)")
         step = self._act("Repetir em grade...", self._step_repeat_dialog, "Ctrl+Shift+D",
                          "Cria varias copias em linhas e colunas (step and repeat)")
-        # atalhos de uma letra (padrao CorelDRAW): T/B/L/R/C/E. Seguros: campos
-        # de texto/numero tem prioridade sobre eles enquanto digitando.
+        # atalhos de uma letra (padrão CorelDRAW): T/B/L/R/C/E. Seguros: campos
+        # de texto/número tem prioridade sobre eles enquanto digitando.
         al_l = self._act("Alinhar a esquerda", lambda: self._align("left"), "L",
-                         "Alinha as bordas esquerdas das pecas selecionadas")
+                         "Alinha as bordas esquerdas das peças selecionadas")
         al_r = self._act("Alinhar a direita", lambda: self._align("right"), "R",
                          "Alinha as bordas direitas")
         al_t = self._act("Alinhar ao topo", lambda: self._align("top"), "T",
@@ -1352,14 +1352,14 @@ class MainWindow(QMainWindow):
         al_cy = self._act("Centralizar na horizontal", lambda: self._align("vcenter"), "E",
                           "Alinha os centros numa mesma linha horizontal")
         dist_h = self._act("Distribuir na horizontal", lambda: self._distribute("h"), None,
-                           "Espaca as pecas igualmente na horizontal")
+                           "Espaca as peças igualmente na horizontal")
         dist_v = self._act("Distribuir na vertical", lambda: self._distribute("v"), None,
-                           "Espaca as pecas igualmente na vertical")
+                           "Espaca as peças igualmente na vertical")
         snap_act = QAction("Encaixar (snap)", self)
         snap_act.setCheckable(True)
         snap_act.setChecked(self._snap.enabled)
         snap_act.setShortcut(QKeySequence("Alt+Q"))
-        snap_act.setToolTip("Liga/desliga o encaixe ao arrastar pecas")
+        snap_act.setToolTip("Liga/desliga o encaixe ao arrastar peças")
         snap_act.toggled.connect(self._set_snap)
         self._snap_action = snap_act
         center_act = QAction("Centralizar na chapa", self)
@@ -1371,19 +1371,19 @@ class MainWindow(QMainWindow):
         center_act.toggled.connect(self._set_center_on_sheet)
         self._center_action = center_act
         to_front = self._act("Trazer para frente", self._bring_to_front, "Shift+PgUp",
-                             "Coloca as pecas selecionadas a frente das demais")
+                             "Coloca as peças selecionadas a frente das demais")
         to_back = self._act("Enviar para tras", self._send_to_back, "Shift+PgDown",
-                            "Envia as pecas selecionadas para tras das demais")
-        exp_center = self._act("Centro de Exportacao...", self._open_export_center, "Ctrl+E",
-                               "Escolhe as chapas (com previa) e o formato de exportacao")
+                            "Envia as peças selecionadas para tras das demais")
+        exp_center = self._act("Centro de Exportação...", self._open_export_center, "Ctrl+E",
+                               "Escolhe as chapas (com previa) e o formato de exportação")
         exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, "Ctrl+P",
                             "Gera o PDF de impressao (Imprimir)")
-        exp_dxf = self._act("Exportar DXF (unico)...", self.export_dxf, None,
+        exp_dxf = self._act("Exportar DXF (único)...", self.export_dxf, None,
                             "Gera um DXF com todas as chapas")
         exp_dxf_n = self._act("Exportar DXF por chapa...", self.export_dxf_per_sheet, None,
                               "Gera um arquivo DXF para cada chapa")
         exp_faca_pdf = self._act("Exportar Faca (PDF)...", self.export_faca_pdf, None,
-                                 "Gera um PDF so com a faca (linhas de corte)")
+                                 "Gera um PDF só com a faca (linhas de corte)")
         exp_img = self._act("Exportar Imagem (PNG/JPEG)...", self.export_image, None,
                             "Rasteriza a impressao em imagem, no DPI escolhido")
         sair = self._act("Sair", self.close, None, "Fecha o programa")
@@ -1399,11 +1399,11 @@ class MainWindow(QMainWindow):
             m_arq.addSeparator() if action is None else m_arq.addAction(action)
         obj_props = self._act("Propriedades do objeto", self._show_object_props,
                               "Alt+Return",
-                              "Abre a aba Objeto (medidas e faca da peca selecionada)")
+                              "Abre a aba Objeto (medidas e faca da peça selecionada)")
         copiar = self._act("Copiar", self._copy_selected, "Ctrl+C",
-                           "Copia as pecas selecionadas")
+                           "Copia as peças selecionadas")
         colar = self._act("Colar", self._paste_clipboard, "Ctrl+V",
-                          "Cola as pecas copiadas (deslocadas; Ctrl+D continua a serie)")
+                          "Cola as peças copiadas (deslocadas; Ctrl+D continua a serie)")
         m_edit = bar.addMenu("&Editar")
         for action in (undo, redo, None, copiar, colar, None,
                        rot_l, rot_r, None, sel_all, dup, dup_qty, step,
@@ -1415,26 +1415,26 @@ class MainWindow(QMainWindow):
                        None, dist_h, dist_v, None, snap_act):
             m_org.addSeparator() if action is None else m_org.addAction(action)
         limpar_guias = self._act("Limpar guias", self._clear_guides, None,
-                                  "Remove todas as guias da area de trabalho")
-        # zoom e navegacao (padrao CorelDRAW): F2/F3, Shift+F2/F4, H, Alt+setas
+                                  "Remove todas as guias da área de trabalho")
+        # zoom e navegacao (padrão CorelDRAW): F2/F3, Shift+F2/F4, H, Alt+setas
         zoom_in = self._act("Zoom +", lambda: self._zoom_step(1.15), "F2",
-                            "Aproxima a visualizacao")
+                            "Aproxima a visualização")
         zoom_out = self._act("Zoom −", lambda: self._zoom_step(1 / 1.15), "F3",
-                             "Afasta a visualizacao")
-        zoom_page = self._act("Zoom na pagina", self._zoom_page, "Shift+F4",
+                             "Afasta a visualização")
+        zoom_page = self._act("Zoom na página", self._zoom_page, "Shift+F4",
                               "Enquadra a primeira chapa na tela")
-        zoom_sel = self._act("Zoom na selecao", self._zoom_selection, "Shift+F2",
-                             "Enquadra as pecas selecionadas na tela")
+        zoom_sel = self._act("Zoom na seleção", self._zoom_selection, "Shift+F2",
+                             "Enquadra as peças selecionadas na tela")
         hand = QAction("Ferramenta mao (pan)", self)
         hand.setCheckable(True)
         hand.setShortcut(QKeySequence("H"))
-        hand.setToolTip("Arrastar a tela com o botao esquerdo (o do meio sempre faz pan)")
+        hand.setToolTip("Arrastar a tela com o botão esquerdo (o do meio sempre faz pan)")
         hand.toggled.connect(self._set_hand_tool)
         for dx, dy, keys in ((-60, 0, "Alt+Left"), (60, 0, "Alt+Right"),
                              (0, -60, "Alt+Up"), (0, 60, "Alt+Down")):
             pan = self._act(f"Pan {keys}", lambda dx=dx, dy=dy: self._pan_view(dx, dy),
-                            keys, "Desloca a visualizacao")
-            pan.setVisible(False)  # so atalho (nao aparece em menu)
+                            keys, "Desloca a visualização")
+            pan.setVisible(False)  # só atalho (não aparece em menu)
             self.addAction(pan)
 
         m_exib = bar.addMenu("E&xibir")
@@ -1446,26 +1446,26 @@ class MainWindow(QMainWindow):
         m_ferr.addAction(gerar)
         m_ferr.addAction(gerar_faca)
 
-        # Opcoes (ao lado de Ajuda): unidade de medida (cm/mm)
-        m_opt = bar.addMenu("O&pcoes")  # Alt+P (Alt+O ja e do menu Organizar; QA-09)
+        # Opções (ao lado de Ajuda): unidade de medida (cm/mm)
+        m_opt = bar.addMenu("O&pcoes")  # Alt+P (Alt+O já e do menu Organizar; QA-09)
         um = m_opt.addMenu("Unidade de medida")
         self._unit_group = QActionGroup(self)
         self._unit_group.setExclusive(True)
-        self._act_unit_cm = QAction("Centimetros (cm)", self, checkable=True)
+        self._act_unit_cm = QAction("Centímetros (cm)", self, checkable=True)
         self._act_unit_cm.setData(units.CM)
-        self._act_unit_mm = QAction("Milimetros (mm)", self, checkable=True)
+        self._act_unit_mm = QAction("Milímetros (mm)", self, checkable=True)
         self._act_unit_mm.setData(units.MM)
         for a in (self._act_unit_cm, self._act_unit_mm):
             self._unit_group.addAction(a)
             a.triggered.connect(lambda _=False, act=a: self._on_unit_changed(act.data()))
             um.addAction(a)
-        # marca a unidade atual (ja definida a partir das configuracoes)
+        # marca a unidade atual (já definida a partir das configurações)
         self._act_unit_mm.setChecked(units.unit() == units.MM)
         self._act_unit_cm.setChecked(units.unit() != units.MM)
 
         bar.addMenu("A&juda").addAction(sobre)
 
-        # icones nas acoes (aparecem no menu e na ribbon)
+        # icones nas ações (aparecem no menu e na ribbon)
         for action, name in (
             (novo, "file-plus"), (abrir, "folder-open"), (salvar, "save"),
             (salvar_como, "save"), (add, "plus"), (substituir, "replace"),
@@ -1488,27 +1488,27 @@ class MainWindow(QMainWindow):
         ):
             action.setIcon(icons.icon(name))
 
-        # acoes guardadas para habilitar/desabilitar conforme o estado
+        # ações guardadas para habilitar/desabilitar conforme o estado
         self._act_generate = gerar
         self._export_actions = [exp_center, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img]
         for action in self._export_actions:
             action.setEnabled(False)
 
-        # toggle de reguas espelhando o checkbox de Exibicao
-        reguas = QAction("Reguas", self)
+        # toggle de réguas espelhando o checkbox de Exibicao
+        reguas = QAction("Réguas", self)
         reguas.setCheckable(True)
         reguas.setChecked(self._show_rulers.isChecked())
         reguas.setIcon(icons.icon("ruler"))
         reguas.toggled.connect(self._show_rulers.setChecked)
 
-        # botao "Exibicao" na barra: abre um popup com os controles de exibicao
+        # botão "Exibicao" na barra: abre um popup com os controles de exibicao
         disp_btn = QToolButton()
         disp_btn.setText("Exibicao")
         disp_btn.setIcon(icons.icon("eye", theme.ICON, 18))
         disp_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         disp_btn.setPopupMode(QToolButton.InstantPopup)
         disp_btn.setCursor(Qt.PointingHandCursor)
-        disp_btn.setToolTip("Unidade, modo de visualizacao, reguas e encaixe")
+        disp_btn.setToolTip("Unidade, modo de visualização, réguas e encaixe")
         disp_menu = QMenu(disp_btn)
         disp_action = QWidgetAction(disp_menu)
         disp_action.setDefaultWidget(self._display_panel)
@@ -1542,14 +1542,14 @@ class MainWindow(QMainWindow):
                 tb.tool_button(to_front, "align-vertical-justify-start", show_text=False),
                 tb.tool_button(to_back, "align-vertical-justify-end", show_text=False),
                 tb.menu_button("Alinhar", "align-horizontal-justify-start",
-                               [al_l, al_r, al_t, al_b, al_cx, al_cy], tip="Alinhar pecas"),
+                               [al_l, al_r, al_t, al_b, al_cx, al_cy], tip="Alinhar peças"),
                 tb.menu_button("Distribuir", "align-horizontal-justify-center",
                                [dist_h, dist_v], tip="Distribuir igualmente"),
                 tb.tool_button(snap_act, "magnet", show_text=False),
             ]),
-            ("Producao", [
-                self._faca_mode_ribbon_widget(),  # Tipo de faca ao lado do botao
-                tb.tool_button(gerar_faca, "scissors", accent=True),  # botao azul principal
+            ("Produção", [
+                self._faca_mode_ribbon_widget(),  # Tipo de faca ao lado do botão
+                tb.tool_button(gerar_faca, "scissors", accent=True),  # botão azul principal
                 tb.tool_button(exp_center, "download"),
                 tb.menu_button("Mais...", "download",
                                [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img],
@@ -1565,7 +1565,7 @@ class MainWindow(QMainWindow):
 
     def _faca_mode_ribbon_widget(self) -> QWidget:
         """Widget da barra: rotulo discreto + combo "Tipo de faca", colado ao
-        botao Gerar Faca (decidir o tipo e gerar viram um gesto so). E o MESMO
+        botão Gerar Faca (decidir o tipo e gerar viram um gesto só). E o MESMO
         combo de sempre (self._faca_mode): estado, sessao e testes intactos."""
         box = QWidget()
         lay = QHBoxLayout(box)
@@ -1574,8 +1574,8 @@ class MainWindow(QMainWindow):
         cap = QLabel("Tipo de faca")
         cap.setProperty("role", "caption")
         lay.addWidget(cap)
-        # largura folgada: a opcao mais longa ("Faca do cliente (vetor do PDF)")
-        # precisa caber SEM reticencias tambem fechada (auditoria QA #1)
+        # largura folgada: a opção mais longa ("Faca do cliente (vetor do PDF)")
+        # precisa caber SEM reticencias também fechada (auditoria QA #1)
         self._faca_mode.setMinimumWidth(200)
         self._faca_mode.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         lay.addWidget(self._faca_mode)
@@ -1584,13 +1584,13 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         QMessageBox.about(
             self, "PrintNest Premium",
-            "PrintNest Premium - preparacao de producao grafica.\n"
-            "Faca, nesting e exportacao PDF/DXF.",
+            "PrintNest Premium - preparacao de produção gráfica.\n"
+            "Faca, nesting e exportação PDF/DXF.",
         )
 
     # ---- projeto (.printnest) ----
     def _update_title(self) -> None:
-        name = Path(self._project_path).name if self._project_path else "Sem titulo"
+        name = Path(self._project_path).name if self._project_path else "Sem título"
         self.setWindowTitle(f"PrintNest Premium — {name}")
 
     def _collect_project(self) -> ProjectDocument:
@@ -1606,7 +1606,7 @@ class MainWindow(QMainWindow):
         return ProjectDocument(files=files, settings=settings)
 
     def _apply_project(self, doc: ProjectDocument) -> None:
-        """Restaura o estado do projeto SEM gerar producao (regra do projeto)."""
+        """Restaura o estado do projeto SEM gerar produção (regra do projeto)."""
         for key, value in doc.settings.items():
             if key in PROJECT_SETTING_KEYS and hasattr(self._settings, key):
                 setattr(self._settings, key, value)
@@ -1615,7 +1615,7 @@ class MainWindow(QMainWindow):
         self._populate_files(doc.files)
 
     def _reset_project_state(self) -> None:
-        """Descarta a producao carregada (mantem parametros e widgets)."""
+        """Descarta a produção carregada (mantem parametros e widgets)."""
         self._loaded = False
         self._result = None
         self._base_artworks = []
@@ -1646,7 +1646,7 @@ class MainWindow(QMainWindow):
             return
         item.setForeground(QColor(theme.ERROR))
         item.setText(f"⚠ {item.text()}")
-        item.setToolTip("Arquivo nao encontrado. Use 'Substituir arquivo' ou remova a linha.")
+        item.setToolTip("Arquivo não encontrado. Use 'Substituir arquivo' ou remova a linha.")
 
     def replace_selected(self) -> None:
         """Troca o arquivo da linha selecionada (sem perder o resto do projeto)."""
@@ -1672,8 +1672,8 @@ class MainWindow(QMainWindow):
         self._faca_on = False      # volta ao modo "soltar sem faca"
         self._file_overrides = {}  # descarta facas personalizadas por arquivo
         self._file_sizes = {}      # descarta tamanhos personalizados por arquivo
-        self._piece_rotations = {}  # descarta giros por peca
-        self._page_crops = {}      # descarta recortes de pagina
+        self._piece_rotations = {}  # descarta giros por peça
+        self._page_crops = {}      # descarta recortes de página
         self._baked_crops = {}
         self._crop_cache = {}
         self._table.setRowCount(0)
@@ -1706,7 +1706,7 @@ class MainWindow(QMainWindow):
         if interactive and missing:
             QMessageBox.warning(
                 self, "PrintNest",
-                f"{len(missing)} arquivo(s) nao encontrado(s) (marcados em vermelho).\n"
+                f"{len(missing)} arquivo(s) não encontrado(s) (marcados em vermelho).\n"
                 "Use 'Substituir arquivo' ou remova as linhas para continuar.",
             )
         return True
@@ -1745,7 +1745,7 @@ class MainWindow(QMainWindow):
         return self.save_project(path)
 
     def _maybe_reopen_last(self) -> None:
-        """Reabre o ultimo projeto ao iniciar (silencioso; nao quebra se faltar)."""
+        """Reabre o último projeto ao iniciar (silencioso; não quebra se faltar)."""
         last = self._settings.last_project
         if last and Path(last).exists():
             # nunca impedir a abertura do programa por causa de um projeto ruim
@@ -1754,11 +1754,11 @@ class MainWindow(QMainWindow):
 
     # ==================== Barra de Propriedades contextual (V2.0 Fase A) =======
     def _build_property_bar(self) -> QWidget:
-        """Barra horizontal abaixo da ribbon que muda com a selecao (estilo Corel):
-        sem selecao -> Projeto; 1 peca -> Objeto (X/Y editaveis, L/A, girar,
+        """Barra horizontal abaixo da ribbon que muda com a seleção (estilo Corel):
+        sem seleção -> Projeto; 1 peça -> Objeto (X/Y editaveis, L/A, girar,
         duplicar/excluir); varias -> Grupo (contagem, tamanho, alinhar/distribuir).
 
-        So UI: reusa _nudge (mover, com undo), _rotate_selected, _align,
+        Só UI: reusa _nudge (mover, com undo), _rotate_selected, _align,
         _distribute, _duplicate_selected, _delete_selected, _group_selected.
         """
         bar = QFrame()
@@ -1784,7 +1784,7 @@ class MainWindow(QMainWindow):
             lb.setStyleSheet(f"color:{theme.TEXT_MUTED};")
             return lb
 
-        # --- pagina 0: PROJETO (sem selecao) ---
+        # --- página 0: PROJETO (sem seleção) ---
         proj = QWidget()
         pl = QHBoxLayout(proj)
         pl.setContentsMargins(0, 0, 0, 0)
@@ -1805,7 +1805,7 @@ class MainWindow(QMainWindow):
         pl.addStretch()
         self._pbar_stack.addWidget(proj)
 
-        # --- pagina 1: OBJETO (1 peca) ---
+        # --- página 1: OBJETO (1 peça) ---
         obj = QWidget()
         ol = QHBoxLayout(obj)
         ol.setContentsMargins(0, 0, 0, 0)
@@ -1817,13 +1817,13 @@ class MainWindow(QMainWindow):
             sp.setFixedWidth(90)
         self._pb_w.editingFinished.connect(lambda: self._pbar_resize("w"))
         self._pb_h.editingFinished.connect(lambda: self._pbar_resize("h"))
-        # cadeado: mantem a proporcao ao mudar L/A ou arrastar as alcas.
+        # cadeado: mantem a proporcao ao mudar L/A ou arrastar as alças.
         self._pb_lock = QPushButton()
         self._pb_lock.setIcon(icons.icon("lock", theme.ICON))
         self._pb_lock.setCheckable(True)
         self._pb_lock.setChecked(True)
         self._pb_lock.setFixedSize(28, 28)
-        self._pb_lock.setToolTip("Manter proporcao ao redimensionar (arrastar as alcas).")
+        self._pb_lock.setToolTip("Manter proporcao ao redimensionar (arrastar as alças).")
         self._pb_lock.toggled.connect(lambda on: self._ps_lock.setChecked(on))
         b_rl = QPushButton()
         b_rl.setIcon(icons.icon("rotate-ccw", theme.ICON))
@@ -1854,7 +1854,7 @@ class MainWindow(QMainWindow):
         ol.addWidget(b_del)
         self._pbar_stack.addWidget(obj)
 
-        # --- pagina 2: GRUPO (varias pecas) ---
+        # --- página 2: GRUPO (varias peças) ---
         grp = QWidget()
         gl = QHBoxLayout(grp)
         gl.setContentsMargins(0, 0, 0, 0)
@@ -1895,9 +1895,9 @@ class MainWindow(QMainWindow):
 
     def _build_contour_tool(self) -> QWidget:
         """Ferramenta 'Contorno' (faca), estilo CorelDRAW, fixa a direita da barra:
-        Offset (mm) + Direcao (externo/interno) + Cantos (redondo/ponta/chanfro).
+        Offset (mm) + Direção (externo/interno) + Cantos (redondo/ponta/chanfro).
         O offset controla a sangria da faca ao vivo; os cantos usam o join_style
-        do offset. Nao mexe em nesting/exportacao."""
+        do offset. Não mexe em nesting/exportação."""
         w = QFrame()
         cl = QHBoxLayout(w)
         cl.setContentsMargins(0, 0, 0, 0)
@@ -1908,13 +1908,13 @@ class MainWindow(QMainWindow):
 
         self._ct_offset = LengthSpin(0, 100)
         self._ct_offset.setFixedWidth(90)
-        self._ct_offset.setToolTip("Offset da faca: distancia da linha de corte ate a arte.")
+        self._ct_offset.setToolTip("Offset da faca: distância da linha de corte até a arte.")
         self._ct_offset.editingFinished.connect(self._apply_contour_offset)
         cl.addWidget(QLabel("Offset"))
         cl.addWidget(self._ct_offset)
 
         def _icon_btn(icon_name: str, tip: str, checked: bool = False) -> QPushButton:
-            """Botao so-icone (estilo Corel): nome no tooltip, sem texto."""
+            """Botão só-icone (estilo Corel): nome no tooltip, sem texto."""
             b = QPushButton()
             b.setIcon(icons.icon(icon_name, theme.ICON))
             b.setIconSize(QSize(18, 18))
@@ -1940,9 +1940,9 @@ class MainWindow(QMainWindow):
         self._ct_corner_val = {}
         corners = (
             ("round", "corner-round",
-             "Arredondar cantos\nCantos arredondados (padrao seguro para a lamina)."),
+             "Arredondar cantos\nCantos arredondados (padrão seguro para a lamina)."),
             ("miter", "corner-sharp",
-             "Cantos com esquadria\nCanto vivo (ponta), limitado para nao criar farpas."),
+             "Cantos com esquadria\nCanto vivo (ponta), limitado para não criar farpas."),
             ("bevel", "corner-bevel",
              "Chanfrar cantos\nCanto chanfrado (reto)."),
         )
@@ -2015,7 +2015,7 @@ class MainWindow(QMainWindow):
             self._ct_loading = False
 
     def _update_property_bar(self) -> None:
-        """Repinta a barra conforme a selecao atual (Projeto / Objeto / Grupo)."""
+        """Repinta a barra conforme a seleção atual (Projeto / Objeto / Grupo)."""
         if not hasattr(self, "_pbar_stack"):
             return
         self._sync_contour_tool()  # reflete offset/cantos atuais na toolbar
@@ -2056,8 +2056,8 @@ class MainWindow(QMainWindow):
             self._pbar_loading = False
 
     def _pbar_resize(self, which: str) -> None:
-        """Muda o tamanho da peca pela numeracao (L/A da barra Objeto), reusando o
-        redimensionar do painel Peca (respeita o cadeado / proporcao)."""
+        """Muda o tamanho da peça pela numeracao (L/A da barra Objeto), reusando o
+        redimensionar do painel Peça (respeita o cadeado / proporcao)."""
         if self._pbar_loading or len(self._selected_pieces()) != 1:
             return
         if which == "w":
@@ -2065,11 +2065,11 @@ class MainWindow(QMainWindow):
         else:
             self._ps_h.setValue(float(self._pb_h.value()))
 
-    # ---- alcas de redimensionamento no canvas (arrastar com o mouse) ----
+    # ---- alças de redimensionamento no canvas (arrastar com o mouse) ----
     def _update_resize_handles(self) -> None:
-        """Mostra alcas na peca quando ha UMA selecionada; some com o resto.
+        """Mostra alças na peça quando ha UMA selecionada; some com o resto.
 
-        As alcas sao FILHAS da peca (em coordenadas locais), entao seguem a peca
+        As alças sao FILHAS da peça (em coordenadas locais), entao seguem a peça
         ao mover/redimensionar, sem ficar para tras."""
         for h in self._resize_handles:
             with contextlib.suppress(RuntimeError, ValueError):
@@ -2082,10 +2082,10 @@ class MainWindow(QMainWindow):
         p = pieces[0]
         w, h = p.rect().width(), p.rect().height()
         for axis, hx, hy in (
-            ("wh", w, h), ("w", w, h / 2), ("h", w / 2, h),  # coords LOCAIS da peca
+            ("wh", w, h), ("w", w, h / 2), ("h", w / 2, h),  # coords LOCAIS da peça
         ):
             handle = _ResizeHandle(self, p, axis)
-            handle.setParentItem(p)  # filha da peca: segue o movimento
+            handle.setParentItem(p)  # filha da peça: segue o movimento
             handle.setPos(hx, hy)
             self._resize_handles.append(handle)
 
@@ -2107,9 +2107,9 @@ class MainWindow(QMainWindow):
     def _resize_dims(self, piece, scene_pos, axis):
         """(largura, altura) do footprint a partir do arraste, ancorado no topo-
         esquerda; aplica proporcao quando o cadeado esta ligado."""
-        w = max(2.0, scene_pos.x() - piece.scenePos().x()) if axis in ("wh", "w") \
+        w = max(2.0, scene_pos.x() - piece.scenePos().x()) if axis in ("wh", "w")\
             else piece.rect().width()
-        h = max(2.0, scene_pos.y() - piece.scenePos().y()) if axis in ("wh", "h") \
+        h = max(2.0, scene_pos.y() - piece.scenePos().y()) if axis in ("wh", "h")\
             else piece.rect().height()
         if self._ps_lock.isChecked() and piece.rect().height() > 0:
             ratio = piece.rect().width() / piece.rect().height()
@@ -2131,7 +2131,7 @@ class MainWindow(QMainWindow):
         base = next(
             (b for b in self._base_artworks if self._path_of(b.id) == path), None
         )
-        art = {a.id: a for a in self._result.artworks}.get(piece.artwork_id) \
+        art = {a.id: a for a in self._result.artworks}.get(piece.artwork_id)\
             if self._result else None
         if not path or base is None or art is None:
             return
@@ -2158,13 +2158,13 @@ class MainWindow(QMainWindow):
             self._keep_tab = False
 
     # ==================== Abas de trabalho (multi-projeto) ====================
-    # Widgets de configuracao que fazem parte de cada projeto (salvos por aba).
-    # Modos de faca (usado no combo do Documento e no override por peca). O valor
+    # Widgets de configuração que fazem parte de cada projeto (salvos por aba).
+    # Modos de faca (usado no combo do Documento e no override por peça). O valor
     # e o que fica gravado em params["mode"]. "auto" decide sozinho pelo tipo da
-    # arte (JPG opaco -> retangulo; PNG com transparencia -> contorno).
+    # arte (JPG opaco -> retângulo; PNG com transparência -> contorno).
     _FACA_MODES = (
-        ("Automatico (recomendado)", "auto"),
-        ("Retangulo (corte reto)", "rect"),
+        ("Automático (recomendado)", "auto"),
+        ("Retângulo (corte reto)", "rect"),
         ("Contorno justo", "contour"),
         ("Contorno suave (arredonda)", "contour_smooth"),
         ("Contorno simplificado", "contour_simplify"),
@@ -2295,8 +2295,8 @@ class MainWindow(QMainWindow):
 
     def _apply_session(self, s: dict) -> None:
         """Restaura uma sessao inteira (troca de aba) e redesenha."""
-        # o clipboard de pecas e por trabalho: colar numa aba posicoes copiadas
-        # de outra (ids homonimos) inseriria peca no lugar errado (QA-12).
+        # o clipboard de peças e por trabalho: colar numa aba posições copiadas
+        # de outra (ids homonimos) inseriria peça no lugar errado (QA-12).
         self._piece_clipboard = []
         self._paste_count = 0
         self._suspend_relayout = True
@@ -2378,11 +2378,11 @@ class MainWindow(QMainWindow):
 
     # ---- construcao da UI ----
     def _build_ui(self) -> None:
-        """Monta a janela: biblioteca | area de trabalho | propriedades, com
-        faixa de aviso no topo e barra de status no rodape. A ribbon (acoes) e
+        """Monta a janela: biblioteca | área de trabalho | propriedades, com
+        faixa de aviso no topo e barra de status no rodape. A ribbon (ações) e
         montada depois, em _build_menu_toolbar."""
         self._toasts = ToastManager(self)
-        self._status = QLabel("")  # compat interno (mensagens antigas); nao exibido
+        self._status = QLabel("")  # compat interno (mensagens antigas); não exibido
         self._status.hide()
 
         library = self._build_library_panel()
@@ -2430,7 +2430,7 @@ class MainWindow(QMainWindow):
         self._on_selection_changed()
 
     def _build_work_area(self) -> QWidget:
-        """Area de trabalho central: canvas com zoom/pan e reguas em mm."""
+        """Área de trabalho central: canvas com zoom/pan e réguas em mm."""
         self._scene = QGraphicsScene()
         self._view = ZoomableGraphicsView(self._scene)
         self._view.drag_started.connect(self._begin_move)
@@ -2456,7 +2456,7 @@ class MainWindow(QMainWindow):
 
         self._overlay = MeasureOverlay(self._view.viewport())
         self._view.view_changed.connect(self._position_overlay)
-        # controles de Exibicao: vivem no popup do botao da barra de cima
+        # controles de Exibicao: vivem no popup do botão da barra de cima
         self._display_panel = self._build_display_controls()
 
         for ruler in (self._h_ruler, self._v_ruler):
@@ -2464,16 +2464,16 @@ class MainWindow(QMainWindow):
             ruler.guide_dropped.connect(self._on_guide_dropped)
         return work
 
-    # ---- guias (arrastar da regua, estilo CorelDRAW) ----
+    # ---- guias (arrastar da régua, estilo CorelDRAW) ----
     @staticmethod
     def _guide_pen() -> QPen:
-        pen = QPen(QColor(theme.ACCENT))  # azul unico da marca (nada de azul-Windows)
+        pen = QPen(QColor(theme.ACCENT))  # azul único da marca (nada de azul-Windows)
         pen.setStyle(Qt.DashLine)
         pen.setCosmetic(True)  # espessura/tracejado constantes em qualquer zoom
         return pen
 
     def _guides_extent(self) -> tuple[float, float, float, float]:
-        """Retangulo (x0, y0, x1, y1) que as guias atravessam, com margem."""
+        """Retângulo (x0, y0, x1, y1) que as guias atravessam, com margem."""
         rect = self._scene.itemsBoundingRect()
         if rect.isEmpty():
             return -1000.0, -1000.0, 1000.0, 1000.0
@@ -2481,7 +2481,7 @@ class MainWindow(QMainWindow):
         return rect.left() - m, rect.top() - m, rect.right() + m, rect.bottom() + m
 
     def _make_guide_line(self, is_h: bool, value: float, pen: QPen):
-        """Linha simples (usada so na pre-visualizacao do arraste)."""
+        """Linha simples (usada só na pre-visualização do arraste)."""
         x0, y0, x1, y1 = self._guides_extent()
         if is_h:
             return self._scene.addLine(x0, value, x1, value, pen)
@@ -2534,7 +2534,7 @@ class MainWindow(QMainWindow):
         self._overlay.move(max(m, vp.width() - self._overlay.width() - m), m)
 
     def _update_overlay(self) -> None:
-        """Atualiza a caixinha de medidas conforme a selecao (ou a chapa)."""
+        """Atualiza a caixinha de medidas conforme a seleção (ou a chapa)."""
         if not hasattr(self, "_overlay"):
             return
         try:
@@ -2547,7 +2547,7 @@ class MainWindow(QMainWindow):
             art = by_id[pieces[0].artwork_id]
             m = measurements.piece_metrics(art)
             self._overlay.show_lines(
-                "Peca",
+                "Peça",
                 f"Faca: {units.fmt_len(m.width, with_unit=False)} x {units.fmt_len(m.height)}",
                 f"Arte: {units.fmt_len(art.size.width, with_unit=False)} "
                 f"x {units.fmt_len(art.size.height)}",
@@ -2577,8 +2577,8 @@ class MainWindow(QMainWindow):
 
     def _build_properties_panel(self) -> QWidget:
         """Painel de propriedades com abas fixas: 'Documento' (chapa/faca/etc.) e
-        'Selecao' (peca ou grupo). As abas ficam sempre visiveis, entao as
-        configuracoes nunca somem: clicar numa peca so muda para a aba Selecao,
+        'Seleção' (peça ou grupo). As abas ficam sempre visiveis, entao as
+        configurações nunca somem: clicar numa peça só muda para a aba Seleção,
         e basta clicar em 'Documento' para voltar."""
         document = QWidget()
         dl = QVBoxLayout(document)
@@ -2587,21 +2587,21 @@ class MainWindow(QMainWindow):
         self._doc_layout = dl  # usado pelo Modo Compacto
         self._doc_cards = []   # cards do documento (para o Modo Compacto)
 
-        # Modo Compacto (para notebooks): reduz espacamentos/altura dos campos.
+        # Modo Compacto (para notebooks): reduz espaçamentos/altura dos campos.
         self._compact_check = QCheckBox("Modo Compacto")
         self._compact_check.setToolTip(
-            "Reduz os espacamentos e a altura dos campos, mantendo a legibilidade.\n"
+            "Reduz os espaçamentos e a altura dos campos, mantendo a legibilidade.\n"
             "Ideal para telas menores (notebooks)."
         )
         self._compact_check.toggled.connect(self._apply_compact_mode)
         dl.addWidget(self._compact_check)
 
-        dl.addWidget(self._build_resumo_card())          # resumo da producao (topo, fixo)
-        dl.addWidget(self._build_producao_card())        # 1 - Producao (aberto)
+        dl.addWidget(self._build_resumo_card())          # resumo da produção (topo, fixo)
+        dl.addWidget(self._build_producao_card())        # 1 - Produção (aberto)
         dl.addWidget(self._build_acabamento_card())      # 2 - Acabamento (recolhido)
         dl.addWidget(self._build_imagens_card())         # 3 - Imagens (recolhido)
         dl.addWidget(self._build_registro_card())        # 4 - Marcas de registro (recolhido)
-        dl.addWidget(self._build_avancado_card())        # 5 - Avancado (recolhido)
+        dl.addWidget(self._build_avancado_card())        # 5 - Avançado (recolhido)
         dl.addStretch()
         self._doc_widget = document  # usado pelo Modo Compacto p/ achar os campos
         doc_scroll = QScrollArea()
@@ -2609,9 +2609,9 @@ class MainWindow(QMainWindow):
         doc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         doc_scroll.setWidget(document)
 
-        # aba Selecao: pilha interna (vazio / peca / grupo)
+        # aba Seleção: pilha interna (vazio / peça / grupo)
         self._sel_stack = QStackedWidget()
-        hint = QLabel("Clique numa peca na area de trabalho para ver medidas e acoes.")
+        hint = QLabel("Clique numa peça na área de trabalho para ver medidas e ações.")
         hint.setWordWrap(True)
         hint.setProperty("role", "caption")
         hint.setAlignment(Qt.AlignTop)
@@ -2620,13 +2620,13 @@ class MainWindow(QMainWindow):
         hl.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM, 0)
         hl.addWidget(hint)
         hl.addStretch()
-        self._sel_stack.addWidget(hint_wrap)              # 0 = sem selecao
-        self._sel_stack.addWidget(self._build_piece_page())  # 1 = peca
+        self._sel_stack.addWidget(hint_wrap)              # 0 = sem seleção
+        self._sel_stack.addWidget(self._build_piece_page())  # 1 = peça
         self._sel_stack.addWidget(self._build_group_page())  # 2 = grupo
 
         self._props_tabs = QTabWidget()
         self._props_tabs.addTab(doc_scroll, "Documento")
-        self._props_tabs.addTab(self._sel_stack, "Selecao")
+        self._props_tabs.addTab(self._sel_stack, "Seleção")
         self._props_tabs.addTab(self._build_object_page(), "Objeto")
         self._transform_page = self._build_transform_page()
         self._props_tabs.addTab(self._transform_page, "Transformar")
@@ -2642,24 +2642,24 @@ class MainWindow(QMainWindow):
         wrap.setMaximumWidth(400)
         return wrap
 
-    # ==================== Aba "Transformar" (duplicacao inteligente) ==========
+    # ==================== Aba "Transformar" (duplicação inteligente) ==========
     def _build_transform_page(self) -> QWidget:
-        """Aba 'Transformar' (estilo CorelDRAW): duplicar por posicao (X/Y +
+        """Aba 'Transformar' (estilo CorelDRAW): duplicar por posição (X/Y +
         copias), gerar grade (colunas x linhas) e girar. Preview 'fantasma' em
-        tempo real. So mexe na camada de edicao: as copias viram pecas reais via
+        tempo real. Só mexe na camada de edicao: as copias viram peças reais via
         _add_placed (entram no undo, no PDF, no DXF e no .printnest)."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(theme.SPACE_SM)
 
-        cap = QLabel("Selecione peca(s) e escolha como multiplicar.")
+        cap = QLabel("Selecione peça(s) e escolha como multiplicar.")
         cap.setProperty("role", "caption")
         cap.setWordWrap(True)
         lay.addWidget(cap)
 
-        # ---- Duplicar (posicao) ----
-        dup = CollapsibleCard("Duplicar (posicao)")
+        # ---- Duplicar (posição) ----
+        dup = CollapsibleCard("Duplicar (posição)")
         self._td_x = LengthSpin(-20000, 20000)
         self._td_x.setValue(100)
         self._td_y = LengthSpin(-20000, 20000)
@@ -2667,14 +2667,14 @@ class MainWindow(QMainWindow):
         self._td_x.valueChanged.connect(lambda _: self._preview_duplicate())
         self._td_y.valueChanged.connect(lambda _: self._preview_duplicate())
         self._grid_fields(dup.body, [
-            ("Deslocamento X", self._td_x, "Distancia entre copias no eixo X (mm)."),
-            ("Deslocamento Y", self._td_y, "Distancia entre copias no eixo Y (mm)."),
+            ("Deslocamento X", self._td_x, "Distância entre copias no eixo X (mm)."),
+            ("Deslocamento Y", self._td_y, "Distância entre copias no eixo Y (mm)."),
         ])
-        self._td_relative = QCheckBox("Posicao relativa (cada copia a partir da anterior)")
+        self._td_relative = QCheckBox("Posição relativa (cada copia a partir da anterior)")
         self._td_relative.setChecked(True)
         self._td_relative.setToolTip(
             "Marcado: X/Y sao o passo entre copias (0, X, 2X, 3X...). Desmarcado: "
-            "todas as copias vao para a MESMA posicao (X, Y) informada."
+            "todas as copias vão para a MESMA posição (X, Y) informada."
         )
         self._td_relative.toggled.connect(lambda _: self._preview_duplicate())
         dup.body.addWidget(self._td_relative)
@@ -2700,10 +2700,10 @@ class MainWindow(QMainWindow):
         for w in (self._tg_cols, self._tg_rows, self._tg_gap_h, self._tg_gap_v):
             w.valueChanged.connect(lambda _: self._preview_grid())
         self._grid_fields(grid.body, [
-            ("Colunas", self._tg_cols, "Numero de colunas."),
-            ("Linhas", self._tg_rows, "Numero de linhas."),
-            ("Espaco H", self._tg_gap_h, "Espacamento horizontal entre copias (mm)."),
-            ("Espaco V", self._tg_gap_v, "Espacamento vertical entre copias (mm)."),
+            ("Colunas", self._tg_cols, "Número de colunas."),
+            ("Linhas", self._tg_rows, "Número de linhas."),
+            ("Espaco H", self._tg_gap_h, "Espaçamento horizontal entre copias (mm)."),
+            ("Espaco V", self._tg_gap_v, "Espaçamento vertical entre copias (mm)."),
         ])
         btn_grid = QPushButton("  Gerar Grade")
         btn_grid.setIcon(icons.icon("grid-3x3", theme.ICON))
@@ -2711,8 +2711,8 @@ class MainWindow(QMainWindow):
         grid.body.addWidget(btn_grid)
         lay.addWidget(grid)
 
-        # ---- Rotacao ----
-        rot = CollapsibleCard("Rotacao", collapsed=True)
+        # ---- Rotação ----
+        rot = CollapsibleCard("Rotação", collapsed=True)
         row = QHBoxLayout()
         b_l = QPushButton("  -90")
         b_l.setIcon(icons.icon("rotate-ccw", theme.ICON))
@@ -2723,7 +2723,7 @@ class MainWindow(QMainWindow):
         row.addWidget(b_l)
         row.addWidget(b_r)
         rot.body.addLayout(row)
-        rot.body.addWidget(QLabel("Gira so a(s) peca(s) selecionada(s) e re-encaixa."))
+        rot.body.addWidget(QLabel("Gira só a(s) peça(s) selecionada(s) e re-encaixa."))
         lay.addWidget(rot)
 
         lay.addStretch()
@@ -2740,11 +2740,11 @@ class MainWindow(QMainWindow):
         """Remove os previews fantasma da cena."""
         for it in self._ghost_items:
             with contextlib.suppress(RuntimeError, ValueError):
-                self._scene.removeItem(it)  # pode ja ter saido no scene.clear
+                self._scene.removeItem(it)  # pode já ter saido no scene.clear
         self._ghost_items = []
 
     def _draw_ghosts(self, rects: list) -> None:
-        """Desenha copias fantasma (tracejado, opacidade 40%) nas posicoes dadas.
+        """Desenha copias fantasma (tracejado, opacidade 40%) nas posições dadas.
         rects: lista de (x_cena, y_cena, largura, altura) em mm."""
         self._clear_ghost()
         pen = QPen(QColor(theme.ACCENT))
@@ -2757,17 +2757,17 @@ class MainWindow(QMainWindow):
         for (sx, sy, w, h) in rects:
             it = self._scene.addRect(sx, sy, w, h, pen, brush)
             it.setOpacity(0.4)
-            it.setZValue(1000)  # por cima das pecas
-            # transparente ao mouse: o clique passa direto para a peca embaixo
-            # (senao o fantasma "rouba" o clique e nao da pra selecionar/excluir).
+            it.setZValue(1000)  # por cima das peças
+            # transparente ao mouse: o clique passa direto para a peça embaixo
+            # (senao o fantasma "rouba" o clique e não da pra selecionar/excluir).
             it.setAcceptedMouseButtons(Qt.NoButton)
             it.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
             self._ghost_items.append(it)
 
     def _refresh_transform_preview(self) -> None:
-        """Reaplica o preview conforme o ultimo modo usado (ou limpa se inativo)."""
+        """Reaplica o preview conforme o último modo usado (ou limpa se inativo)."""
         if self._suppress_ghost:
-            return  # durante o 'aplicar' o redraw nao deve repintar fantasmas
+            return  # durante o 'aplicar' o redraw não deve repintar fantasmas
         if not self._transform_active():
             self._clear_ghost()
             return
@@ -2832,7 +2832,7 @@ class MainWindow(QMainWindow):
             return
         sel = self._selected_pieces()
         if not sel:
-            self._toasts.info("Selecione a(s) peca(s) para duplicar.")
+            self._toasts.info("Selecione a(s) peça(s) para duplicar.")
             return
         dx = float(self._td_x.value())
         dy = float(self._td_y.value())
@@ -2856,14 +2856,14 @@ class MainWindow(QMainWindow):
             self._add_placed(add, text="duplicar (transformar)")
         finally:
             self._suppress_ghost = False
-        self._toasts.success(f"{len(sel)} peca(s) x {copies} copia(s)")
+        self._toasts.success(f"{len(sel)} peça(s) x {copies} copia(s)")
 
     def _apply_transform_grid(self) -> None:
         if self._result is None:
             return
         sel = self._selected_pieces()
         if not sel:
-            self._toasts.info("Selecione a(s) peca(s) para a grade.")
+            self._toasts.info("Selecione a(s) peça(s) para a grade.")
             return
         cols, rows = int(self._tg_cols.value()), int(self._tg_rows.value())
         if cols < 1 or rows < 1 or (cols == 1 and rows == 1):
@@ -2891,21 +2891,21 @@ class MainWindow(QMainWindow):
         self._toasts.success(f"Grade {cols}x{rows} gerada")
 
     def _build_piece_page(self) -> QWidget:
-        """Propriedades de uma peca: medidas + acoes."""
+        """Propriedades de uma peça: medidas + ações."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(theme.SPACE_SM)
-        # As medidas da peca (L x A, X, Y) ficam na barra de cima (contexto
-        # Objeto), estilo Corel — nao repetimos aqui para nao duplicar info.
+        # As medidas da peça (L x A, X, Y) ficam na barra de cima (contexto
+        # Objeto), estilo Corel — não repetimos aqui para não duplicar info.
 
         # ---- tamanho deste arquivo (redimensionar a arte) ----
         size_card = CollapsibleCard("Tamanho (redimensionar)")
         size_card.body.addWidget(QLabel("Largura"))
         self._ps_w = LengthSpin(1, 20000)
         # atualiza ao vivo enquanto digita; o reload do campo e bloqueado
-        # enquanto ele tem foco (em _load_piece_size), para nao apagar o que
-        # o usuario esta digitando.
+        # enquanto ele tem foco (em _load_piece_size), para não apagar o que
+        # o usuário esta digitando.
         self._ps_w.valueChanged.connect(lambda _: self._on_piece_size_changed("w"))
         size_card.body.addWidget(self._ps_w)
         size_card.body.addWidget(QLabel("Altura"))
@@ -2950,23 +2950,23 @@ class MainWindow(QMainWindow):
         self._pf_smooth = _spin(0, 5)
         self._pf_smooth.valueChanged.connect(lambda _: self._on_piece_faca_changed())
         faca.body.addWidget(self._pf_smooth)
-        self._pf_reset = QPushButton("  Usar padrao do documento")
+        self._pf_reset = QPushButton("  Usar padrão do documento")
         self._pf_reset.setIcon(icons.icon("rotate-ccw", theme.ICON))
-        self._pf_reset.setToolTip("Remove a faca personalizada e volta ao padrao do Documento")
+        self._pf_reset.setToolTip("Remove a faca personalizada e volta ao padrão do Documento")
         self._pf_reset.clicked.connect(self._reset_piece_faca)
         faca.body.addWidget(self._pf_reset)
         lay.addWidget(faca)
 
         lay.addWidget(self._actions_card([
             ("copy", "Duplicar", self._duplicate_selected),
-            ("copy-plus", "Duplicar so esta pagina...", self._duplicate_selected_qty),
+            ("copy-plus", "Duplicar só esta página...", self._duplicate_selected_qty),
             ("trash-2", "Excluir", self._delete_selected),
         ]))
         lay.addStretch()
         return page
 
     def _build_group_page(self) -> QWidget:
-        """Propriedades de varias pecas: medidas do grupo + alinhar/distribuir."""
+        """Propriedades de varias peças: medidas do grupo + alinhar/distribuir."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -2988,8 +2988,8 @@ class MainWindow(QMainWindow):
         return page
 
     def _actions_card(self, actions: list[tuple[str, str, object]]) -> QFrame:
-        """Cartao com botoes de acao (icone + texto)."""
-        card = CollapsibleCard("Acoes")
+        """Cartao com botões de ação (icone + texto)."""
+        card = CollapsibleCard("Ações")
         for icon_name, text, slot in actions:
             btn = QPushButton(f"  {text}")
             btn.setIcon(icons.icon(icon_name, theme.ICON))
@@ -2998,7 +2998,7 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_object_page(self) -> QWidget:
-        """Aba 'Objeto': lista os objetos da area de trabalho (clique seleciona) e
+        """Aba 'Objeto': lista os objetos da área de trabalho (clique seleciona) e
         oferece gerenciar objetos como no CorelDRAW: selecionar tudo, agrupar/
         desagrupar, ordem (frente/tras) e remover."""
         page = QWidget()
@@ -3006,7 +3006,7 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(theme.SPACE_SM)
 
-        cap = QLabel("Objetos na area de trabalho (clique para selecionar)")
+        cap = QLabel("Objetos na área de trabalho (clique para selecionar)")
         cap.setProperty("role", "caption")
         cap.setWordWrap(True)
         lay.addWidget(cap)
@@ -3026,7 +3026,7 @@ class MainWindow(QMainWindow):
         return page
 
     def _refresh_object_list(self) -> None:
-        """Reconstroi a lista de objetos a partir das pecas atuais."""
+        """Reconstroi a lista de objetos a partir das peças atuais."""
         if not hasattr(self, "_obj_list"):
             return
         by_id = {a.id: a for a in self._result.artworks} if self._result else {}
@@ -3041,7 +3041,7 @@ class MainWindow(QMainWindow):
         self._sync_object_list_selection()
 
     def _sync_object_list_selection(self) -> None:
-        """Reflete a selecao do canvas na lista (sem disparar de volta)."""
+        """Reflete a seleção do canvas na lista (sem disparar de volta)."""
         if not hasattr(self, "_obj_list"):
             return
         self._obj_list.blockSignals(True)
@@ -3050,13 +3050,13 @@ class MainWindow(QMainWindow):
                 item = self._obj_list.item(row)
                 if item is not None:
                     item.setSelected(piece.isSelected())
-        except RuntimeError:  # peca ja deletada durante um redraw
+        except RuntimeError:  # peça já deletada durante um redraw
             pass
         finally:
             self._obj_list.blockSignals(False)
 
     def _on_object_list_selection(self) -> None:
-        """Seleciona no canvas as pecas marcadas na lista."""
+        """Seleciona no canvas as peças marcadas na lista."""
         rows = {self._obj_list.row(it) for it in self._obj_list.selectedItems()}
         self._scene.clearSelection()
         for row, piece in enumerate(getattr(self, "_obj_rows", [])):
@@ -3064,7 +3064,7 @@ class MainWindow(QMainWindow):
                 piece.setSelected(True)
 
     def _bring_to_front(self) -> None:
-        """Coloca as pecas selecionadas a frente das demais (ordem de empilhamento)."""
+        """Coloca as peças selecionadas a frente das demais (ordem de empilhamento)."""
         pieces = [it for it in self._scene.selectedItems() if isinstance(it, PieceItem)]
         if not pieces:
             return
@@ -3074,7 +3074,7 @@ class MainWindow(QMainWindow):
             piece.setZValue(top + i)
 
     def _send_to_back(self) -> None:
-        """Envia as pecas selecionadas para tras das demais."""
+        """Envia as peças selecionadas para tras das demais."""
         pieces = [it for it in self._scene.selectedItems() if isinstance(it, PieceItem)]
         if not pieces:
             return
@@ -3084,28 +3084,28 @@ class MainWindow(QMainWindow):
             piece.setZValue(bottom - i)
 
     def _on_selection_changed(self) -> None:
-        """Atualiza a aba 'Selecao' conforme a selecao do canvas. As abas ficam
-        sempre visiveis; ao selecionar uma peca, vai para a aba Selecao, e ao
-        soltar a selecao volta para Documento."""
+        """Atualiza a aba 'Seleção' conforme a seleção do canvas. As abas ficam
+        sempre visiveis; ao selecionar uma peça, vai para a aba Seleção, e ao
+        soltar a seleção volta para Documento."""
         if not hasattr(self, "_props_tabs"):
             return
         try:
             selected = self._scene.selectedItems()
-        except RuntimeError:  # cena ja destruida (fechando a janela)
+        except RuntimeError:  # cena já destruida (fechando a janela)
             return
         pieces = [it for it in selected if isinstance(it, PieceItem)]
         cur = self._props_tabs.currentIndex()
-        switch = not self._keep_tab  # durante reselecao nao troca de aba
+        switch = not self._keep_tab  # durante reselecao não troca de aba
         if not pieces:
             self._sel_stack.setCurrentIndex(0)
-            self._props_tabs.setTabText(1, "Selecao")
-            if switch and cur == 1:  # so volta para Documento se estiver na Selecao
+            self._props_tabs.setTabText(1, "Seleção")
+            if switch and cur == 1:  # só volta para Documento se estiver na Seleção
                 self._props_tabs.setCurrentIndex(0)
         elif len(pieces) == 1:
             self._update_piece_page(pieces[0])
             self._sel_stack.setCurrentIndex(1)
-            self._props_tabs.setTabText(1, "Peca")
-            if switch and cur == 0:  # nao tira o usuario da aba Objeto
+            self._props_tabs.setTabText(1, "Peça")
+            if switch and cur == 0:  # não tira o usuário da aba Objeto
                 self._props_tabs.setCurrentIndex(1)
         else:
             self._update_group_page(pieces)
@@ -3117,15 +3117,15 @@ class MainWindow(QMainWindow):
         self._update_overlay()
         self._refresh_transform_preview()  # atualiza os fantasmas da aba Transformar
         self._update_property_bar()  # barra contextual (Projeto/Objeto/Grupo)
-        self._update_resize_handles()  # alcas de redimensionar (peca selecionada)
+        self._update_resize_handles()  # alças de redimensionar (peça selecionada)
 
     def _update_piece_page(self, piece: PieceItem) -> None:
-        # As medidas/posicao da peca ficam na barra de cima (contexto Objeto);
-        # aqui so carregamos a faca do arquivo, sem duplicar informacao.
+        # As medidas/posição da peça ficam na barra de cima (contexto Objeto);
+        # aqui só carregamos a faca do arquivo, sem duplicar informacao.
         self._load_piece_faca(piece)
 
     def _load_piece_faca(self, piece: PieceItem) -> None:
-        """Carrega no editor a faca do arquivo da peca (override ou padrao)."""
+        """Carrega no editor a faca do arquivo da peça (override ou padrão)."""
         path = self._path_of(piece.artwork_id)
         self._selected_path = path
         base = next((b for b in self._base_artworks if b.id == piece.artwork_id), None)
@@ -3141,11 +3141,11 @@ class MainWindow(QMainWindow):
             self._pf_mode.setCurrentIndex(max(0, self._pf_mode.findData(p.get("mode", "auto"))))
         finally:
             self._pf_loading = False
-        # o tipo de faca agora vale para imagem tambem (retangulo/contorno/auto)
+        # o tipo de faca agora vale para imagem também (retângulo/contorno/auto)
         self._pf_mode.setEnabled(True)
         self._pf_mode_label.setEnabled(True)
-        # suavizar so faz sentido nas variacoes de contorno (nao no retangulo).
-        # 'auto' pode virar contorno numa imagem com transparencia -> libera.
+        # suavizar só faz sentido nas variacoes de contorno (não no retângulo).
+        # 'auto' pode virar contorno numa imagem com transparência -> libera.
         mode = p.get("mode", "auto")
         contour_cut = mode in self._CONTOUR_MODES or (
             mode == "auto" and self._selected_is_image
@@ -3156,8 +3156,8 @@ class MainWindow(QMainWindow):
         self._load_piece_size(path)
 
     def _load_piece_size(self, path) -> None:
-        """Carrega no editor o tamanho do arquivo da peca (override ou original)."""
-        # nao sobrescreve o que o usuario esta digitando (reselecao apos relayout
+        """Carrega no editor o tamanho do arquivo da peça (override ou original)."""
+        # não sobrescreve o que o usuário esta digitando (reselecao após relayout
         # chama isto; sem o guard, o campo voltava ao valor antigo no meio da digitacao).
         if self._ps_w.hasFocus() or self._ps_h.hasFocus():
             return
@@ -3197,7 +3197,7 @@ class MainWindow(QMainWindow):
             self._keep_tab = False
 
     def _reset_piece_faca(self) -> None:
-        """Remove a faca personalizada do arquivo: volta ao padrao do Documento."""
+        """Remove a faca personalizada do arquivo: volta ao padrão do Documento."""
         if not self._selected_path:
             return
         path = self._selected_path
@@ -3270,7 +3270,7 @@ class MainWindow(QMainWindow):
             self._keep_tab = False
 
     def _reselect_path(self, path) -> None:
-        """Reseleciona a 1a peca do arquivo (mantem a aba Selecao apos relayout)."""
+        """Reseleciona a 1a peça do arquivo (mantem a aba Seleção após relayout)."""
         self._scene.clearSelection()
         for piece in self._piece_items:
             if self._path_of(piece.artwork_id) == path:
@@ -3289,27 +3289,27 @@ class MainWindow(QMainWindow):
     def _apply_tooltips(self) -> None:
         self._table.setToolTip("Arquivos e a quantidade de copias de cada um")
         self._import_box.setToolTip(
-            "Caixa de Midia mantem a sangria; Caixa de Apara corta no traco de corte do PDF"
+            "Caixa de Mídia mantem a sangria; Caixa de Apara corta no traco de corte do PDF"
         )
         self._rotation.setToolTip("Gira todos os arquivos (graus)")
         self._width.setToolTip("Largura da chapa de material (mm)")
-        self._height.setToolTip("Altura da chapa (mm). 0 = chapa unica (comprimento aberto)")
-        self._spacing.setToolTip("Espaco entre as pecas (mm)")
+        self._height.setToolTip("Altura da chapa (mm). 0 = chapa única (comprimento aberto)")
+        self._spacing.setToolTip("Espaco entre as peças (mm)")
         self._crop.setToolTip("Corta as bordas da arte (remove faixa branca) (mm)")
-        self._shared.setToolTip("Faca por peca (quadrados) ou compartilhada (grade fora a fora)")
+        self._shared.setToolTip("Faca por peça (quadrados) ou compartilhada (grade fora a fora)")
         self._reg_type.setToolTip("Tipo de marca de registro para a mesa de corte")
-        self._mk_distance.setToolTip("Mimaki: distancia do quadro ate o conteudo (mm)")
+        self._mk_distance.setToolTip("Mimaki: distância do quadro até o conteudo (mm)")
         self._mk_size.setToolTip("Mimaki: tamanho das marcas em L (mm)")
         self._mk_thickness.setToolTip("Mimaki: espessura das marcas (mm)")
         self._view_mode.setToolTip("O que mostrar: impressao, corte, ambos ou tela dividida")
-        self._show_rulers.setToolTip("Mostra/esconde as reguas (mm)")
+        self._show_rulers.setToolTip("Mostra/esconde as réguas (mm)")
         self._snap_check.setToolTip(
-            "Encaixe magnetico: a peca gruda nas bordas/centro das outras e da chapa (Alt+Q)"
+            "Encaixe magnetico: a peça gruda nas bordas/centro das outras e da chapa (Alt+Q)"
         )
 
     def _build_library_panel(self) -> QWidget:
         """Biblioteca de arquivos (esquerda): cada linha tem miniatura, nome,
-        medida, paginas, tipo e quantidade. Dona do _table (contrato dos testes:
+        medida, páginas, tipo e quantidade. Dona do _table (contrato dos testes:
         col 0 = item com nome/⚠, col 1 = QuantityStepper)."""
         panel = QWidget()
         lay = QVBoxLayout(panel)
@@ -3323,7 +3323,7 @@ class MainWindow(QMainWindow):
             if not pm.isNull():
                 logo = QLabel()
                 logo.setPixmap(pm.scaledToWidth(200, Qt.SmoothTransformation))
-                logo.setAlignment(Qt.AlignHCenter)  # centraliza sobre o botao "+ Adicionar"
+                logo.setAlignment(Qt.AlignHCenter)  # centraliza sobre o botão "+ Adicionar"
                 logo.setContentsMargins(0, 2, 0, 4)
                 lay.addWidget(logo)
 
@@ -3347,7 +3347,7 @@ class MainWindow(QMainWindow):
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._table.setDragEnabled(True)  # arrastar arquivo para a area de trabalho
+        self._table.setDragEnabled(True)  # arrastar arquivo para a área de trabalho
         self._table.setDragDropMode(QAbstractItemView.DragOnly)
         self._table.itemSelectionChanged.connect(self._update_selection_info)
         lay.addWidget(self._table, 1)
@@ -3356,7 +3356,7 @@ class MainWindow(QMainWindow):
         self._btn_crop.setIcon(icons.icon("replace", theme.ICON))
         self._btn_crop.setToolTip(
             "Corta as bordas do arquivo selecionado (PDF ou imagem): arraste as\n"
-            "bordas na previa. No PDF, vale para todas as paginas ou as que escolher."
+            "bordas na previa. No PDF, vale para todas as páginas ou as que escolher."
         )
         self._btn_crop.clicked.connect(self._crop_pages_dialog)
         lay.addWidget(self._btn_crop)
@@ -3370,7 +3370,7 @@ class MainWindow(QMainWindow):
         cap_box.setProperty("role", "caption")
         lay.addWidget(cap_box)
         self._import_box = QComboBox()
-        self._import_box.addItem("Caixa de Midia (sangria)", "media")
+        self._import_box.addItem("Caixa de Mídia (sangria)", "media")
         self._import_box.addItem("Caixa de Apara (corte)", "trim")
         lay.addWidget(self._import_box)
 
@@ -3412,12 +3412,12 @@ class MainWindow(QMainWindow):
         body.addLayout(grid)
 
     def _build_resumo_card(self) -> CollapsibleCard:
-        """Resumo da producao (somente leitura), atualizado automaticamente."""
-        card = CollapsibleCard("Resumo da producao", accent="resumo")
+        """Resumo da produção (somente leitura), atualizado automaticamente."""
+        card = CollapsibleCard("Resumo da produção", accent="resumo")
         self._sum_material = MeasureField("Material")
-        self._sum_pecas = MeasureField("Pecas")
+        self._sum_pecas = MeasureField("Peças")
         self._sum_chapas = MeasureField("Chapas")
-        self._sum_area = MeasureField("Area utilizada")
+        self._sum_area = MeasureField("Área utilizada")
         self._sum_faca = MeasureField("Faca")
         self._sum_reg = MeasureField("Registro")
         grid = QGridLayout()
@@ -3432,42 +3432,42 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_producao_card(self) -> CollapsibleCard:
-        """Secao 1 - Producao (sempre aberta): o que se usa 95% do tempo."""
-        card = self._doc_card("Producao", "producao")
+        """Secao 1 - Produção (sempre aberta): o que se usa 95% do tempo."""
+        card = self._doc_card("Produção", "produção")
         self._width = LengthSpin(1, 20000)
         self._width.valueChanged.connect(lambda _: self._relayout())
         self._height = LengthSpin(0, 20000)
         self._height.valueChanged.connect(lambda _: self._relayout())
         self._grid_fields(card.body, [
             ("Largura da chapa", self._width,
-             "Largura util da chapa/bobina onde as pecas sao encaixadas."),
-            ("Altura (0 = unica)", self._height,
-             "Altura da chapa. 0 = chapa unica (cresce conforme o conteudo)."),
+             "Largura útil da chapa/bobina onde as peças sao encaixadas."),
+            ("Altura (0 = única)", self._height,
+             "Altura da chapa. 0 = chapa única (cresce conforme o conteudo)."),
         ])
         self._spacing = LengthSpin(-500, 500)
         self._spacing.valueChanged.connect(lambda _: self._relayout())
         self._spacing_v = LengthSpin(-500, 500)
         self._spacing_v.valueChanged.connect(lambda _: self._relayout())
         self._grid_fields(card.body, [
-            ("Espacamento horizontal", self._spacing,
-             "Espaco entre as pecas na MESMA linha. Negativo aproxima/sobrepoe\n"
-             "os retangulos (util p/ peca redonda, fecha o vao branco)."),
-            ("Espacamento vertical", self._spacing_v,
+            ("Espaçamento horizontal", self._spacing,
+             "Espaco entre as peças na MESMA linha. Negativo aproxima/sobrepoe\n"
+             "os retângulos (útil p/ peça redonda, fecha o vão branco)."),
+            ("Espaçamento vertical", self._spacing_v,
              "Espaco entre as LINHAS (para cima/baixo). Negativo aproxima."),
         ])
         self._center_check = QCheckBox("Manter centralizado na chapa")
         self._center_check.setChecked(self._center_on_sheet)
         self._center_check.setToolTip(
             "Ligado: o conteudo fica centralizado na chapa automaticamente.\n"
-            "DESMARQUE para posicionar/arrastar as pecas livremente na pagina."
+            "DESMARQUE para posicionar/arrastar as peças livremente na página."
         )
         self._center_check.toggled.connect(self._set_center_on_sheet)
         card.body.addWidget(self._center_check)
         self._offset = LengthSpin(-100, 100)
         self._offset.setToolTip(
-            "Sangria da faca de PDF (vale nos 3 modos: retangulo, pelo contorno e\n"
+            "Sangria da faca de PDF (vale nos 3 modos: retângulo, pelo contorno e\n"
             "faca do cliente). Positivo afasta a faca para FORA da arte (sangria);\n"
-            "negativo recolhe para DENTRO (recuo). Para imagens, use o campo proprio."
+            "negativo recolhe para DENTRO (recuo). Para imagens, use o campo próprio."
         )
         self._offset.valueChanged.connect(lambda _: self._relayout(renest=False))
         card.body.addWidget(labeled("Sangria da faca (PDF)  ( + fora  /  − dentro )", self._offset))
@@ -3486,9 +3486,9 @@ class MainWindow(QMainWindow):
         for label, data in self._FACA_MODES:
             self._faca_mode.addItem(label, data)
         self._faca_mode.setToolTip(
-            "Automatico: escolhe sozinho - JPG/fundo solido vira retangulo,\n"
-            "imagem com transparencia (PNG) corta no formato (recorte).\n"
-            "Retangulo: corta a caixa por fora (corte reto), vale p/ imagem tambem.\n"
+            "Automático: escolhe sozinho - JPG/fundo solido vira retângulo,\n"
+            "imagem com transparência (PNG) corta no formato (recorte).\n"
+            "Retângulo: corta a caixa por fora (corte reto), vale p/ imagem também.\n"
             "Contorno justo: corta no formato do desenho (rasteriza).\n"
             "Contorno suave: idem, arredondando os cantos/serrilhado.\n"
             "Contorno simplificado: idem, com menos nos (faca mais leve).\n"
@@ -3496,26 +3496,26 @@ class MainWindow(QMainWindow):
         )
         self._faca_mode.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
         # o combo "Tipo de faca" NAO fica neste card: ele mora na barra de cima,
-        # colado ao botao "Gerar Faca" (escolher o tipo -> gerar, um gesto so).
+        # colado ao botão "Gerar Faca" (escolher o tipo -> gerar, um gesto só).
         self._shared = NoWheelComboBox()
-        self._shared.addItems(["Faca por peca (quadrados)", "Faca compartilhada (grade)"])
+        self._shared.addItems(["Faca por peça (quadrados)", "Faca compartilhada (grade)"])
         self._shared.setToolTip(
-            "Faca por peca: cada peca tem seu retangulo de corte.\n"
-            "Faca compartilhada: bordas coladas viram uma so linha (grade)."
+            "Faca por peça: cada peça tem seu retângulo de corte.\n"
+            "Faca compartilhada: bordas coladas viram uma só linha (grade)."
         )
         self._shared.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
         card.body.addWidget(labeled("Modo da faca", self._shared))
         return card
 
     def _build_imagens_card(self) -> CollapsibleCard:
-        """Secao 3 - Imagens (recolhida): faca automatica de PNG/JPG/WEBP."""
+        """Secao 3 - Imagens (recolhida): faca automática de PNG/JPG/WEBP."""
         card = self._doc_card("Imagens", "imagens", collapsed=True)
         self._auto_sensitivity = _spin(0, 100)
         self._auto_smooth = _spin(0, 5)
         self._auto_smooth.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._grid_fields(card.body, [
             ("Sensibilidade (0-100)", self._auto_sensitivity,
-             "Sensibilidade da deteccao do contorno em imagens (0-100)."),
+             "Sensibilidade da detecção do contorno em imagens (0-100)."),
             ("Suavizar curvas (0-5)", self._auto_smooth,
              "Suaviza o contorno da faca: 0 = reto, 5 = macio."),
         ])
@@ -3526,10 +3526,10 @@ class MainWindow(QMainWindow):
         )
         self._auto_offset.valueChanged.connect(lambda _: self._relayout(renest=False))
         card.body.addWidget(labeled("Sangria da faca (imagem)", self._auto_offset))
-        self._auto_ignore_white = QCheckBox("Remover fundo automatico (imagens opacas)")
+        self._auto_ignore_white = QCheckBox("Remover fundo automático (imagens opacas)")
         self._auto_ignore_white.setToolTip(
             "Detecta a cor do fundo pela borda e a remove (branco, escuro ou colorido).\n"
-            "Desmarcado: a faca fica no retangulo da imagem inteira."
+            "Desmarcado: a faca fica no retângulo da imagem inteira."
         )
         card.body.addWidget(self._auto_ignore_white)
         return card
@@ -3548,17 +3548,17 @@ class MainWindow(QMainWindow):
         self._reg_diameter = LengthSpin(1, 50)
         self._grid_fields(card.body, [
             ("Bolinhas: afastamento", self._reg_margin,
-             "Distancia das bolinhas ate as bordas da chapa (mm)."),
-            ("Bolinhas: diametro", self._reg_diameter,
-             "Diametro das bolinhas de registro (mm)."),
+             "Distância das bolinhas até as bordas da chapa (mm)."),
+            ("Bolinhas: diâmetro", self._reg_diameter,
+             "Diâmetro das bolinhas de registro (mm)."),
         ])
         self._mk_distance = LengthSpin(0, 200)
         self._mk_distance.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._mk_size = LengthSpin(1, 100)
         self._mk_size.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._grid_fields(card.body, [
-            ("Mimaki: distancia", self._mk_distance,
-             "Distancia do quadro (frame) ate o conteudo (mm)."),
+            ("Mimaki: distância", self._mk_distance,
+             "Distância do quadro (frame) até o conteudo (mm)."),
             ("Mimaki: tamanho", self._mk_size, "Tamanho das marcas em L (mm)."),
         ])
         self._mk_thickness = LengthSpin(0.1, 10)
@@ -3569,12 +3569,12 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_avancado_card(self) -> CollapsibleCard:
-        """Secao 5 - Avancado (recolhida): acoes tecnicas."""
-        card = self._doc_card("Avancado", "avancado", collapsed=True)
-        self._btn_reset_faca = QPushButton("  Restaurar padroes da faca")
+        """Secao 5 - Avançado (recolhida): ações tecnicas."""
+        card = self._doc_card("Avançado", "avançado", collapsed=True)
+        self._btn_reset_faca = QPushButton("  Restaurar padrões da faca")
         self._btn_reset_faca.setIcon(icons.icon("rotate-ccw", theme.ICON))
         self._btn_reset_faca.setToolTip(
-            "Zera sangria, recuo, recorte, giro e suavizacao para a faca sair exata\n"
+            "Zera sangria, recuo, recorte, giro e suavização para a faca sair exata\n"
             "no contorno. Aplicado sozinho a cada novo arquivo importado."
         )
         self._btn_reset_faca.clicked.connect(self._reset_faca_defaults)
@@ -3587,7 +3587,7 @@ class MainWindow(QMainWindow):
         return labeled(label, widget)
 
     def _apply_compact_mode(self, on: bool) -> None:
-        """Modo Compacto: reduz espacamentos e a altura dos campos (notebooks)."""
+        """Modo Compacto: reduz espaçamentos e a altura dos campos (notebooks)."""
         self._doc_layout.setSpacing(theme.SPACE_XS if on else theme.SPACE_MD)
         gap = theme.SPACE_XS if on else theme.SPACE_SM
         for card in self._doc_cards:
@@ -3600,7 +3600,7 @@ class MainWindow(QMainWindow):
             sp.setMaximumHeight(24 if on else 16777215)
 
     def _update_resumo(self) -> None:
-        """Atualiza o card 'Resumo da producao' (somente leitura)."""
+        """Atualiza o card 'Resumo da produção' (somente leitura)."""
         if not hasattr(self, "_sum_material"):
             return
         fields = (self._sum_material, self._sum_pecas, self._sum_chapas,
@@ -3628,30 +3628,30 @@ class MainWindow(QMainWindow):
         self._sum_reg.set_value(self._reg_type.currentText())
 
     def _build_display_controls(self) -> QWidget:
-        """Painel de Exibicao (unidade, modo de visualizacao, reguas, snap) usado
-        no popup do botao 'Exibicao' da barra de cima."""
+        """Painel de Exibicao (unidade, modo de visualização, réguas, snap) usado
+        no popup do botão 'Exibicao' da barra de cima."""
         panel = QWidget()
         panel.setObjectName("displayPopup")
         lay = QVBoxLayout(panel)
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(5)
 
-        # (a unidade de medida foi movida para o menu "Opcoes", ao lado de Ajuda)
-        cap_v = QLabel("Modo de visualizacao")
+        # (a unidade de medida foi movida para o menu "Opções", ao lado de Ajuda)
+        cap_v = QLabel("Modo de visualização")
         cap_v.setProperty("role", "caption")
         lay.addWidget(cap_v)
         self._view_mode = QComboBox()
         self._view_mode.addItem("Impressao + Corte", "both")
-        self._view_mode.addItem("So Impressao", "print")
-        self._view_mode.addItem("So Corte", "cut")
+        self._view_mode.addItem("Só Impressao", "print")
+        self._view_mode.addItem("Só Corte", "cut")
         self._view_mode.addItem("Tela dividida (impressao / corte)", "split")
         self._view_mode.currentIndexChanged.connect(lambda _: self._refresh_preview())
         lay.addWidget(self._view_mode)
 
-        self._show_rulers = QCheckBox("Mostrar reguas")
+        self._show_rulers = QCheckBox("Mostrar réguas")
         self._show_rulers.toggled.connect(lambda _: self._apply_rulers_visibility())
         lay.addWidget(self._show_rulers)
-        self._snap_check = QCheckBox("Encaixar pecas ao arrastar (snap)")
+        self._snap_check = QCheckBox("Encaixar peças ao arrastar (snap)")
         self._snap_check.toggled.connect(self._set_snap)
         lay.addWidget(self._snap_check)
 
@@ -3665,14 +3665,14 @@ class MainWindow(QMainWindow):
         self._corner.setVisible(visible)
 
     def _on_unit_changed(self, unit: str) -> None:
-        """Troca a unidade (mm/cm) em todo o sistema: campos, reguas e medidas."""
+        """Troca a unidade (mm/cm) em todo o sistema: campos, réguas e medidas."""
         units.set_unit(unit)
         for spin in self.findChildren(LengthSpin):
             spin.refresh_unit()
         self._h_ruler.update()
         self._v_ruler.update()
         self._update_selection_info()  # medida do arquivo na biblioteca
-        self._on_selection_changed()   # painel da peca/grupo + overlay
+        self._on_selection_changed()   # painel da peça/grupo + overlay
         if self._loaded:
             self._save_settings()
 
@@ -3683,7 +3683,7 @@ class MainWindow(QMainWindow):
         self._height.setValue(int(s.material_height))
         self._spacing.setValue(s.spacing)
         self._spacing_v.setValue(s.spacing_v)
-        # campo unico com sinal: deriva do par antigo (offset - recuo) p/ compat
+        # campo único com sinal: deriva do par antigo (offset - recuo) p/ compat
         self._offset.setValue(s.offset - s.safety_inset)
         self._crop.setValue(s.crop)
         self._faca_mode.setCurrentIndex(max(0, self._faca_mode.findData(s.faca_mode)))
@@ -3717,7 +3717,7 @@ class MainWindow(QMainWindow):
         s.material_height = float(self._height.value())
         s.spacing = float(self._spacing.value())
         s.spacing_v = float(self._spacing_v.value())
-        # campo unico com sinal -> guarda no 'offset' e zera o antigo 'safety_inset'
+        # campo único com sinal -> guarda no 'offset' e zera o antigo 'safety_inset'
         s.offset = float(self._offset.value())
         s.safety_inset = 0.0
         s.crop = float(self._crop.value())
@@ -3750,11 +3750,11 @@ class MainWindow(QMainWindow):
         return self._reg_type.currentData()
 
     def _effective_offset(self) -> float:
-        # campo unico com sinal: +fora (sangria), -dentro (recuo)
+        # campo único com sinal: +fora (sangria), -dentro (recuo)
         return float(self._offset.value())
 
     def _global_faca_params(self) -> dict:
-        """Parametros de faca do painel Documento (padrao para arquivos novos)."""
+        """Parametros de faca do painel Documento (padrão para arquivos novos)."""
         return {
             "offset": float(self._offset.value()),       # faca PDF (retangular)
             "auto_offset": float(self._auto_offset.value()),  # faca de imagem
@@ -3766,16 +3766,16 @@ class MainWindow(QMainWindow):
         }
 
     def _params_for(self, path) -> dict:
-        """Params de faca efetivos do arquivo: override proprio ou o padrao."""
+        """Params de faca efetivos do arquivo: override próprio ou o padrão."""
         override = self._file_overrides.get(path)
         return dict(override) if override else self._global_faca_params()
 
     def _art_params(self, art_id) -> dict:
-        """Params efetivos de UMA peca: os do arquivo + o giro proprio da peca.
+        """Params efetivos de UMA peça: os do arquivo + o giro próprio da peça.
 
-        A rotacao da peca (self._piece_rotations) soma ao giro do arquivo, sem
-        afetar as outras paginas/copias. Como toda a geometria (tamanho, faca,
-        pixmap) sai daqui, girar uma peca se propaga ao nesting e a exportacao.
+        A rotação da peça (self._piece_rotations) soma ao giro do arquivo, sem
+        afetar as outras páginas/copias. Como toda a geometria (tamanho, faca,
+        pixmap) sai daqui, girar uma peça se propaga ao nesting e a exportação.
         """
         params = self._params_for(self._path_of(art_id))
         extra = self._piece_rotations.get(art_id, 0)
@@ -3784,25 +3784,25 @@ class MainWindow(QMainWindow):
         return params
 
     def _rotation_of(self, art_id) -> int:
-        """Giro efetivo (graus) de uma peca: arquivo + giro proprio."""
+        """Giro efetivo (graus) de uma peça: arquivo + giro próprio."""
         return int(self._art_params(art_id).get("rotation", 0))
 
     def _path_of(self, art_id) -> str | None:
         return self._origins.get(art_id) or self._sources.get(art_id, (None,))[0]
 
     def _faca_for(self, base):
-        """Aplica a faca do arquivo (override ou padrao) a uma arte base.
+        """Aplica a faca do arquivo (override ou padrão) a uma arte base.
 
         Antes da faca, aplica o tamanho desejado do arquivo (redimensionamento):
         escala a arte e os contornos pelos mesmos fatores, para a faca sair
-        coerente em qualquer modo (retangulo, contorno, vetor ou imagem).
+        coerente em qualquer modo (retângulo, contorno, vetor ou imagem).
         """
         path = self._path_of(base.id)
         params = self._art_params(base.id)
         base, sx, sy = self._resized_base(base, path)
         if not self._faca_on:
-            # modo "soltar sem faca": so a arte (com recorte/giro/tamanho), sem
-            # gerar a faca. A faca surge ao clicar "Gerar Faca"/"Gerar Producao".
+            # modo "soltar sem faca": só a arte (com recorte/giro/tamanho), sem
+            # gerar a faca. A faca surge ao clicar "Gerar Faca"/"Gerar Produção".
             return self._transform(base, params)
         is_img = isinstance(base, ImageArtwork)
         # imagem usa a "sangria de imagem" (auto_offset); PDF usa a sangria da faca.
@@ -3823,11 +3823,11 @@ class MainWindow(QMainWindow):
     def _resolve_faca_mode(self, mode: str, base) -> str:
         """Resolve o modo 'auto' pelo tipo da arte e valida o modo pedido.
 
-        - PDF: 'auto' -> retangulo (corte reto da caixa).
-        - Imagem opaca (JPG / fundo solido): 'auto' -> retangulo. Assim um JPG
+        - PDF: 'auto' -> retângulo (corte reto da caixa).
+        - Imagem opaca (JPG / fundo solido): 'auto' -> retângulo. Assim um JPG
           retangular sai quadrado, sem serrilhado do contorno.
-        - Imagem com transparencia (PNG alpha): 'auto' -> contorno (recorte).
-        - 'vector' so faz sentido em PDF; numa imagem cai para contorno.
+        - Imagem com transparência (PNG alpha): 'auto' -> contorno (recorte).
+        - 'vector' só faz sentido em PDF; numa imagem cai para contorno.
         """
         if isinstance(base, ImageArtwork):
             if mode == "vector":
@@ -3843,7 +3843,7 @@ class MainWindow(QMainWindow):
         """Aplica o tamanho desejado do arquivo (se houver) a arte base.
 
         Retorna (arte, sx, sy): a arte com o novo tamanho e os fatores de escala
-        para escalar contornos correspondentes. Para imagens, escala tambem o
+        para escalar contornos correspondentes. Para imagens, escala também o
         contorno bruto (raw_contour) junto com o tamanho.
         """
         target = self._file_sizes.get(path)
@@ -3865,8 +3865,8 @@ class MainWindow(QMainWindow):
 
     def _pdf_vector_contour(self, base):
         """Faca do cliente: extrai o contorno vetorial do PDF (a linha de corte
-        que o cliente ja desenhou). Cacheado por (caminho, pagina). Se nao houver
-        vetor utilizavel, registra um aviso e cai no retangulo (raw=None)."""
+        que o cliente já desenhou). Cacheado por (caminho, página). Se não houver
+        vetor utilizavel, registra um aviso e cai no retângulo (raw=None)."""
         key = self._sources.get(base.id)
         if key is None:
             return None
@@ -3880,21 +3880,21 @@ class MainWindow(QMainWindow):
                 "info",
                 f"Faca do cliente detectada no vetor do PDF ({len(contour.points)} pontos).",
             )
-        except Exception:  # sem vetor de corte utilizavel -> retangulo
+        except Exception:  # sem vetor de corte utilizavel -> retângulo
             contour = None
             self._faca_notice = (
                 "warning",
-                "Nao encontrei linha de corte vetorial no PDF; usei o retangulo. "
+                "Não encontrei linha de corte vetorial no PDF; usei o retângulo. "
                 "Verifique se o corte foi enviado como vetor.",
             )
         self._vector_contours[key] = contour
         return contour
 
     def _regenerate_faca(self) -> None:
-        """Botao 'Gerar Faca': refaz a deteccao da faca (contorno/cliente) e
+        """Botão 'Gerar Faca': refaz a detecção da faca (contorno/cliente) e
         recalcula, sem precisar reimportar nem refazer o nesting do zero.
 
-        Sem producao ainda: gera a producao JA com faca (assim o botao azul
+        Sem produção ainda: gera a produção JA com faca (assim o botão azul
         sempre funciona, ex.: depois de remover tudo e soltar outro arquivo)."""
         if not self._loaded:
             if self._paths:
@@ -3909,8 +3909,8 @@ class MainWindow(QMainWindow):
         self._toasts.success("Faca gerada")
 
     def _pdf_raster_contour(self, base):
-        """Contorno de uma pagina de PDF: rasteriza e detecta (igual imagem).
-        Cacheado por (caminho, pagina); recomputado a cada nova producao."""
+        """Contorno de uma página de PDF: rasteriza e detecta (igual imagem).
+        Cacheado por (caminho, página); recomputado a cada nova produção."""
         key = self._sources.get(base.id)
         if key is None:
             return None
@@ -3927,7 +3927,7 @@ class MainWindow(QMainWindow):
                 sensitivity=float(self._auto_sensitivity.value()),
                 ignore_white=self._auto_ignore_white.isChecked(),
             )
-        except Exception:  # se falhar a deteccao, cai no retangulo
+        except Exception:  # se falhar a detecção, cai no retângulo
             contour = None
         self._pdf_contours[key] = contour
         return contour
@@ -3937,15 +3937,15 @@ class MainWindow(QMainWindow):
         do cliente): aplica recorte + giro + suavizar + sangria. A 'sangria' vem
         do chamador (PDF usa a "Sangria da faca"; imagem usa a sangria da imagem).
         Sem contorno utilizavel, cai no RETANGULO com a mesma sangria (igual ao
-        modo retangulo), em vez de ignora-la.
+        modo retângulo), em vez de ignora-la.
 
         'mode' escolhe a variacao do contorno: 'contour' (justo, respeita os
-        controles manuais), 'contour_smooth' (forca mais suavizacao, arredonda o
+        controles manuais), 'contour_smooth' (forca mais suavização, arredonda o
         serrilhado) ou 'contour_simplify' (forca mais simplificacao, menos nos)."""
         crop = params["crop"]
         rotation = params["rotation"]
         if raw_contour is None:
-            # sem contorno: retangulo do tamanho da arte, COM a sangria aplicada
+            # sem contorno: retângulo do tamanho da arte, COM a sangria aplicada
             return self._faca_uc.execute(self._transform(base, params), sangria)
         contour, w, h = crop_and_rotate_contour(
             raw_contour, crop, rotation, base.size.width, base.size.height
@@ -3973,7 +3973,7 @@ class MainWindow(QMainWindow):
         return max(0.0, (10 - d) * 0.12)
 
     def _transform(self, art, params: dict):
-        """Aplica recorte (bordas) e rotacao a uma arte (tamanho)."""
+        """Aplica recorte (bordas) e rotação a uma arte (tamanho)."""
         crop = params["crop"]
         width = art.size.width - 2 * crop
         height = art.size.height - 2 * crop
@@ -3982,10 +3982,10 @@ class MainWindow(QMainWindow):
         return replace(art, size=Size(width, height), cut_contour=None)
 
     def _reset_faca_defaults(self) -> None:
-        """Volta as configuracoes de faca ao padrao seguro (faca exata no
-        contorno: sem sangria, recuo, recorte, giro ou suavizacao).
+        """Volta as configurações de faca ao padrão seguro (faca exata no
+        contorno: sem sangria, recuo, recorte, giro ou suavização).
 
-        Chamado pelo botao 'Restaurar padroes' e automaticamente a cada novo
+        Chamado pelo botão 'Restaurar padrões' e automaticamente a cada novo
         arquivo importado, para a faca sempre sair certa, sem herdar valores
         antigos que deixavam a faca torta.
         """
@@ -3997,22 +3997,22 @@ class MainWindow(QMainWindow):
             self._auto_smooth.setValue(0)
             self._auto_sensitivity.setValue(50)
             self._auto_ignore_white.setChecked(True)
-            self._faca_corner = "round"  # canto padrao seguro
+            self._faca_corner = "round"  # canto padrão seguro
             self._rotation.setCurrentIndex(0)  # 0 graus
-            self._faca_mode.setCurrentIndex(0)  # Automatico (padrao)
+            self._faca_mode.setCurrentIndex(0)  # Automático (padrão)
         finally:
             self._suspend_relayout = False
         self._relayout()
 
     def _reset_all_defaults(self) -> None:
-        """Zera TODAS as configuracoes de layout/faca ao padrao seguro: alem da
-        faca, zera o espacamento horizontal e vertical (o -35 que sobrepunha as
-        pecas) e descarta tamanhos/facas personalizados por arquivo. Mantem o
+        """Zera TODAS as configurações de layout/faca ao padrão seguro: alem da
+        faca, zera o espaçamento horizontal e vertical (o -35 que sobrepunha as
+        peças) e descarta tamanhos/facas personalizados por arquivo. Mantem o
         tamanho da chapa (material fisico da impressora).
 
-        Chamado ao adicionar arquivo com a area de trabalho VAZIA, para nunca
-        herdar valores antigos de outra sessao. Quando ja ha arquivos na area,
-        nao zera (preserva as configuracoes atuais)."""
+        Chamado ao adicionar arquivo com a área de trabalho VAZIA, para nunca
+        herdar valores antigos de outra sessao. Quando já ha arquivos na área,
+        não zera (preserva as configurações atuais)."""
         self._suspend_relayout = True
         try:
             self._spacing.setValue(0)
@@ -4023,10 +4023,10 @@ class MainWindow(QMainWindow):
             self._auto_smooth.setValue(0)
             self._auto_sensitivity.setValue(50)
             self._auto_ignore_white.setChecked(True)
-            self._faca_corner = "round"  # canto padrao seguro
+            self._faca_corner = "round"  # canto padrão seguro
             self._rotation.setCurrentIndex(0)
             self._faca_mode.setCurrentIndex(0)
-            self._reg_type.setCurrentIndex(0)  # SEM marcas por padrao (ligue quando quiser)
+            self._reg_type.setCurrentIndex(0)  # SEM marcas por padrão (ligue quando quiser)
         finally:
             self._suspend_relayout = False
         self._file_overrides = {}
@@ -4041,15 +4041,15 @@ class MainWindow(QMainWindow):
             IMAGE_FILE_FILTER,
         )
         if paths:
-            was_empty = not self._paths  # area de trabalho vazia ANTES deste add
+            was_empty = not self._paths  # área de trabalho vazia ANTES deste add
             self.add_paths(paths)
             if was_empty:
-                # area vazia: zera TUDO (inclui espacamento) para nao herdar
-                # valores de outra sessao (ex.: o -35 que sobrepunha as pecas).
+                # área vazia: zera TUDO (inclui espaçamento) para não herdar
+                # valores de outra sessao (ex.: o -35 que sobrepunha as peças).
                 self._reset_all_defaults()
             else:
-                # ja ha arquivos: preserva as configuracoes atuais; so garante a
-                # faca no padrao do novo arquivo.
+                # já ha arquivos: preserva as configurações atuais; só garante a
+                # faca no padrão do novo arquivo.
                 self._reset_faca_defaults()
             self._settings.last_dir = str(Path(paths[0]).parent)
             self._store.save(self._settings)
@@ -4058,7 +4058,7 @@ class MainWindow(QMainWindow):
         for path in paths:
             # arquivo JA na biblioteca: NAO cria linha duplicada — soma +1 na
             # quantidade da linha existente. Duas linhas do mesmo caminho
-            # colidiam nos ids/quantidades (indexados por caminho) e a producao
+            # colidiam nos ids/quantidades (indexados por caminho) e a produção
             # saia com quantidade ERRADA sem aviso (bug QA-04).
             if path in self._paths:
                 row = self._paths.index(path)
@@ -4066,7 +4066,7 @@ class MainWindow(QMainWindow):
                 if spin is not None:
                     spin.setValue(min(spin.value() + 1, spin.maximum()))
                 self._toasts.info(
-                    f"{Path(path).name} ja esta na biblioteca — quantidade +1"
+                    f"{Path(path).name} já está na biblioteca — quantidade +1"
                 )
                 continue
             row = self._table.rowCount()
@@ -4085,7 +4085,7 @@ class MainWindow(QMainWindow):
         return Path(path).suffix.lstrip(".").upper() or "?"
 
     def _thumbnail(self, path: str) -> QIcon:
-        """Miniatura do arquivo (1a pagina do PDF ou a propria imagem)."""
+        """Miniatura do arquivo (1a página do PDF ou a própria imagem)."""
         cached = self._thumb_cache.get(path)
         if cached is not None:
             return cached
@@ -4111,7 +4111,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_library_metadata(self) -> None:
         """Atualiza a 2a linha de cada arquivo na biblioteca com tipo, medida e
-        paginas (apos gerar a producao). Preserva linhas ausentes (⚠)."""
+        páginas (após gerar a produção). Preserva linhas ausentes (⚠)."""
         info: dict[str, tuple[set, set]] = {}
         for art in self._base_artworks:
             src = self._sources.get(art.id)
@@ -4145,15 +4145,15 @@ class MainWindow(QMainWindow):
         path = self._paths[row]
         self._table.removeRow(row)
         del self._paths[row]
-        # remove tambem da PRODUCAO: senao a arte continua na chapa mesmo saindo
-        # da biblioteca (peca "presa" na tela, principalmente com um so arquivo).
+        # remove também da PRODUCAO: senao a arte continua na chapa mesmo saindo
+        # da biblioteca (peça "presa" na tela, principalmente com um só arquivo).
         removed = {b.id for b in self._base_artworks if self._path_of(b.id) == path}
         if removed:
             self._base_artworks = [b for b in self._base_artworks if b.id not in removed]
             self._piece_items = [p for p in self._piece_items if p.artwork_id not in removed]
         if not self._base_artworks:
-            # removeu tudo: limpa a producao para o proximo arquivo comecar do ZERO
-            # (senao _result fica desatualizado e o proximo drop/gerar nao funciona).
+            # removeu tudo: limpa a produção para o proximo arquivo comecar do ZERO
+            # (senao _result fica desatualizado e o proximo drop/gerar não funciona).
             self._result = None
             self._loaded = False
             self._scene.clear()
@@ -4186,7 +4186,7 @@ class MainWindow(QMainWindow):
         if sizes:
             self._sel_info.setText(f"{name}\n" + " | ".join(sizes))
         else:
-            self._sel_info.setText(f"{name}\n(gere a producao para ver a medida)")
+            self._sel_info.setText(f"{name}\n(gere a produção para ver a medida)")
 
     def _quantities(self) -> dict[str, int]:
         """Quantidade por arquivo, lida da tabela (path -> qtd)."""
@@ -4210,10 +4210,10 @@ class MainWindow(QMainWindow):
                 import fitz
                 total = fitz.open(path).page_count
             except Exception:
-                QMessageBox.warning(self, "PrintNest", "Nao foi possivel abrir o PDF.")
+                QMessageBox.warning(self, "PrintNest", "Não foi possível abrir o PDF.")
                 return
         else:
-            total = 1  # imagem = uma "pagina"
+            total = 1  # imagem = uma "página"
 
         dlg = QDialog(self)
         dlg.setWindowTitle(f"Recortar — {Path(path).name}")
@@ -4225,7 +4225,7 @@ class MainWindow(QMainWindow):
         # --- coluna esquerda: campos ---
         left_col = QWidget()
         form = QFormLayout(left_col)
-        titulo = (f"PDF com {total} pagina(s)." if is_pdf else "Imagem.")
+        titulo = (f"PDF com {total} página(s)." if is_pdf else "Imagem.")
         form.addRow(QLabel(f"{titulo}\nArraste as bordas ou digite (mm):"))
         spins = {}
         existing = self._page_crops.get(path, {})
@@ -4238,15 +4238,15 @@ class MainWindow(QMainWindow):
             spins[key] = sp
             form.addRow(rotulo, sp)
         pages_edit = QLineEdit("todas")
-        pages_edit.setToolTip("'todas' ou paginas especificas, ex.: 1,3-5")
+        pages_edit.setToolTip("'todas' ou páginas especificas, ex.: 1,3-5")
         prev_page = QSpinBox()
         prev_page.setRange(1, total)
-        if is_pdf:  # paginas so fazem sentido em PDF; imagem tem uma so
-            form.addRow("Paginas", pages_edit)
-            form.addRow("Pre-visualizar pagina", prev_page)
+        if is_pdf:  # páginas só fazem sentido em PDF; imagem tem uma só
+            form.addRow("Páginas", pages_edit)
+            form.addRow("Pre-visualizar página", prev_page)
         body.addWidget(left_col)
 
-        # --- coluna direita: pre-visualizacao ---
+        # --- coluna direita: pre-visualização ---
         preview = CropPreview()
         body.addWidget(preview, 1)
 
@@ -4308,7 +4308,7 @@ class MainWindow(QMainWindow):
         self._invalidate_crop_cache(path)
         if self._loaded:
             self.generate(blocking=True)
-        self._toasts.success(f"Recorte aplicado a {len(pages)} pagina(s)")
+        self._toasts.success(f"Recorte aplicado a {len(pages)} página(s)")
 
     def _clear_page_crop(self, path: str) -> None:
         self._page_crops.pop(path, None)
@@ -4320,10 +4320,10 @@ class MainWindow(QMainWindow):
         self._baked_crops = {k: v for k, v in self._baked_crops.items() if k[0] != path}
         self._crop_cache = {c: o for c, o in self._crop_cache.items() if o != path}
 
-    # ---- recorte de pagina (bake em PDF recortado de cache) ----
+    # ---- recorte de página (bake em PDF recortado de cache) ----
     def _effective_paths(self) -> list:
         """Caminhos a importar: o PDF recortado (cache) quando houver recorte de
-        pagina; senao o original. Mantem self._paths sempre com o ORIGINAL."""
+        página; senao o original. Mantem self._paths sempre com o ORIGINAL."""
         return [self._effective_path(p) for p in self._paths]
 
     def _effective_path(self, path: str) -> str:
@@ -4346,8 +4346,8 @@ class MainWindow(QMainWindow):
         return out
 
     def _bake_cropped_pdf(self, path: str, crops: dict, sig) -> str | None:
-        """Gera um PDF recortado em cache (corta a mediabox de cada pagina pelos
-        valores em mm). So PDF; devolve o caminho ou None se falhar."""
+        """Gera um PDF recortado em cache (corta a mediabox de cada página pelos
+        valores em mm). Só PDF; devolve o caminho ou None se falhar."""
         if Path(path).suffix.lower() != ".pdf":
             return None
         try:
@@ -4407,7 +4407,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return None
 
-    # ---- producao ----
+    # ---- produção ----
     def _material(self) -> Material:
         return Material(
             name="MVP", width=float(self._width.value()),
@@ -4417,9 +4417,9 @@ class MainWindow(QMainWindow):
 
     def generate(self, *, blocking: bool = False, paths: list | None = None,
                  faca: bool = True) -> None:
-        # paths=None -> todos os arquivos da biblioteca; uma lista -> so esses
-        # (usado ao arrastar UM arquivo para a area de trabalho vazia).
-        # faca=False -> monta a producao SO com a arte (sem faca); a faca e
+        # paths=None -> todos os arquivos da biblioteca; uma lista -> só esses
+        # (usado ao arrastar UM arquivo para a área de trabalho vazia).
+        # faca=False -> monta a produção SO com a arte (sem faca); a faca e
         # gerada depois ao clicar "Gerar Faca" (arrastar = soltar sem faca).
         target_paths = paths if paths is not None else self._paths
         if not target_paths:
@@ -4433,7 +4433,7 @@ class MainWindow(QMainWindow):
         box = self._import_box.currentData()
         sensitivity = float(self._auto_sensitivity.value())
         ignore_white = self._auto_ignore_white.isChecked()
-        self._fit_next = True  # ajusta o zoom uma vez apos gerar
+        self._fit_next = True  # ajusta o zoom uma vez após gerar
         eff_paths = [self._effective_path(p) for p in target_paths]  # recorte quando houver
 
         if blocking:
@@ -4469,7 +4469,7 @@ class MainWindow(QMainWindow):
         """Fechar a janela DURANTE uma geracao: espera a thread terminar antes
         de destruir a janela (QA-08). Sem isso o Qt aborta o processo com
         "QThread: Destroyed while thread is still running" — visto como
-        "o programa fechou sozinho" na maquina do usuario."""
+        "o programa fechou sozinho" na máquina do usuário."""
         thread = self._thread
         if thread is not None and thread.isRunning():
             thread.quit()
@@ -4491,11 +4491,11 @@ class MainWindow(QMainWindow):
 
     def _on_failed(self, message: str) -> None:
         self._set_busy(False)
-        QMessageBox.critical(self, "PrintNest", f"Falha ao gerar producao:\n{message}")
+        QMessageBox.critical(self, "PrintNest", f"Falha ao gerar produção:\n{message}")
 
     def _load_production(self, result: ProductionResult, png_map: dict) -> None:
         self._base_artworks = result.artworks
-        self._pdf_contours = {}  # recomputa contornos de PDF na nova producao
+        self._pdf_contours = {}  # recomputa contornos de PDF na nova produção
         self._vector_contours = {}  # recomputa facas vetoriais (cliente)
         self._sources = result.sources
         self._origins = dict(result.origins) or {
@@ -4518,15 +4518,15 @@ class MainWindow(QMainWindow):
             self._pixmaps[key] = pixmap
         self._loaded = True
         self._set_exports_enabled(True)
-        self._suspend_undo = True  # gerar = recomeco limpo (nao vira passo de undo)
+        self._suspend_undo = True  # gerar = recomeco limpo (não vira passo de undo)
         try:
             self._relayout(from_table=True)  # gerar = quantidade da tabela
         finally:
             self._suspend_undo = False
-        self._undo.clear()  # zera o historico ao gerar uma nova producao
+        self._undo.clear()  # zera o histórico ao gerar uma nova produção
         self._update_selection_info()
         self._refresh_library_metadata()
-        self._toasts.success("Producao gerada")
+        self._toasts.success("Produção gerada")
 
     def _relayout(self, *, renest: bool = True, from_table: bool = False) -> None:
         """Recalcula faca + nesting com os parametros atuais (tempo real).
@@ -4534,32 +4534,32 @@ class MainWindow(QMainWindow):
         from_table=True: a quantidade vem da TABELA (gerar / mudar quantidade).
         from_table=False: mantem a contagem atual do arranjo (duplicatas manuais).
 
-        renest=True (padrao): refaz o nesting do zero. Usado por mudancas de
-        layout (chapa, espacamento, quantidade) e ao gerar.
-        renest=False: PRESERVA o arranjo manual atual (posicoes, duplicatas e
-        chapas/areas em branco), so trocando a geometria das artes. Usado por
+        renest=True (padrão): refaz o nesting do zero. Usado por mudancas de
+        layout (chapa, espaçamento, quantidade) e ao gerar.
+        renest=False: PRESERVA o arranjo manual atual (posições, duplicatas e
+        chapas/áreas em branco), só trocando a geometria das artes. Usado por
         mudancas de geometria (giro, sangria, recorte, tamanho, faca): assim
         rotacionar NAO perde as copias duplicadas nem o que foi organizado.
 
-        NAO zera mais o historico: o estado anterior e guardado como um passo de
-        desfazer. Mudancas seguidas no mesmo parametro se fundem num passo so.
+        NAO zera mais o histórico: o estado anterior e guardado como um passo de
+        desfazer. Mudancas seguidas no mesmo parametro se fundem num passo só.
         """
         if not self._loaded or self._suspend_relayout:
             return
         before = None
         if self._result is not None and not self._suspend_undo:
             before = self._state_snapshot()
-        self._faca_notice = None  # avisos de deteccao (faca do cliente) sao refeitos
+        self._faca_notice = None  # avisos de detecção (faca do cliente) sao refeitos
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
         # 1. regenera a GEOMETRIA de cada arte base com os parametros atuais
-        #    (faca/giro/tamanho, ou so a arte quando a faca esta desligada).
+        #    (faca/giro/tamanho, ou só a arte quando a faca esta desligada).
         try:
             by_id = {base.id: self._faca_for(base) for base in self._base_artworks}
         except ValidationError:
             self._alert.show_message(
-                AlertLevel.ERROR, "Recorte/recuo grande demais para a peca."
+                AlertLevel.ERROR, "Recorte/recuo grande demais para a peça."
             )
             return
         # 2. define as INSTANCIAS (quantas copias de cada arte):
@@ -4583,24 +4583,24 @@ class MainWindow(QMainWindow):
         if not instances:
             self._scene.clear()
             self._alert.show_message(
-                AlertLevel.WARNING, "Nenhuma peca (verifique as quantidades)."
+                AlertLevel.WARNING, "Nenhuma peça (verifique as quantidades)."
             )
             self._status_ctl.set_production(0, 0)
             return
         # 3. re-nesta (layout/giro: re-encaixa mantendo a contagem) ou preserva
-        #    as posicoes atuais (ajuste de geometria: sangria/recorte/tamanho).
+        #    as posições atuais (ajuste de geometria: sangria/recorte/tamanho).
         if renest or fresh:
-            # faca compartilhada precisa das pecas alinhadas em grade; senao usa
+            # faca compartilhada precisa das peças alinhadas em grade; senao usa
             # MaxRects (maximo aproveitamento, preenche os vaos).
             uc = self._grid_nesting_uc if self._shared.currentIndex() == 1 else self._nesting_uc
             sheets = uc.execute_sheets(instances, material, sheet_height)
         else:
             sheets = self._preserve_arrangement(by_id, material)
-        sheets = self._center_sheets(sheets, material, instances)  # centraliza na pagina
+        sheets = self._center_sheets(sheets, material, instances)  # centraliza na página
         self._result = ProductionResult(sheets=sheets, artworks=instances, sources=self._sources)
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
-        self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
+        self._status.setText(f"{len(sheets)} chapa(s) | {total} peça(s)")
         self._update_status_and_alerts(sheets, total, instances, material)
         if before is not None:
             after = (sheets, instances)
@@ -4611,7 +4611,7 @@ class MainWindow(QMainWindow):
     def _center_sheets(self, sheets, material, artworks):
         """Centraliza o conteudo de cada chapa na PAGINA: na largura (margens
         iguais) e na altura (dentro do comprimento da chapa). Desloca o bloco
-        inteiro por igual, entao o arranjo relativo das pecas nao muda; o
+        inteiro por igual, entao o arranjo relativo das peças não muda; o
         comprimento (used_length) da chapa e preservado. Sem efeito se a flag
         estiver desligada."""
         if not self._center_on_sheet:
@@ -4635,7 +4635,7 @@ class MainWindow(QMainWindow):
             content_w = max(rights) - min(lefts)
             content_h = max(bottoms) - min(tops)
             page_h = layout.used_length
-            # centraliza; se nao couber, encosta no canto (esquerda / topo)
+            # centraliza; se não couber, encosta no canto (esquerda / topo)
             shift_x = (
                 -min(lefts) if content_w >= material.width
                 else (material.width - content_w) / 2.0 - min(lefts)
@@ -4658,12 +4658,12 @@ class MainWindow(QMainWindow):
         return out
 
     def _preserve_arrangement(self, by_id, material):
-        """Mantem o arranjo manual atual (posicoes, duplicatas e chapas/areas em
+        """Mantem o arranjo manual atual (posições, duplicatas e chapas/áreas em
         branco), apenas trocando a geometria das artes (nova faca/giro/tamanho).
 
         Placements que referenciam uma arte que sumiu (id removido) sao
         descartados; o resto (inclusive copias duplicadas, que compartilham o
-        mesmo id) e mantido com a posicao e o comprimento usado atuais."""
+        mesmo id) e mantido com a posição e o comprimento usado atuais."""
         sheets = []
         for layout in self._effective_sheets():
             items = [it for it in layout.items if it.artwork_id in by_id]
@@ -4671,7 +4671,7 @@ class MainWindow(QMainWindow):
         return sheets
 
     def _update_status_and_alerts(self, sheets, total, artworks, material) -> None:
-        """Atualiza a barra de status e a faixa de avisos a partir da producao."""
+        """Atualiza a barra de status e a faixa de avisos a partir da produção."""
         self._status_ctl.set_production(total, len(sheets))
         if sheets:
             pct = max(measurements.sheet_metrics(s, artworks).used_pct for s in sheets)
@@ -4701,50 +4701,50 @@ class MainWindow(QMainWindow):
             self._alert.show_message(level, self._faca_notice[1])
         else:
             self._alert.clear()
-        self._update_property_bar()  # mantem a barra Projeto (pecas/chapas) em dia
-        self._update_resumo()  # mantem o card "Resumo da producao" sincronizado
+        self._update_property_bar()  # mantem a barra Projeto (peças/chapas) em dia
+        self._update_resumo()  # mantem o card "Resumo da produção" sincronizado
 
     def _refresh_preview(self) -> None:
         if self._result is not None:
             self._draw_preview()
 
     def _keep(self, item):
-        """Mantem referencia Python a um item decorativo da cena e o retorna.
+        """Mantem referência Python a um item decorativo da cena e o retorna.
 
         Sem isso, o PySide pode coletar o wrapper de itens criados por
-        scene.addRect/addLine/addEllipse (que nao tem pai nem referencia) e o Qt
-        acaba removendo o item orfao em interacoes como o laco de selecao —
+        scene.addRect/addLine/addEllipse (que não tem pai nem referência) e o Qt
+        acaba removendo o item orfao em interacoes como o laco de seleção —
         causava a chapa branca/linhas "sumirem" ao clicar no vazio."""
         self._decor_items.append(item)
         return item
 
     @staticmethod
     def _piece_sel_key(p) -> tuple:
-        """Identidade estavel de uma peca (chapa, arte, posicao) para reencontrar
-        a selecao apos um redesenho (desfazer/refazer nao perdem a selecao)."""
+        """Identidade estavel de uma peça (chapa, arte, posição) para reencontrar
+        a seleção após um redesenho (desfazer/refazer não perdem a seleção)."""
         x = p.scenePos().x() - p.dx
         y = p.scenePos().y() - p.dy
         return (p.sheet_index, p.artwork_id, round(x, 1), round(y, 1))
 
     def _draw_preview(self) -> None:
-        # guarda a selecao para restaurar apos o redesenho (continuar empurrando
+        # guarda a seleção para restaurar após o redesenho (continuar empurrando
         # com as setas, desfazer/refazer sem perder o que estava selecionado).
         selected_keys = {
             self._piece_sel_key(p) for p in self._piece_items if p.isSelected()
         }
         self._piece_items = []
-        self._obj_rows = []  # evita referenciar pecas deletadas no scene.clear()
+        self._obj_rows = []  # evita referenciar peças deletadas no scene.clear()
         self._guide_preview_item = None  # invalidado pelo scene.clear()
         # itens decorativos (chapa branca, marcas, linhas de corte): precisam de
-        # referencia Python, senao o PySide os coleta e o Qt remove o item orfao
-        # durante o laco de selecao (a chapa "sumia" ao clicar no vazio).
+        # referência Python, senao o PySide os coleta e o Qt remove o item orfao
+        # durante o laco de seleção (a chapa "sumia" ao clicar no vazio).
         self._decor_items = []
         self._ghost_items = []  # scene.clear() apaga os fantasmas; zera as refs
-        self._resize_handles = []  # idem para as alcas de redimensionar
+        self._resize_handles = []  # idem para as alças de redimensionar
         self._resize_preview = None
-        # NAO limpa o historico aqui: senao excluir/duplicar/desfazer (que
-        # redesenham) apagariam o proprio comando. O reset do historico acontece
-        # so quando o arranjo e regenerado (em _relayout).
+        # NAO limpa o histórico aqui: senao excluir/duplicar/desfazer (que
+        # redesenham) apagariam o próprio comando. O reset do histórico acontece
+        # só quando o arranjo e regenerado (em _relayout).
         self._scene.clear()
         if self._result is None:
             return
@@ -4768,10 +4768,10 @@ class MainWindow(QMainWindow):
             self._fit_view()
             self._fit_next = False
         else:
-            self._view.view_changed.emit()  # mantem o zoom; atualiza reguas
+            self._view.view_changed.emit()  # mantem o zoom; atualiza réguas
         if selected_keys:
-            # re-selecionar apos o redraw NAO deve trocar de aba (ex.: mexer na
-            # densidade/largura na aba Documento nao pode jogar para a aba Peca).
+            # re-selecionar após o redraw NAO deve trocar de aba (ex.: mexer na
+            # densidade/largura na aba Documento não pode jogar para a aba Peça).
             self._keep_tab = True
             try:
                 for p in self._piece_items:
@@ -4786,18 +4786,18 @@ class MainWindow(QMainWindow):
         result = self._result
         by_id = {a.id: a for a in result.artworks}
         # cores do canvas SEMPRE pelos tokens do tema (QA-06: valores hardcoded
-        # levemente diferentes dos tokens davam "drift" na area mais critica).
-        sheet_brush = QBrush(QColor(theme.SHEET))  # chapa = pagina branca
+        # levemente diferentes dos tokens davam "drift" na área mais critica).
+        sheet_brush = QBrush(QColor(theme.SHEET))  # chapa = página branca
         sheet_pen = QPen(QColor(theme.SHEET_BORDER))  # borda suave da chapa (mesa clara)
         sheet_pen.setCosmetic(True)
-        material_pen = QPen(QColor(theme.BORDER_STRONG))  # contorno leve das pecas vazias
+        material_pen = QPen(QColor(theme.BORDER_STRONG))  # contorno leve das peças vazias
         material_pen.setCosmetic(True)
         faca_pen = QPen(QColor(theme.CUT))
         faca_pen.setCosmetic(True)
         client_pen = QPen(QColor(theme.SUCCESS))  # faca do cliente (vetor) em verde
         client_pen.setCosmetic(True)
         # marcas de registro escuras no preview (a EXPORTACAO segue preto puro,
-        # que a leitora optica le melhor — isso aqui e so visualizacao)
+        # que a leitora optica le melhor — isso aqui e só visualização)
         mark_pen = QPen(QColor(theme.MARK))
         mark_pen.setCosmetic(True)
         mark_brush = QBrush(QColor(theme.MARK))
@@ -4809,8 +4809,8 @@ class MainWindow(QMainWindow):
         reg = self._reg()
         cropped_cache: dict = {}
         # memoizacao por id DENTRO deste redesenho (QA-07): footprint e params
-        # eram recalculados para CADA peca (centenas de vezes por operacao com
-        # muitas copias do mesmo arquivo) — por id, calcula uma vez so.
+        # eram recalculados para CADA peça (centenas de vezes por operacao com
+        # muitas copias do mesmo arquivo) — por id, calcula uma vez só.
         fp_cache: dict = {}
         params_cache: dict = {}
 
@@ -4828,7 +4828,7 @@ class MainWindow(QMainWindow):
 
         # sombra da chapa SEM QGraphicsDropShadowEffect: o efeito rasteriza a
         # chapa inteira num buffer a cada repaint e TRAVA o zoom de perto.
-        # Um retangulo deslocado atras da pagina da a mesma profundidade de
+        # Um retângulo deslocado atras da página da a mesma profundidade de
         # graca (vetor puro, custo constante em qualquer zoom).
         shadow_brush = QBrush(QColor(17, 24, 39, 26))
         for index, layout in enumerate(result.sheets):
@@ -4853,8 +4853,8 @@ class MainWindow(QMainWindow):
                     sheet_index=index, dx=dx, dy=dy,
                 )
                 piece.setPos(dx + item.position.x, dy + item.position.y)
-                # selecionavel em QUALQUER modo (inclusive tela dividida/so-corte):
-                # da pra selecionar a peca/faca e exportar so ela com Ctrl+E.
+                # selecionavel em QUALQUER modo (inclusive tela dividida/só-corte):
+                # da pra selecionar a peça/faca e exportar só ela com Ctrl+E.
                 piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                 if interactive:
                     piece.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -4863,8 +4863,8 @@ class MainWindow(QMainWindow):
                     piece.sheet_rect = (dx, dy, layout.material.width, layout.used_length)
                     self._piece_items.append(piece)
                 else:
-                    # nao-interativas (split/corte): so selecionaveis. Precisam de
-                    # referencia Python, senao o PySide as coleta (sumiam ao clicar).
+                    # não-interativas (split/corte): só selecionaveis. Precisam de
+                    # referência Python, senao o PySide as coleta (sumiam ao clicar).
                     self._decor_items.append(piece)
 
                 ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
@@ -4903,7 +4903,7 @@ class MainWindow(QMainWindow):
                     ))
             # marcas de registro aparecem dos DOIS lados (impressao E corte): na
             # tela dividida elas saem tanto na metade de impressao quanto na de
-            # corte, espelhando o que vai pra exportacao.
+            # corte, espelhando o que vai pra exportação.
             if draw_art or draw_cut:
                 self._draw_marks(
                     layout, result.artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen
@@ -4915,14 +4915,14 @@ class MainWindow(QMainWindow):
             self._view.fitInView(rect, Qt.KeepAspectRatio)
             self._view.view_changed.emit()
 
-    # ---- zoom e navegacao (atalhos padrao CorelDRAW) ----
+    # ---- zoom e navegacao (atalhos padrão CorelDRAW) ----
     def _zoom_step(self, factor: float) -> None:
-        """Zoom + / − centrado na visualizacao (F2 / F3)."""
+        """Zoom + / − centrado na visualização (F2 / F3)."""
         self._view.scale(factor, factor)
         self._view.view_changed.emit()
 
     def _zoom_page(self) -> None:
-        """Enquadra a primeira chapa (Shift+F4). Sem producao, ajusta tudo."""
+        """Enquadra a primeira chapa (Shift+F4). Sem produção, ajusta tudo."""
         r = self._result
         if r is not None and r.sheets:
             s = r.sheets[0]
@@ -4934,7 +4934,7 @@ class MainWindow(QMainWindow):
             self._fit_view()
 
     def _zoom_selection(self) -> None:
-        """Enquadra as pecas selecionadas (Shift+F2). Sem selecao, nao faz nada."""
+        """Enquadra as peças selecionadas (Shift+F2). Sem seleção, não faz nada."""
         try:
             items = self._scene.selectedItems()
         except RuntimeError:
@@ -4949,13 +4949,13 @@ class MainWindow(QMainWindow):
         self._view.view_changed.emit()
 
     def _set_hand_tool(self, on: bool) -> None:
-        """Ferramenta mao (H): botao esquerdo passa a arrastar a tela."""
+        """Ferramenta mao (H): botão esquerdo passa a arrastar a tela."""
         self._view.setDragMode(
             QGraphicsView.ScrollHandDrag if on else QGraphicsView.NoDrag
         )
 
     def _pan_view(self, dx: int, dy: int) -> None:
-        """Desloca a visualizacao (Alt+setas)."""
+        """Desloca a visualização (Alt+setas)."""
         h = self._view.horizontalScrollBar()
         v = self._view.verticalScrollBar()
         h.setValue(h.value() + dx)
@@ -4968,10 +4968,10 @@ class MainWindow(QMainWindow):
                 self._props_tabs.setCurrentIndex(i)
                 return
 
-    # ---- edicao na area de trabalho (mover / agrupar / desfazer) ----
+    # ---- edicao na área de trabalho (mover / agrupar / desfazer) ----
     def _begin_move(self) -> None:
-        self._snap.dragging = True  # ativa o encaixe so durante o arraste
-        # snapshot do arranjo ANTES do arraste (dados, nao referencias de itens)
+        self._snap.dragging = True  # ativa o encaixe só durante o arraste
+        # snapshot do arranjo ANTES do arraste (dados, não referencias de itens)
         self._move_before = self._snapshot_sheets() if self._result is not None else None
 
     def _end_move(self) -> None:
@@ -4981,12 +4981,12 @@ class MainWindow(QMainWindow):
         if before is None:
             return
         after = self._effective_sheets()
-        if self._arr_key(before) != self._arr_key(after):  # so registra se mudou
+        if self._arr_key(before) != self._arr_key(after):  # só registra se mudou
             self._commit_move(before, after, "mover")
 
     @staticmethod
     def _arr_key(sheets) -> list:
-        """Chave comparavel do arranjo (posicoes das pecas), para detectar mudanca."""
+        """Chave comparavel do arranjo (posições das peças), para detectar mudanca."""
         return [
             (i, it.artwork_id, round(it.position.x, 3), round(it.position.y, 3))
             for i, layout in enumerate(sheets)
@@ -4994,9 +4994,9 @@ class MainWindow(QMainWindow):
         ]
 
     def _commit_move(self, before, after, text: str) -> None:
-        """Registra um movimento no historico SEM redesenhar (as pecas ja estao na
-        posicao final, movidas ao vivo): mantem a fluidez e a selecao. O redesenho
-        so acontece ao desfazer/refazer."""
+        """Registra um movimento no histórico SEM redesenhar (as peças já estao na
+        posição final, movidas ao vivo): mantem a fluidez e a seleção. O redesenho
+        só acontece ao desfazer/refazer."""
         arts = list(self._result.artworks)
         before_state, after_state = (before, arts), (after, arts)
         self._result = ProductionResult(sheets=after, artworks=arts, sources=self._sources)
@@ -5027,10 +5027,10 @@ class MainWindow(QMainWindow):
     def _set_center_on_sheet(self, enabled) -> None:
         """Liga/desliga a centralizacao na chapa e re-encaixa para o efeito
         aparecer na hora (centraliza ao ligar, encosta no canto ao desligar).
-        Desligado, da para arrastar/posicionar as pecas livremente na pagina."""
+        Desligado, da para arrastar/posicionar as peças livremente na página."""
         enabled = bool(enabled)
         self._center_on_sheet = enabled
-        # mantem o menu (Organizar) e o checkbox (Producao) em sincronia
+        # mantem o menu (Organizar) e o checkbox (Produção) em sincronia
         if hasattr(self, "_center_action") and self._center_action.isChecked() != enabled:
             self._center_action.setChecked(enabled)
         if hasattr(self, "_center_check") and self._center_check.isChecked() != enabled:
@@ -5045,7 +5045,7 @@ class MainWindow(QMainWindow):
         ]
 
     def _selected_pieces(self) -> list:
-        """Pecas selecionadas, abrindo grupos selecionados."""
+        """Peças selecionadas, abrindo grupos selecionados."""
         out: list = []
         for it in self._scene.selectedItems():
             if isinstance(it, QGraphicsItemGroup):
@@ -5055,7 +5055,7 @@ class MainWindow(QMainWindow):
         return out
 
     def _nudge(self, dx: float, dy: float) -> None:
-        """Empurra as pecas selecionadas com as setas (mm), com desfazer."""
+        """Empurra as peças selecionadas com as setas (mm), com desfazer."""
         items = self._selected_movable()
         if not items:
             return
@@ -5132,12 +5132,12 @@ class MainWindow(QMainWindow):
 
     def _add_placed(self, add_by_sheet: dict, *, text: str = "duplicar") -> None:
         """Acrescenta PlacedItems por chapa e redesenha (estende o comprimento usado).
-        As pecas novas viram a selecao (Ctrl+D/Ctrl+V em cadeia, como no Corel)."""
+        As peças novas viram a seleção (Ctrl+D/Ctrl+V em cadeia, como no Corel)."""
         if not add_by_sheet:
             return
         before = self._snapshot_sheets()
         by_id = {a.id: a for a in self._result.artworks}
-        fp_cache: dict = {}  # footprint por id (QA-07: nao recalcular por peca)
+        fp_cache: dict = {}  # footprint por id (QA-07: não recalcular por peça)
         sheets = []
         for index, layout in enumerate(self._effective_sheets()):
             items = list(layout.items) + add_by_sheet.get(index, [])
@@ -5155,7 +5155,7 @@ class MainWindow(QMainWindow):
         self._select_pieces_at(add_by_sheet)
 
     def _select_pieces_at(self, add_by_sheet: dict) -> None:
-        """Seleciona as pecas recem-adicionadas (a copia vira a nova selecao)."""
+        """Seleciona as peças recem-adicionadas (a copia vira a nova seleção)."""
         targets = {
             (idx, p.artwork_id, round(p.position.x, 2), round(p.position.y, 2))
             for idx, placed in add_by_sheet.items()
@@ -5172,23 +5172,23 @@ class MainWindow(QMainWindow):
             if key in targets:
                 piece.setSelected(True)
 
-    # ---- adicionar arquivo da biblioteca a producao ja gerada (arrastar) ----
+    # ---- adicionar arquivo da biblioteca a produção já gerada (arrastar) ----
     def _on_library_drop(self, scene_pos) -> None:
         row = self._table.currentRow()
         if 0 <= row < len(self._paths):
             self._add_file_to_production(self._paths[row], scene_pos)
 
     def _add_file_to_production(self, path: str, scene_pos) -> None:
-        """Adiciona um arquivo da biblioteca a producao na posicao do drop, sem
-        refazer o nesting das pecas que ja estao na chapa."""
+        """Adiciona um arquivo da biblioteca a produção na posição do drop, sem
+        refazer o nesting das peças que já estao na chapa."""
         if self._result is None or not self._loaded:
-            # ainda nao gerou: o drop monta a producao com SOMENTE o arquivo
-            # arrastado (nao todos), e SEM faca (soltar sem faca). A faca surge
-            # depois ao clicar "Gerar Faca". O usuario organiza dali.
+            # ainda não gerou: o drop monta a produção com SOMENTE o arquivo
+            # arrastado (não todos), e SEM faca (soltar sem faca). A faca surge
+            # depois ao clicar "Gerar Faca". O usuário organiza dali.
             self.generate(blocking=True, paths=[path], faca=False)
             return
         bases = [b for b in self._base_artworks if self._path_of(b.id) == path]
-        if not bases:  # arquivo ainda nao importado -> importa agora
+        if not bases:  # arquivo ainda não importado -> importa agora
             bases = self._import_file_bases(path)
             if not bases:
                 return
@@ -5213,10 +5213,10 @@ class MainWindow(QMainWindow):
                 n += 1
         self._add_placed({index: placed}, text="adicionar arquivo")
         self._relayout(renest=True)  # organiza (nesting) automaticamente, com ou sem faca
-        self._toasts.success(f"{Path(path).name} adicionado a producao")
+        self._toasts.success(f"{Path(path).name} adicionado a produção")
 
     def _import_file_bases(self, path: str) -> list:
-        """Importa um unico arquivo (sem refazer tudo) e registra fontes/pixmaps."""
+        """Importa um único arquivo (sem refazer tudo) e registra fontes/pixmaps."""
         box = self._import_box.currentData()
         eff = self._effective_path(path)  # PDF recortado quando houver recorte
         try:
@@ -5225,7 +5225,7 @@ class MainWindow(QMainWindow):
                 sensitivity=float(self._auto_sensitivity.value()),
                 ignore_white=self._auto_ignore_white.isChecked(),
             )
-        except Exception:  # arquivo invalido/ausente: nao quebra a producao atual
+        except Exception:  # arquivo inválido/ausente: não quebra a produção atual
             self._toasts.error(f"Falha ao importar {Path(path).name}")
             return []
         for art in result1.artworks:
@@ -5243,7 +5243,7 @@ class MainWindow(QMainWindow):
         return list(result1.artworks)
 
     def _sheet_pos_at(self, scene_pos):
-        """Chapa e posicao local (mm) sob o ponto da cena onde o arquivo foi solto."""
+        """Chapa e posição local (mm) sob o ponto da cena onde o arquivo foi solto."""
         x, y = scene_pos.x(), scene_pos.y()
         for index, layout in enumerate(self._result.sheets):
             dx = index * (layout.material.width + SHEET_GAP_MM)
@@ -5252,8 +5252,8 @@ class MainWindow(QMainWindow):
         return 0, Point2D(max(0.0, x), max(0.0, y))
 
     def _duplicate_selected(self) -> None:
-        """Duplica as pecas selecionadas com deslocamento diagonal (Corel: Ctrl+D).
-        A copia vira a nova selecao: segurar Ctrl+D duplica em cadeia."""
+        """Duplica as peças selecionadas com deslocamento diagonal (Corel: Ctrl+D).
+        A copia vira a nova seleção: segurar Ctrl+D duplica em cadeia."""
         if self._result is None:
             return
         sel = self._selected_pieces()
@@ -5269,10 +5269,10 @@ class MainWindow(QMainWindow):
             )
         self._add_placed(add)
 
-    # ---- copiar / colar pecas (Corel: Ctrl+C, Ctrl+V, e Ctrl+D em cadeia) ----
+    # ---- copiar / colar peças (Corel: Ctrl+C, Ctrl+V, e Ctrl+D em cadeia) ----
     def _copy_selected(self) -> None:
-        """Ctrl+C: guarda as pecas selecionadas na 'area de transferencia'
-        interna (chapa + posicao). Nao mexe no arranjo."""
+        """Ctrl+C: guarda as peças selecionadas na 'área de transferencia'
+        interna (chapa + posição). Não mexe no arranjo."""
         sel = self._selected_pieces()
         if not sel:
             return
@@ -5282,11 +5282,11 @@ class MainWindow(QMainWindow):
             for p in sel
         ]
         self._paste_count = 0
-        self._toasts.info(f"{len(sel)} peca(s) copiada(s) — Ctrl+V para colar")
+        self._toasts.info(f"{len(sel)} peça(s) copiada(s) — Ctrl+V para colar")
 
     def _paste_clipboard(self) -> None:
-        """Ctrl+V: cola as pecas copiadas, deslocadas em diagonal. Colagens
-        seguidas cascateiam; a copia vira a selecao (Ctrl+D continua a serie)."""
+        """Ctrl+V: cola as peças copiadas, deslocadas em diagonal. Colagens
+        seguidas cascateiam; a copia vira a seleção (Ctrl+D continua a serie)."""
         if self._result is None or not getattr(self, "_piece_clipboard", None):
             return
         self._paste_count = getattr(self, "_paste_count", 0) + 1
@@ -5295,7 +5295,7 @@ class MainWindow(QMainWindow):
         add: dict[int, list] = {}
         for sheet_index, art_id, x, y in self._piece_clipboard:
             if art_id not in valid_ids:
-                continue  # a peca copiada ja saiu desta producao
+                continue  # a peça copiada já saiu desta produção
             add.setdefault(sheet_index, []).append(
                 PlacedItem(art_id, Point2D(x + off, y + off))
             )
@@ -5303,30 +5303,30 @@ class MainWindow(QMainWindow):
             self._add_placed(add, text="colar")
 
     def _duplicate_selected_qty(self) -> None:
-        """Duplica SO a(s) pagina(s)/peca(s) selecionada(s) numa quantidade
-        escolhida e re-encaixa, sem mexer na quantidade das outras paginas.
+        """Duplica SO a(s) página(s)/peça(s) selecionada(s) numa quantidade
+        escolhida e re-encaixa, sem mexer na quantidade das outras páginas.
 
-        Resolve o caso do PDF com varias paginas: selecionar uma pagina e pedir
+        Resolve o caso do PDF com varias páginas: selecionar uma página e pedir
         N copias dela, sem duplicar o documento inteiro (a quantidade da tabela
-        e por arquivo e duplicaria todas as paginas)."""
+        e por arquivo e duplicaria todas as páginas)."""
         if self._result is None:
             return
         sel = self._selected_pieces()
         if not sel:
             QMessageBox.information(
-                self, "PrintNest", "Selecione a(s) pagina(s) que quer duplicar."
+                self, "PrintNest", "Selecione a(s) página(s) que quer duplicar."
             )
             return
         n, ok = QInputDialog.getInt(
-            self, "Duplicar pagina",
-            f"Quantas copias a mais de cada peca selecionada ({len(sel)})?",
+            self, "Duplicar página",
+            f"Quantas copias a mais de cada peça selecionada ({len(sel)})?",
             1, 1, 500,
         )
         if not ok or n < 1:
             return
         before = self._state_snapshot()
         by_id = {a.id: a for a in self._result.artworks}
-        # contagem ATUAL do arranjo (mantem o que ja esta na chapa) + as copias
+        # contagem ATUAL do arranjo (mantem o que já esta na chapa) + as copias
         instances = [
             by_id[it.artwork_id]
             for layout in self._effective_sheets()
@@ -5342,14 +5342,14 @@ class MainWindow(QMainWindow):
         sheets = uc.execute_sheets(instances, material, float(self._height.value()))
         after = (sheets, instances)
         self._apply_state(after)
-        self._undo.push(SnapshotCommand(self, before, after, "duplicar pagina"))
+        self._undo.push(SnapshotCommand(self, before, after, "duplicar página"))
         self._update_status_and_alerts(
             sheets, sum(s.item_count for s in sheets), instances, material
         )
-        self._toasts.success(f"{len(sel)} pagina(s) duplicada(s) (+{n} cada)")
+        self._toasts.success(f"{len(sel)} página(s) duplicada(s) (+{n} cada)")
 
     def _step_repeat(self, cols: int, rows: int, gap: float) -> None:
-        """Cria copias em grade das pecas selecionadas (step and repeat)."""
+        """Cria copias em grade das peças selecionadas (step and repeat)."""
         if self._result is None:
             return
         sel = self._selected_pieces()
@@ -5378,7 +5378,7 @@ class MainWindow(QMainWindow):
 
     def _step_repeat_dialog(self) -> None:
         if self._result is None or not self._selected_pieces():
-            QMessageBox.information(self, "PrintNest", "Selecione ao menos uma peca.")
+            QMessageBox.information(self, "PrintNest", "Selecione ao menos uma peça.")
             return
         cols, ok = QInputDialog.getInt(self, "Repetir em grade", "Colunas:", 2, 1, 200)
         if not ok:
@@ -5387,24 +5387,24 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         gap, ok = QInputDialog.getDouble(
-            self, "Repetir em grade", "Espacamento entre copias (mm):", 5.0, 0.0, 1000.0, 1
+            self, "Repetir em grade", "Espaçamento entre copias (mm):", 5.0, 0.0, 1000.0, 1
         )
         if not ok:
             return
         self._step_repeat(cols, rows, gap)
 
     def _effective_sheets(self) -> list:
-        """Sheets refletindo movimentos manuais das pecas (ou o nesting original)."""
+        """Sheets refletindo movimentos manuais das peças (ou o nesting original)."""
         if not self._piece_items:
             return self._result.sheets
         moved: dict[int, list] = {}
         for piece in self._piece_items:
-            # scenePos funciona mesmo se a peca estiver dentro de um grupo
+            # scenePos funciona mesmo se a peça estiver dentro de um grupo
             pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
             moved.setdefault(piece.sheet_index, []).append(PlacedItem(piece.artwork_id, pos))
         sheets = []
         for index, layout in enumerate(self._result.sheets):
-            items = moved.get(index, [])  # vazio = todas as pecas excluidas
+            items = moved.get(index, [])  # vazio = todas as peças excluidas
             sheets.append(Layout(layout.material, items, layout.used_length))
         return sheets
 
@@ -5412,17 +5412,17 @@ class MainWindow(QMainWindow):
         for piece in self._piece_items:
             piece.setSelected(True)
 
-    # ---- historico de arranjo (excluir/duplicar/repetir com Ctrl+Z) ----
+    # ---- histórico de arranjo (excluir/duplicar/repetir com Ctrl+Z) ----
     def _snapshot_sheets(self) -> list:
-        """Copia o arranjo atual (chapas + PlacedItems) para o historico."""
+        """Copia o arranjo atual (chapas + PlacedItems) para o histórico."""
         return [
             Layout(layout.material, list(layout.items), layout.used_length)
             for layout in self._effective_sheets()
         ]
 
     def _state_snapshot(self):
-        """Estado completo atual (chapas + artes + giros por peca) para o
-        historico de desfazer. Os giros por peca (_piece_rotations) PRECISAM
+        """Estado completo atual (chapas + artes + giros por peça) para o
+        histórico de desfazer. Os giros por peça (_piece_rotations) PRECISAM
         estar no snapshot: sem isso, desfazer um giro deixava o dict "sujo" e
         o giro desfeito voltava sozinho no proximo recalculo (bug QA-01)."""
         return (
@@ -5444,23 +5444,23 @@ class MainWindow(QMainWindow):
         )
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
-        self._status.setText(f"{len(sheets)} chapa(s) | {total} peca(s)")
+        self._status.setText(f"{len(sheets)} chapa(s) | {total} peça(s)")
         self._status_ctl.set_production(total, len(sheets))
 
     def _commit_arrangement(self, before, after, text: str) -> None:
-        """Aplica 'after' e registra o passo no historico (Ctrl+Z desfaz).
+        """Aplica 'after' e registra o passo no histórico (Ctrl+Z desfaz).
 
-        'before'/'after' sao listas de Layout. As artes nao mudam numa operacao
+        'before'/'after' sao listas de Layout. As artes não mudam numa operacao
         de arranjo (mover/excluir/duplicar), entao o estado usa as artes atuais.
         """
         arts = list(self._result.artworks)
-        rot = dict(self._piece_rotations)  # arranjo nao muda giros: mesmo dict
+        rot = dict(self._piece_rotations)  # arranjo não muda giros: mesmo dict
         before_state, after_state = (before, arts, rot), (after, arts, rot)
         self._apply_state(after_state)
         self._undo.push(SnapshotCommand(self, before_state, after_state, text))
 
     def _delete_selected(self) -> None:
-        # guias selecionadas saem na hora (sem mexer no arranjo das pecas)
+        # guias selecionadas saem na hora (sem mexer no arranjo das peças)
         guides = [it for it in self._scene.selectedItems() if isinstance(it, GuideItem)]
         for g in guides:
             if g.record in self._guides:
@@ -5478,9 +5478,9 @@ class MainWindow(QMainWindow):
             return
         before = self._snapshot_sheets()
         self._piece_items = [p for p in self._piece_items if p not in to_remove]
-        # reconstroi as chapas a partir das pecas RESTANTES. NAO usar
-        # _effective_sheets() aqui: com a lista vazia (excluir a ULTIMA peca) ele
-        # devolveria as chapas originais e a peca reaparecia.
+        # reconstroi as chapas a partir das peças RESTANTES. NAO usar
+        # _effective_sheets() aqui: com a lista vazia (excluir a ULTIMA peça) ele
+        # devolveria as chapas originais e a peça reaparecia.
         moved: dict[int, list] = {}
         for piece in self._piece_items:
             pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
@@ -5495,20 +5495,20 @@ class MainWindow(QMainWindow):
         self._commit_arrangement(before, after, "excluir")
 
     def _rotate_selected(self, delta: int) -> None:
-        """Gira em +-90 graus SO a(s) peca(s) selecionada(s) e re-encaixa o
-        nesting (mantendo a contagem) para a peca girada aproveitar o vao.
+        """Gira em +-90 graus SO a(s) peça(s) selecionada(s) e re-encaixa o
+        nesting (mantendo a contagem) para a peça girada aproveitar o vão.
 
-        Cada peca gira sozinha (por artwork_id): selecionar a sobra solta e
-        girar nao mexe nas outras paginas/copias. Sem selecao, gira TODOS
-        (rotacao global do documento)."""
+        Cada peça gira sozinha (por artwork_id): selecionar a sobra solta e
+        girar não mexe nas outras páginas/copias. Sem seleção, gira TODOS
+        (rotação global do documento)."""
         if not self._loaded:
-            self._toasts.info("Gere a producao primeiro (Gerar Producao).")
+            self._toasts.info("Gere a produção primeiro (Gerar Produção).")
             return
         ids = {p.artwork_id for p in self._selected_pieces()}
         if ids:
             # snapshot ANTES de mutar os giros: o desfazer precisa restaurar o
-            # dict antigo (bug QA-01: o snapshot dentro do _relayout ja pegava
-            # o giro novo e o Ctrl+Z nao revertia _piece_rotations).
+            # dict antigo (bug QA-01: o snapshot dentro do _relayout já pegava
+            # o giro novo e o Ctrl+Z não revertia _piece_rotations).
             before = self._state_snapshot() if self._result is not None else None
             for art_id in ids:
                 atual = self._piece_rotations.get(art_id, 0)
@@ -5520,22 +5520,22 @@ class MainWindow(QMainWindow):
                 self._suspend_undo = False
             if before is not None and self._result is not None:
                 after = self._state_snapshot()
-                self._undo.push(SnapshotCommand(self, before, after, "girar peca"))
-            # o re-encaixe recria as pecas noutra posicao e a selecao (por posicao)
+                self._undo.push(SnapshotCommand(self, before, after, "girar peça"))
+            # o re-encaixe recria as peças noutra posição e a seleção (por posição)
             # se perdia -> re-seleciona pelo id para continuar girando/editando.
             self._reselect_by_artwork(ids)
             self._toasts.success(
-                f"Girou {len(ids)} peca(s) {abs(delta)}°" if len(ids) > 1
-                else f"Peca girada {abs(delta)}°"
+                f"Girou {len(ids)} peça(s) {abs(delta)}°" if len(ids) > 1
+                else f"Peça girada {abs(delta)}°"
             )
         else:
-            # nada selecionado: gira todos (rotacao global do documento)
+            # nada selecionado: gira todos (rotação global do documento)
             novo = (self._rotation_value() + delta) % 360
             self._rotation.setCurrentText(str(novo))  # dispara o relayout
 
     def _reselect_by_artwork(self, ids) -> None:
-        """Re-seleciona as pecas cujo artwork_id esta em `ids`. Usado apos um
-        re-encaixe (que recria as pecas noutra posicao) para manter o objeto
+        """Re-seleciona as peças cujo artwork_id esta em `ids`. Usado após um
+        re-encaixe (que recria as peças noutra posição) para manter o objeto
         selecionado — assim da para clicar de novo e continuar girando."""
         if not ids:
             return
@@ -5546,7 +5546,7 @@ class MainWindow(QMainWindow):
 
     def _organize(self) -> None:
         """Reorganiza (nesting) mantendo a contagem atual do arranjo (inclui
-        duplicatas). Botao 'Organizar' para o cliente reorganizar quando quiser."""
+        duplicatas). Botão 'Organizar' para o cliente reorganizar quando quiser."""
         if not self._loaded:
             self._toasts.info("Solte ou gere os arquivos primeiro.")
             return
@@ -5598,7 +5598,7 @@ class MainWindow(QMainWindow):
             return cache[cache_key]
         out = pixmap
         if crop > 0:
-            # antes da rotacao art_size pode estar trocado; reconstroi original
+            # antes da rotação art_size pode estar trocado; reconstroi original
             unrotated_w = art_size.width if rotation in (0, 180) else art_size.height
             orig_w = unrotated_w + 2 * crop
             fx = crop / orig_w
@@ -5613,9 +5613,9 @@ class MainWindow(QMainWindow):
         cache[cache_key] = out
         return out
 
-    # ---- exportacao ----
+    # ---- exportação ----
     def _print_kwargs(self) -> dict:
-        """Parametros de marca/recorte/rotacao/caixa comuns ao PDF e a imagem."""
+        """Parametros de marca/recorte/rotação/caixa comuns ao PDF e a imagem."""
         return {
             "reg_type": self._reg(),
             "reg_margin_mm": float(self._reg_margin.value()),
@@ -5625,14 +5625,14 @@ class MainWindow(QMainWindow):
             "mimaki_thickness_mm": float(self._mk_thickness.value()),
             "crop_mm": float(self._crop.value()),
             "rotate": self._rotation_value(),
-            # giro por peca: sobrepoe o giro padrao para pecas giradas sozinhas
+            # giro por peça: sobrepoe o giro padrão para peças giradas sozinhas
             "rotations": {
                 a.id: self._rotation_of(a.id) for a in self._result.artworks
             } if self._result is not None else None,
             "box": self._import_box.currentData(),
         }
 
-    # ---- Centro de Exportacao (Ctrl+E) ----
+    # ---- Centro de Exportação (Ctrl+E) ----
     def _sheet_thumbnail(self, index: int, max_px: int = 150) -> QPixmap:
         """Renderiza uma miniatura da chapa (a partir da cena atual)."""
         sheets = self._effective_sheets()
@@ -5654,7 +5654,7 @@ class MainWindow(QMainWindow):
         return pm
 
     def _selected_sheet_indices(self) -> list[int]:
-        """Indices das chapas que tem alguma peca selecionada no canvas."""
+        """Indices das chapas que tem alguma peça selecionada no canvas."""
         try:
             sel = self._scene.selectedItems()
         except RuntimeError:
@@ -5662,7 +5662,7 @@ class MainWindow(QMainWindow):
         return sorted({it.sheet_index for it in sel if isinstance(it, PieceItem)})
 
     def _selection_bbox_scene(self):
-        """Retangulo (cena) que envolve as pecas selecionadas, ou None."""
+        """Retângulo (cena) que envolve as peças selecionadas, ou None."""
         pieces = self._selected_pieces()
         if not pieces:
             return None
@@ -5673,9 +5673,9 @@ class MainWindow(QMainWindow):
         return QRectF(min(xs0), min(ys0), max(xs1) - min(xs0), max(ys1) - min(ys0))
 
     def _selection_export_sheets(self):
-        """Monta UMA chapa sintetica so com as pecas selecionadas, recortada ao
-        retangulo delas (sem espaco em branco). Retorna (sheets, (largura, altura))
-        em mm, ou None se nao houver selecao."""
+        """Monta UMA chapa sintetica só com as peças selecionadas, recortada ao
+        retângulo delas (sem espaco em branco). Retorna (sheets, (largura, altura))
+        em mm, ou None se não houver seleção."""
         pieces = self._selected_pieces()
         if not pieces:
             return None
@@ -5689,12 +5689,12 @@ class MainWindow(QMainWindow):
             )
             for p in pieces
         ]
-        mat = Material(name="selecao", width=w)
+        mat = Material(name="seleção", width=w)
         return [Layout(mat, placed, h)], (w, h)
 
     def _selection_thumbnail(self, max_px: int = 360) -> QPixmap:
-        """Miniatura SO da regiao selecionada (mostra exatamente o que sera
-        exportado, no modo de visualizacao atual)."""
+        """Miniatura SO da regiao selecionada (mostra exatamente o que será
+        exportado, no modo de visualização atual)."""
         box = self._selection_bbox_scene()
         if box is None or box.width() <= 0 or box.height() <= 0:
             return QPixmap()
@@ -5710,9 +5710,9 @@ class MainWindow(QMainWindow):
         return pm
 
     def _open_export_center(self) -> None:
-        """Centro de Exportacao: escolhe chapas (com previa) e formato (Ctrl+E)."""
+        """Centro de Exportação: escolhe chapas (com previa) e formato (Ctrl+E)."""
         if self._result is None or not self._result.sheets:
-            self._toasts.info("Gere a producao primeiro (Gerar Producao).")
+            self._toasts.info("Gere a produção primeiro (Gerar Produção).")
             return
         ExportCenterDialog(self).exec()
 
@@ -5728,7 +5728,7 @@ class MainWindow(QMainWindow):
 
     def open_external_files(self, paths: list[str]) -> None:
         """Recebe arquivos de fora (macro do CorelDRAW ou linha de comando):
-        adiciona a biblioteca, joga na producao (organizando) e traz a janela
+        adiciona a biblioteca, joga na produção (organizando) e traz a janela
         para a frente. Lista vazia apenas traz a janela para a frente."""
         valid = [str(Path(p)) for p in (paths or []) if Path(p).exists()]
         self._raise_to_front()
@@ -5834,7 +5834,7 @@ class MainWindow(QMainWindow):
         return sorted(result)
 
     def _select_export_sheets(self, sheets_all, pages, interactive, title):
-        """Escolhe quais chapas exportar. Retorna None se o usuario cancelar."""
+        """Escolhe quais chapas exportar. Retorna None se o usuário cancelar."""
         total = len(sheets_all)
         if pages is None:
             if interactive and total > 1:
@@ -5866,7 +5866,7 @@ class MainWindow(QMainWindow):
             segments = []
         marks, mark_segments = [], []
         if reg in ("circles", "both"):
-            # bolinhas continuam no corte (comportamento ja validado)
+            # bolinhas continuam no corte (comportamento já validado)
             marks = registration_marks_sheets(
                 sheets, artworks, sheet_width,
                 margin_mm=float(self._reg_margin.value()),
@@ -5941,7 +5941,7 @@ class MainWindow(QMainWindow):
 
     def _faca_pad(self) -> float:
         """Folga (mm) ao redor da faca para as marcas de registro caberem na
-        pagina (mesma conta do PDF de impressao)."""
+        página (mesma conta do PDF de impressao)."""
         reg = self._reg()
         pad = 0.0
         if reg in ("circles", "both"):
@@ -5952,7 +5952,7 @@ class MainWindow(QMainWindow):
 
     @_guard_export
     def export_faca_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
-        """Exporta a faca (linhas de corte) em PDF vetorial, uma pagina por chapa.
+        """Exporta a faca (linhas de corte) em PDF vetorial, uma página por chapa.
         Inclui as marcas de registro (bolinhas), igual ao DXF e a impressao."""
         if self._result is None:
             return
@@ -5966,7 +5966,7 @@ class MainWindow(QMainWindow):
             if interactive:
                 QMessageBox.warning(self, "PrintNest", "Nenhuma chapa selecionada.")
             return
-        # faca vazia = PDF em branco indo para a maquina de corte (bug QA-03):
+        # faca vazia = PDF em branco indo para a máquina de corte (bug QA-03):
         # valida ANTES de pedir o nome do arquivo e NUNCA grava sem linhas.
         contours_all, segments_all, _mk, _ln = self._dxf_payload(sheets)
         if not contours_all and not segments_all:
@@ -5987,7 +5987,7 @@ class MainWindow(QMainWindow):
         import fitz
 
         mm2pt = 72.0 / 25.4
-        pad = self._faca_pad()  # folga para as marcas caberem na pagina
+        pad = self._faca_pad()  # folga para as marcas caberem na página
         doc = fitz.open()
         try:
             for sheet in sheets:

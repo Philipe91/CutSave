@@ -1,8 +1,8 @@
 """Barra de status inferior (estilo CorelDRAW/Affinity).
 
-Mostra, da esquerda para a direita: quantidade de pecas e de chapas, area
-utilizada (%), e — alinhados a direita — posicao do cursor (mm), zoom e modo
-de visualizacao. Atualizado pela janela conforme a producao e o mouse mudam.
+Mostra, da esquerda para a direita: quantidade de peças e de chapas, área
+utilizada (%), e — alinhados a direita — posição do cursor (mm), zoom e modo
+de visualização. Atualizado pela janela conforme a produção e o mouse mudam.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ class StatusBarController:
 
     def __init__(self, status_bar: QStatusBar) -> None:
         self._bar = status_bar
-        self._pieces = self._add_left("layers", "0 pecas")
+        self._pieces = self._add_left("layers", "0 peças")
         self._sheets = self._add_left("file-text", "0 chapas")
         self._area = self._add_left("grid-3x3", "0%")
         # permanentes (direita)
@@ -47,7 +47,7 @@ class StatusBarController:
 
     # ---- atualizacoes ----
     def set_production(self, pieces: int, sheets: int) -> None:
-        self._pieces.setText(f"{pieces} peca(s)")
+        self._pieces.setText(f"{pieces} peça(s)")
         self._sheets.setText(f"{sheets} chapa(s)")
 
     def set_area(self, pct: float) -> None:

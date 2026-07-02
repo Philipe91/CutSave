@@ -1,14 +1,14 @@
-"""PRINTNEST DESIGN SYSTEM — tokens (cores, espacamento, raio, tipografia) e a
+"""PRINTNEST DESIGN SYSTEM — tokens (cores, espaçamento, raio, tipografia) e a
 folha de estilo global (QSS) da aplicacao.
 
-Fonte unica de verdade do visual. Toda a interface deriva daqui; nunca use hex
+Fonte única de verdade do visual. Toda a interface deriva daqui; nunca use hex
 literais espalhados pelos widgets. A linguagem e clara, sobria e industrial, no
-nivel de softwares graficos profissionais (Affinity, Figma, Illustrator): muito
+nivel de softwares gráficos profissionais (Affinity, Figma, Illustrator): muito
 espaco em branco, hierarquia forte, componentes consistentes e microinteracoes
 discretas.
 
 IMPORTANTE: os NOMES dos tokens sao contrato com o resto do codigo — mude os
-valores livremente, mas nao renomeie/remova constantes ja usadas.
+valores livremente, mas não renomeie/remova constantes já usadas.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from app.shared.resources import resource_path
 # Caminhos (com barras normais, exigidas pelo QSS) dos icones embutidos no
 # estilo: check do checkbox e setas de spinbox/combo. Resolvidos em runtime —
 # funcionam no dev e no executavel (PyInstaller/_MEIPASS). Quando o QSS
-# estiliza os sub-botoes, o Qt descarta as setas nativas: sem estas imagens,
-# os botoes ficam clicaveis porem invisiveis.
+# estiliza os sub-botões, o Qt descarta as setas nativas: sem estas imagens,
+# os botões ficam clicaveis porem invisiveis.
 _CHECK_ICON = resource_path("assets/icons/check-white.svg").as_posix()
 _ARROW_UP = resource_path("assets/icons/spin-up.svg").as_posix()
 _ARROW_DOWN = resource_path("assets/icons/spin-down.svg").as_posix()
@@ -39,7 +39,7 @@ SPACE_4XL = 48
 # ============================================================================
 #  RAIO DE BORDA
 # ============================================================================
-RADIUS = 8          # botoes, inputs, dropdowns
+RADIUS = 8          # botões, inputs, dropdowns
 RADIUS_CARD = 10    # cards / paineis
 RADIUS_SM = 6       # elementos menores / canvas
 RADIUS_PILL = 999   # badges / pills
@@ -53,7 +53,7 @@ SURFACE = "#ffffff"     # cards, inputs, paineis
 SURFACE_ALT = "#f7f8fa"  # toolbar, header, faixas sutis
 SIDEBAR = "#f8f9fb"     # barra lateral esquerda
 TOOLBAR = "#f7f8fa"     # barra de ferramentas / cabecalho
-BORDER = "#e4e8ee"      # bordas suaves (padrao)
+BORDER = "#e4e8ee"      # bordas suaves (padrão)
 BORDER_STRONG = "#d7dde5"  # bordas de input (um pouco mais visiveis)
 
 # --- estados ---
@@ -66,10 +66,10 @@ TEXT_SECONDARY = "#6b7280"  # secundario
 TEXT_MUTED = "#9ca3af"  # auxiliar / placeholder
 
 # --- marca / acento ---
-ACCENT = "#2563eb"      # primaria (CTA, foco, selecao)
+ACCENT = "#2563eb"      # primaria (CTA, foco, seleção)
 ACCENT_HOVER = "#1d4ed8"
 ACCENT_PRESSED = "#1e40af"
-ACCENT_SOFT = "#dcebff"  # fundo suave do acento (selecao/hover-acento)
+ACCENT_SOFT = "#dcebff"  # fundo suave do acento (seleção/hover-acento)
 
 # --- semantica (status / alertas) ---
 INFO = "#2563eb"
@@ -81,13 +81,13 @@ WARNING_SOFT = "#fdf3e2"
 ERROR = "#dc2626"
 ERROR_SOFT = "#fdeaea"
 
-# --- canvas / producao ---
+# --- canvas / produção ---
 CUT = "#dc2626"          # faca (corte) em vermelho
 MARK = "#111827"         # marcas de registro
-SHEET = "#ffffff"        # chapa (pagina)
+SHEET = "#ffffff"        # chapa (página)
 SHEET_BORDER = "#d4dae2"  # borda da chapa (suave, sobre mesa clara)
 CANVAS_BG = "#eceff3"    # mesa (fundo externo do canvas) — claro, estilo Affinity
-EMPTY = "#e5e9ef"        # peca sem raster
+EMPTY = "#e5e9ef"        # peça sem raster
 
 # --- icones ---
 ICON = TEXT_SECONDARY
@@ -99,16 +99,16 @@ ICON_ON_ACCENT = "#ffffff"
 FONT_FAMILY = "Segoe UI Variable, Segoe UI, Inter, system-ui, sans-serif"
 FONT_CAPTION = 12   # descricoes / auxiliares
 FONT_SM = 12        # legendas / labels compactos (piso: 12)
-FONT_MD = 13        # texto padrao
-FONT_LG = 15        # titulo de secao
-FONT_XL = 18        # titulo de painel
-FONT_2XL = 22       # titulo de janela
+FONT_MD = 13        # texto padrão
+FONT_LG = 15        # título de secao
+FONT_XL = 18        # título de painel
+FONT_2XL = 22       # título de janela
 
 
 def build_app_qss() -> str:
     """Folha de estilo global (aplicada no QApplication).
 
-    Define o visual base de campos, botoes, combos, checkboxes, abas, menus,
+    Define o visual base de campos, botões, combos, checkboxes, abas, menus,
     toolbar, scrollbars, status bar e dos componentes proprios (Card, Ribbon)
     via objectName/propriedade dinamica.
     """
@@ -145,7 +145,7 @@ def build_app_qss() -> str:
     }}
     QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QLineEdit:focus {{
         border: 2px solid {ACCENT};
-        padding: 5px 9px;   /* compensa a borda +1px para nao "pular" */
+        padding: 5px 9px;   /* compensa a borda +1px para não "pular" */
     }}
     QSpinBox:disabled, QDoubleSpinBox:disabled,
     QComboBox:disabled, QLineEdit:disabled {{
@@ -179,7 +179,7 @@ def build_app_qss() -> str:
     QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
         background: {HOVER};
     }}
-    /* setas dos botoes (obrigatorias: estilizar o botao descarta as nativas) */
+    /* setas dos botões (obrigatorias: estilizar o botão descarta as nativas) */
     QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
         image: url("{_ARROW_UP}"); width: 10px; height: 10px;
     }}
@@ -193,7 +193,7 @@ def build_app_qss() -> str:
         width: 10px; height: 10px;
     }}
 
-    /* ===================== botoes ===================== */
+    /* ===================== botões ===================== */
     QPushButton {{
         background: {SURFACE};
         border: 1px solid {BORDER_STRONG};
@@ -215,7 +215,7 @@ def build_app_qss() -> str:
         background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER};
     }}
     QPushButton[accent="true"]:pressed {{ background: {ACCENT_PRESSED}; }}
-    /* acao destrutiva (vermelho, so no hover para nao gritar) */
+    /* ação destrutiva (vermelho, só no hover para não gritar) */
     QPushButton[danger="true"]:hover {{
         background: {ERROR_SOFT}; border-color: {ERROR}; color: {ERROR};
     }}
@@ -329,11 +329,11 @@ def build_app_qss() -> str:
         border-radius: {RADIUS_CARD}px;
     }}
     /* faixa colorida por secao (borda esquerda, discreta) */
-    QFrame#card[accent="producao"]  {{ border-left: 3px solid {ACCENT}; }}
+    QFrame#card[accent="produção"]  {{ border-left: 3px solid {ACCENT}; }}
     QFrame#card[accent="acabamento"] {{ border-left: 3px solid {WARNING}; }}
     QFrame#card[accent="imagens"]   {{ border-left: 3px solid {SUCCESS}; }}
     QFrame#card[accent="registro"]  {{ border-left: 3px solid #8b5cf6; }}
-    QFrame#card[accent="avancado"]  {{ border-left: 3px solid {TEXT_MUTED}; }}
+    QFrame#card[accent="avançado"]  {{ border-left: 3px solid {TEXT_MUTED}; }}
     QFrame#card[accent="resumo"] {{
         border-left: 3px solid {ACCENT}; background: {SURFACE_ALT};
     }}
@@ -343,8 +343,8 @@ def build_app_qss() -> str:
         font-size: {FONT_LG}px; font-weight: 600;
     }}
     QPushButton#cardHeader:hover {{ background: {HOVER}; }}
-    /* identificacao por cor: cabecalho tingido + titulo na cor da secao */
-    QFrame#card[accent="producao"] > QPushButton#cardHeader {{
+    /* identificacao por cor: cabecalho tingido + título na cor da secao */
+    QFrame#card[accent="produção"] > QPushButton#cardHeader {{
         background: {INFO_SOFT}; color: #1d4ed8;
         border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
     }}
@@ -360,7 +360,7 @@ def build_app_qss() -> str:
         background: #f1eafc; color: #7c3aed;
         border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
     }}
-    QFrame#card[accent="avancado"] > QPushButton#cardHeader {{
+    QFrame#card[accent="avançado"] > QPushButton#cardHeader {{
         background: {SURFACE_ALT}; color: {TEXT_SECONDARY};
         border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
     }}

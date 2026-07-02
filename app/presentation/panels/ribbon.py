@@ -1,8 +1,8 @@
 """Ribbon: barra de ferramentas agrupada de uma linha (estilo Affinity/LightBurn).
 
-Reaproveita as QActions ja existentes da janela e as organiza em grupos
-(Arquivo | Editar | Organizar | Producao | Exibir), com icone+texto e separadores
-entre grupos. Botoes com menu (Exportar, Alinhar...) usam popup instantaneo.
+Reaproveita as QActions já existentes da janela e as organiza em grupos
+(Arquivo | Editar | Organizar | Produção | Exibir), com icone+texto e separadores
+entre grupos. Botões com menu (Exportar, Alinhar...) usam popup instantaneo.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.presentation import icons, theme
 def tool_button(
     action: QAction, icon_name: str, *, accent: bool = False, show_text: bool = True
 ) -> QToolButton:
-    """Botao da ribbon ligado a uma QAction (herda enabled/tooltip/triggered)."""
+    """Botão da ribbon ligado a uma QAction (herda enabled/tooltip/triggered)."""
     btn = QToolButton()
     btn.setDefaultAction(action)
     btn.setIcon(icons.icon(icon_name, theme.ICON_ON_ACCENT if accent else theme.ICON, 18))
@@ -34,7 +34,7 @@ def tool_button(
 def menu_button(
     text: str, icon_name: str, actions: Sequence[QAction], *, tip: str = ""
 ) -> QToolButton:
-    """Botao com menu suspenso (ex.: Exportar, Alinhar, Distribuir)."""
+    """Botão com menu suspenso (ex.: Exportar, Alinhar, Distribuir)."""
     btn = QToolButton()
     btn.setText(text)
     btn.setIcon(icons.icon(icon_name, theme.ICON, 18))
@@ -51,7 +51,7 @@ def menu_button(
 
 
 def populate_ribbon(toolbar: QToolBar, groups: Sequence[tuple[str, Sequence[QWidget]]]) -> None:
-    """Preenche a toolbar com os grupos (titulo, widgets), separados por linhas."""
+    """Preenche a toolbar com os grupos (título, widgets), separados por linhas."""
     toolbar.setMovable(False)
     toolbar.setFloatable(False)
     for index, (_title, widgets) in enumerate(groups):

@@ -1,4 +1,4 @@
-"""Campos de formulario e metricas com espacamento consistente.
+"""Campos de formulario e metricas com espaçamento consistente.
 
 - ``labeled(text, widget)``: monta uma coluna [rotulo discreto] + [controle],
   usada para padronizar os ajustes (sem repetir QLabel solto por toda parte).

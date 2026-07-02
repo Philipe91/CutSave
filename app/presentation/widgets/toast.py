@@ -1,7 +1,7 @@
 """Toasts: notificacoes discretas no canto inferior direito.
 
-Para confirmar acoes sem interromper o fluxo (substituem varios QMessageBox de
-"sucesso"): "Producao gerada", "PDF exportado", "DXF criado", "Projeto salvo".
+Para confirmar ações sem interromper o fluxo (substituem varios QMessageBox de
+"sucesso"): "Produção gerada", "PDF exportado", "DXF criado", "Projeto salvo".
 Auto-somem em alguns segundos e se empilham.
 
     self._toasts = ToastManager(self)   # parent = janela principal
@@ -77,7 +77,7 @@ class ToastManager:
             self._reposition()
 
     def _reposition(self) -> None:
-        # robusto a janela/toasts ja destruidos (ex.: timer dispara apos fechar)
+        # robusto a janela/toasts já destruidos (ex.: timer dispara após fechar)
         try:
             rect = self._parent.rect()
             y = rect.height() - _MARGIN

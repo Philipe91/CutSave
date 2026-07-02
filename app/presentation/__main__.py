@@ -43,7 +43,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
 
-    # instancia unica: se o PrintNest ja estiver aberto, entrega os arquivos
+    # instância única: se o PrintNest já estiver aberto, entrega os arquivos
     # (ex.: vindos da macro do CorelDRAW) para a sessao atual e encerra.
     file_args = _file_args(sys.argv)
     if forward_to_running(file_args):
@@ -52,8 +52,8 @@ def main() -> int:
     # independente do modo Claro/Escuro do Windows (Qt 6 segue o sistema).
     app.styleHints().setColorScheme(Qt.ColorScheme.Light)
     app.setStyleSheet(theme.build_app_qss())  # folha de estilo global (design system)
-    # icone da janela: .ico multi-tamanho (so o simbolo, nitido em 16/32px);
-    # cai para a PNG se o .ico nao existir
+    # icone da janela: .ico multi-tamanho (só o simbolo, nitido em 16/32px);
+    # cai para a PNG se o .ico não existir
     icon_file = resource_path("assets/printnest.ico")
     if not icon_file.exists():  # .ico e gerado/ignorado no git; cai no simbolo quadrado
         icon_file = resource_path("assets/printnest_symbol.png")
@@ -73,14 +73,14 @@ def main() -> int:
         settings,
     )
     if app_icon is not None:
-        window.setWindowIcon(app_icon)  # garante a logo na barra de titulo
+        window.setWindowIcon(app_icon)  # garante a logo na barra de título
 
-    # primeira instancia: escuta caminhos de outras chamadas (CorelDRAW/CLI).
-    # guarda a referencia no app para nao ser coletado pelo GC.
+    # primeira instância: escuta caminhos de outras chamadas (CorelDRAW/CLI).
+    # guarda a referência no app para não ser coletado pelo GC.
     app._ipc_server = start_server(window.open_external_files)
 
     window.show()
-    if file_args:  # arquivos passados na linha de comando -> abre ja na sessao
+    if file_args:  # arquivos passados na linha de comando -> abre já na sessao
         window.open_external_files(file_args)
     return app.exec()
 
