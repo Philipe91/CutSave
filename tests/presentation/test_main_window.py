@@ -19,7 +19,7 @@ from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter  # noq
 from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer  # noqa: E402
 from app.presentation.main_window import MainWindow  # noqa: E402
 from app.shared.config.settings import SettingsStore  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -641,6 +641,107 @@ def test_duplicar_cria_copia(qapp, tmp_path):
     window._piece_items[0].setSelected(True)
     window._duplicate_selected()
     assert sum(s.item_count for s in window._result.sheets) == n0 + 1
+
+
+def test_mesmo_arquivo_importado_2x_soma_quantidade(qapp, tmp_path):
+    # Bug QA-04: duas linhas do mesmo arquivo colidiam (ids/qtd por caminho) e
+    # a producao saia com quantidade errada em silencio. Agora a segunda
+    # importacao soma +1 na linha existente (uma linha por arquivo).
+    from tests import synth_images as si
+    src = si.jpg_white_square(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src, src])
+    assert window._table.rowCount() == 1
+    assert window._table.cellWidget(0, 1).value() == 2
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 2
+
+
+def test_exportar_faca_sem_faca_nao_grava_pdf_em_branco(qapp, tmp_path):
+    # Bug QA-03: "soltar sem faca" + exportar faca gravava um PDF valido porem
+    # SEM nenhuma linha de corte (arquivo em branco indo para a maquina).
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True, faca=False)
+    out = tmp_path / "FACA_vazia.pdf"
+    window.export_faca_pdf(str(out))
+    assert not out.exists()  # recusa gravar faca vazia
+
+
+def test_falha_de_exportacao_mostra_dialogo_e_nao_estoura(qapp, tmp_path, monkeypatch):
+    # Bug QA-02: erro real de exportacao (pasta inexistente/permissao) subia
+    # cru — no exe o botao "nao fazia nada". Agora vira dialogo amigavel.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    avisos = []
+    monkeypatch.setattr(
+        QMessageBox, "critical",
+        staticmethod(lambda *a, **k: avisos.append(a)),
+    )
+    destino = tmp_path / "pasta_que_nao_existe" / "IMPRESSAO.pdf"
+    window.export_pdf(str(destino))  # nao pode estourar excecao
+    assert avisos, "falha de exportacao tem que mostrar dialogo"
+    assert not destino.exists()
+
+
+def test_desfazer_giro_de_peca_limpa_o_giro_de_verdade(qapp, tmp_path):
+    # Bug QA-01: girar peca -> Ctrl+Z revertia o visual, mas _piece_rotations
+    # ficava "sujo" e o giro desfeito VOLTAVA sozinho no proximo recalculo.
+    src = _two_page_pdf(tmp_path)  # paginas retangulares (L != A)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    piece = window._piece_items[0]
+    aid = piece.artwork_id
+    art0 = next(a for a in window._result.artworks if a.id == aid)
+    w0 = art0.size.width
+
+    piece.setSelected(True)
+    window._rotate_selected(90)
+    assert window._piece_rotations.get(aid, 0) == 90
+    art_girada = next(a for a in window._result.artworks if a.id == aid)
+    assert abs(art_girada.size.width - w0) > 0.01  # girou de fato
+
+    window._undo.undo()
+    assert window._piece_rotations.get(aid, 0) == 0  # o dict TEM que voltar
+
+    window._undo.redo()  # refazer devolve o giro
+    assert window._piece_rotations.get(aid, 0) == 90
+
+    window._undo.undo()  # desfaz de novo (fica sem giro)
+    assert window._piece_rotations.get(aid, 0) == 0
+
+    # recalculo nao relacionado (sangria) nao pode reaplicar o giro desfeito
+    window._offset.setValue(window._offset.value() + 1)
+    art_final = next(a for a in window._result.artworks if a.id == aid)
+    assert abs(art_final.size.width - w0) < 0.01  # continua NAO girada
+
+
+def test_copiar_colar_e_ctrl_d_em_cadeia(qapp, tmp_path):
+    # Fluxo do Corel: Ctrl+C copia, Ctrl+V cola (deslocado) e, como a copia
+    # vira a nova selecao, Ctrl+D repetido segue duplicando em cadeia.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    n0 = sum(s.item_count for s in window._result.sheets)
+
+    window._piece_items[0].setSelected(True)
+    window._copy_selected()
+    window._paste_clipboard()  # +1
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 1
+    assert len(window._selected_pieces()) == 1  # a copia ficou selecionada
+
+    window._duplicate_selected()  # Ctrl+D em cima da copia -> +1
+    window._duplicate_selected()  # de novo -> +1 (cadeia)
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 3
+
+    window._paste_clipboard()  # segunda colagem cascateia (+1)
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 4
 
 
 def test_barra_propriedades_contextual(qapp, tmp_path):

@@ -43,7 +43,11 @@ class CollapsibleCard(QFrame):
 
         self._content = QWidget()
         self.body = QVBoxLayout(self._content)
-        self.body.setContentsMargins(theme.SPACE_MD, 0, theme.SPACE_MD, theme.SPACE_MD)
+        # respiro generoso: 16px nas laterais/base + 4px sob o cabecalho, para o
+        # conteudo nao "colar" no titulo (hierarquia Titulo -> Grupo -> Campo)
+        self.body.setContentsMargins(
+            theme.SPACE_LG, theme.SPACE_XS, theme.SPACE_LG, theme.SPACE_LG
+        )
         self.body.setSpacing(theme.SPACE_SM)
         outer.addWidget(self._content)
 

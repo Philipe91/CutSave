@@ -13,6 +13,14 @@ from app.shared.errors import PrintExportError
 MM2PT = 72.0 / 25.4
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
+# Erros que viram PrintExportError. PyMuPDF >= 1.26 levanta as proprias classes
+# (FzErrorBase/FzErrorSystem), que NAO herdam de RuntimeError/OSError — sem
+# inclui-las aqui, uma falha de disco/permissao escapava crua ate a UI (QA-02).
+_EXPORT_ERRORS: tuple[type[Exception], ...] = (RuntimeError, OSError, ValueError)
+_fz_base = getattr(getattr(fitz, "mupdf", None), "FzErrorBase", None)
+if isinstance(_fz_base, type) and issubclass(_fz_base, Exception):
+    _EXPORT_ERRORS = (*_EXPORT_ERRORS, _fz_base)
+
 
 def _is_image_source(path: str) -> bool:
     return Path(path).suffix.lower() in _IMAGE_SUFFIXES
@@ -76,7 +84,7 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                         color=(0, 0, 0),
                         width=line.width * MM2PT,
                     )
-        except (RuntimeError, OSError, ValueError) as exc:
+        except _EXPORT_ERRORS as exc:
             out.close()
             raise PrintExportError("Falha ao compor o documento de impressao.") from exc
         finally:
@@ -88,7 +96,7 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
         out = self._build_document(sheets)
         try:
             out.save(output_path)
-        except (RuntimeError, OSError, ValueError) as exc:
+        except _EXPORT_ERRORS as exc:
             raise PrintExportError(f"Falha ao gerar PDF de impressao: {output_path}") from exc
         finally:
             out.close()
@@ -120,7 +128,7 @@ class PyMuPdfPrintExporter(IPrintPdfExporter):
                 target = f"{stem}_{index + 1:02d}{ext}" if multi else output_path
                 pixmap.save(target)
                 generated.append(target)
-        except (RuntimeError, OSError, ValueError) as exc:
+        except _EXPORT_ERRORS as exc:
             raise PrintExportError(f"Falha ao gerar imagem: {output_path}") from exc
         finally:
             out.close()

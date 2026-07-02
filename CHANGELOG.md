@@ -4,6 +4,38 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [Não lançado] — branch `v1.3-redesign` (sessão 02/07)
+
+### Refinamento visual (PrintNest Design System) — sem mudar a estrutura
+- Tokens + QSS global (paleta clara, foco azul 2px, checkbox 18px, abas com
+  sublinhado, menus/scrollbars modernos); mesa do canvas clara com a chapa
+  "flutuando" (sombra **vetorial** — a antiga `QGraphicsDropShadowEffect`
+  travava o zoom de perto e foi removida).
+- Ribbon com seletor QSS correto (estava morto), setas de spinbox/combo
+  restauradas (estilizar os botões descartava as nativas — ficavam invisíveis),
+  cards do inspector com cabeçalho colorido por seção, respiro 12/16px,
+  réguas/overlay/guias nos tokens do tema (um azul só).
+- **Tipo de faca** movido para a barra, ao lado do botão azul "Gerar Faca"
+  (decidir → gerar num gesto). Mesmo combo de sempre (estado/sessão intactos).
+
+### Atalhos padrão CorelDRAW
+- **Ctrl+C / Ctrl+V** copiar/colar peças (colagens cascateiam) e **Ctrl+D em
+  cadeia** (a cópia vira a seleção). **Ctrl+W** fecha a aba; **Ctrl+P** exporta
+  o PDF de impressão. Alinhar por letras **T/B/L/R/C/E**; zoom **F2/F3**,
+  **Shift+F2** (seleção), **Shift+F4** (página); **H** mão; **Alt+setas** pan;
+  **Alt+Enter** propriedades do objeto.
+
+### Correções da auditoria QA (ver `docs/qa/RELATORIO-QA-2026-07-02.md`)
+- 🔴 **QA-01** Desfazer giro de peça agora reverte de verdade (giros entram no
+  snapshot de undo; o giro desfeito não "volta sozinho" no próximo recálculo).
+- 🔴 **QA-02** Falha de exportação nunca mais é silenciosa: exportador captura
+  as exceções novas do PyMuPDF ≥ 1.26 e os 5 `export_*` mostram diálogo.
+- 🔴 **QA-03** Exportar Faca sem faca gerada é recusado com aviso (antes
+  gravava PDF em branco que ia pra máquina de corte).
+- 🟠 **QA-04** Importar o mesmo arquivo 2× soma a quantidade na linha existente
+  (linhas duplicadas colidiam e a produção saía com quantidade errada).
+- 🔴 **QA-05** Combo "Tipo de faca" não corta mais o texto.
+
 ## [Não lançado] — branch `v1.2-projeto`
 
 ### V2.0 — UX/UI orientada ao operador (estilo CorelDRAW)

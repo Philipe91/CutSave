@@ -15,9 +15,14 @@ from __future__ import annotations
 
 from app.shared.resources import resource_path
 
-# Caminho (com barras normais, exigidas pelo QSS) do check branco do checkbox.
-# Resolvido em runtime — funciona no dev e no executavel (PyInstaller/_MEIPASS).
+# Caminhos (com barras normais, exigidas pelo QSS) dos icones embutidos no
+# estilo: check do checkbox e setas de spinbox/combo. Resolvidos em runtime —
+# funcionam no dev e no executavel (PyInstaller/_MEIPASS). Quando o QSS
+# estiliza os sub-botoes, o Qt descarta as setas nativas: sem estas imagens,
+# os botoes ficam clicaveis porem invisiveis.
 _CHECK_ICON = resource_path("assets/icons/check-white.svg").as_posix()
+_ARROW_UP = resource_path("assets/icons/spin-up.svg").as_posix()
+_ARROW_DOWN = resource_path("assets/icons/spin-down.svg").as_posix()
 
 # ============================================================================
 #  ESPACAMENTO — grade de 4/8px (nunca valores aleatorios)
@@ -150,6 +155,9 @@ def build_app_qss() -> str:
         border: none; width: 22px;
         subcontrol-origin: padding; subcontrol-position: center right;
     }}
+    QComboBox::down-arrow {{
+        image: url("{_ARROW_DOWN}"); width: 11px; height: 11px;
+    }}
     QComboBox QAbstractItemView {{
         background: {SURFACE};
         border: 1px solid {BORDER};
@@ -165,10 +173,24 @@ def build_app_qss() -> str:
     QSpinBox::up-button, QDoubleSpinBox::up-button,
     QSpinBox::down-button, QDoubleSpinBox::down-button {{
         width: 18px; border: none; background: transparent;
+        border-radius: 4px;
     }}
     QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
     QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
         background: {HOVER};
+    }}
+    /* setas dos botoes (obrigatorias: estilizar o botao descarta as nativas) */
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+        image: url("{_ARROW_UP}"); width: 10px; height: 10px;
+    }}
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+        image: url("{_ARROW_DOWN}"); width: 10px; height: 10px;
+    }}
+    QSpinBox::up-arrow:disabled, QSpinBox::up-arrow:off,
+    QDoubleSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:off,
+    QSpinBox::down-arrow:disabled, QSpinBox::down-arrow:off,
+    QDoubleSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:off {{
+        width: 10px; height: 10px;
     }}
 
     /* ===================== botoes ===================== */
@@ -321,8 +343,37 @@ def build_app_qss() -> str:
         font-size: {FONT_LG}px; font-weight: 600;
     }}
     QPushButton#cardHeader:hover {{ background: {HOVER}; }}
+    /* identificacao por cor: cabecalho tingido + titulo na cor da secao */
+    QFrame#card[accent="producao"] > QPushButton#cardHeader {{
+        background: {INFO_SOFT}; color: #1d4ed8;
+        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
+    }}
+    QFrame#card[accent="acabamento"] > QPushButton#cardHeader {{
+        background: {WARNING_SOFT}; color: #b45309;
+        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
+    }}
+    QFrame#card[accent="imagens"] > QPushButton#cardHeader {{
+        background: {SUCCESS_SOFT}; color: #15803d;
+        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
+    }}
+    QFrame#card[accent="registro"] > QPushButton#cardHeader {{
+        background: #f1eafc; color: #7c3aed;
+        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
+    }}
+    QFrame#card[accent="avancado"] > QPushButton#cardHeader {{
+        background: {SURFACE_ALT}; color: {TEXT_SECONDARY};
+        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
+    }}
 
     /* ===================== Ribbon / toolbar ===================== */
+    /* a ribbon e um QToolBar (objectName "ribbon") — seletor correto */
+    QToolBar#ribbon {{
+        background: {TOOLBAR}; border: none; border-bottom: 1px solid {BORDER};
+        padding: 4px 8px; spacing: 2px;
+    }}
+    QToolBar#ribbon::separator {{
+        background: {BORDER}; width: 1px; margin: 6px 8px;
+    }}
     QFrame#ribbon {{ background: {TOOLBAR}; border-bottom: 1px solid {BORDER}; }}
     QLabel#ribbonGroupTitle {{
         color: {TEXT_MUTED}; font-size: {FONT_SM}px;
@@ -346,6 +397,6 @@ def build_app_qss() -> str:
     QLabel[role="hint"] {{ color: {TEXT_MUTED}; font-size: {FONT_CAPTION}px; }}
     QLabel[role="sectionTitle"] {{ color: {TEXT}; font-size: {FONT_LG}px; font-weight: 600; }}
     QLabel[role="panelTitle"] {{ color: {TEXT}; font-size: {FONT_XL}px; font-weight: 600; }}
-    QLabel[role="metricValue"] {{ color: {TEXT}; font-weight: 700; }}
+    QLabel[role="metricValue"] {{ color: {TEXT}; font-weight: 700; font-size: {FONT_LG}px; }}
     QLabel[role="metricLabel"] {{ color: {TEXT_MUTED}; font-size: {FONT_SM}px; }}
     """
