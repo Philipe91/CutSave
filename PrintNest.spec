@@ -6,11 +6,20 @@ Fonte unica de verdade da build: o build.bat apenas chama
 """
 from pathlib import Path
 
-# Empacota o icone como recurso (alem de defini-lo como icone do .exe), para que
-# a janela/barra de tarefas mostrem o icone tambem em tempo de execucao.
+# Empacota TODA a pasta assets como recurso (icone do exe + logo/simbolo +
+# os SVGs dos botoes da barra). Sem isso, no executavel os botoes saem sem
+# icone e o logo nao aparece, pois o codigo resolve os caminhos via _MEIPASS.
 _icon = "assets/printnest.ico"
 _has_icon = Path(_icon).exists()
-datas = [(_icon, "assets")] if _has_icon else []
+
+# (arquivo_origem, pasta_destino_no_bundle) para cada arquivo dentro de assets/,
+# preservando a subpasta (ex.: assets/icons/lock.svg -> assets/icons).
+# Ignora scripts .py auxiliares (ex.: make_icon.py) que nao sao recursos.
+datas = [
+    (str(p), str(Path("assets") / p.relative_to("assets").parent))
+    for p in Path("assets").rglob("*")
+    if p.is_file() and p.suffix.lower() != ".py"
+]
 
 # Toolkits/pesos que o app nao usa: evita inchar o executavel se algo os puxar.
 excludes = [

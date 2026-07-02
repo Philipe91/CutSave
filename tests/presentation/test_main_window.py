@@ -908,6 +908,36 @@ def test_faca_por_arquivo_so_afeta_aquele_arquivo(qapp, tmp_path):
     assert abs(depois[pdf].cut_contour.size.width - pdf_w0) < 0.01  # PDF intacto
 
 
+def test_faca_auto_corta_jpg_opaco_como_retangulo(qapp, tmp_path):
+    # Regressao: um JPG opaco (sem transparencia) tem que sair QUADRADO por
+    # padrao, e nao com o contorno serrilhado do desenho. No modo Automatico,
+    # imagem opaca -> retangulo; e da pra forcar o contorno quando quiser.
+    from tests import synth_images as si
+    src = si.jpg_circle(tmp_path)  # JPG opaco, desenho redondo
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)  # modo Automatico (padrao)
+    rect_pts = len(window._result.artworks[0].cut_contour.points)
+    assert rect_pts <= 5  # retangulo, mesmo o desenho sendo redondo
+
+    # forcando "Contorno justo": volta a seguir o formato (muitos pontos)
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("contour"))
+    contour_pts = len(window._result.artworks[0].cut_contour.points)
+    assert contour_pts > 8
+
+
+def test_faca_auto_recorta_png_transparente_pelo_contorno(qapp, tmp_path):
+    # No modo Automatico, imagem com transparencia (PNG alpha) sai recortada
+    # no formato (contorno), nao como um retangulo.
+    from tests import synth_images as si
+    src = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    pts = len(window._result.artworks[0].cut_contour.points)
+    assert pts > 8  # disco -> contorno redondo, nao 4 cantos
+
+
 def test_redimensionar_arquivo_escala_arte_e_faca(qapp, tmp_path):
     from app.domain.geometry import Size
 
@@ -1786,7 +1816,6 @@ def test_alca_redimensiona_por_arraste(qapp, tmp_path):
 
 def test_faca_png_apos_remover_pdf(qapp, tmp_path):
     # Bug: soltar PDF, gerar faca, remover, soltar PNG -> gerar faca nao funciona.
-    from PySide6.QtCore import QPointF
 
     pdf = _n_page_pdf(tmp_path, 1, name="doc")
     png = si.png_alpha_disc(tmp_path)

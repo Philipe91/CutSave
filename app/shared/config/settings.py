@@ -44,7 +44,9 @@ class AppSettings:
     auto_offset_external: float = 2.0  # faca de imagem: offset externo (sangria) mm
     auto_offset_internal: float = 0.0  # faca de imagem: offset interno (recuo) mm
     auto_smooth: int = 0  # faca de imagem: suavizacao das curvas (0 = reto, 1-5 = macio)
-    faca_mode: str = "rect"  # faca de PDF: "rect" (retangulo) | "contour" (pelo contorno)
+    # faca: "auto" (decide pelo tipo da arte) | "rect" | "contour" |
+    # "contour_smooth" | "contour_simplify" | "vector" (faca do cliente)
+    faca_mode: str = "auto"
 
     def to_dict(self) -> dict:
         return asdict(self)

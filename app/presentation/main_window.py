@@ -118,7 +118,7 @@ from app.domain.cut.contour_ops import (
 from app.domain.cut.vector import VectorContourGenerator
 from app.domain.geometry import Point2D, Size
 from app.domain.model.cut_contour import CutContour
-from app.domain.model.image_artwork import ImageArtwork
+from app.domain.model.image_artwork import ImageArtwork, ImageKind
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
@@ -2085,6 +2085,19 @@ class MainWindow(QMainWindow):
 
     # ==================== Abas de trabalho (multi-projeto) ====================
     # Widgets de configuracao que fazem parte de cada projeto (salvos por aba).
+    # Modos de faca (usado no combo do Documento e no override por peca). O valor
+    # e o que fica gravado em params["mode"]. "auto" decide sozinho pelo tipo da
+    # arte (JPG opaco -> retangulo; PNG com transparencia -> contorno).
+    _FACA_MODES = (
+        ("Automatico (recomendado)", "auto"),
+        ("Retangulo (corte reto)", "rect"),
+        ("Contorno justo", "contour"),
+        ("Contorno suave (arredonda)", "contour_smooth"),
+        ("Contorno simplificado", "contour_simplify"),
+        ("Faca do cliente (vetor do PDF)", "vector"),
+    )
+    _CONTOUR_MODES = ("contour", "contour_smooth", "contour_simplify")
+
     _SESSION_WIDGETS = (
         ("_width", "spin"), ("_height", "spin"), ("_spacing", "spin"),
         ("_spacing_v", "spin"), ("_offset", "spin"), ("_crop", "spin"),
@@ -2114,6 +2127,12 @@ class MainWindow(QMainWindow):
         plus = QToolButton()
         plus.setText("+")
         plus.setToolTip("Novo trabalho (aba)")
+        plus.setFixedSize(34, 30)
+        pf = plus.font()
+        pf.setPointSize(pf.pointSize() + 6)
+        pf.setBold(True)
+        plus.setFont(pf)
+        plus.setCursor(Qt.PointingHandCursor)
         plus.clicked.connect(self._new_tab)
         lay.addWidget(plus)
         lay.addStretch()
@@ -2826,11 +2845,11 @@ class MainWindow(QMainWindow):
 
         # ---- faca SO deste arquivo (override) ----
         faca = CollapsibleCard("Faca deste arquivo")
-        self._pf_mode_label = QLabel("Faca de PDF")
+        self._pf_mode_label = QLabel("Tipo de faca")
         faca.body.addWidget(self._pf_mode_label)
         self._pf_mode = QComboBox()
-        self._pf_mode.addItem("Retangulo (por fora)", "rect")
-        self._pf_mode.addItem("Pelo contorno (rasteriza)", "contour")
+        for label, data in self._FACA_MODES:
+            self._pf_mode.addItem(label, data)
         self._pf_mode.currentIndexChanged.connect(lambda _: self._on_piece_faca_changed())
         faca.body.addWidget(self._pf_mode)
         faca.body.addWidget(QLabel("Sangria  ( + fora  /  − dentro )"))
@@ -3039,14 +3058,18 @@ class MainWindow(QMainWindow):
             self._pf_crop.setValue(p["crop"])
             self._pf_rotation.setCurrentText(str(p["rotation"]))
             self._pf_smooth.setValue(int(p["smooth"]))
-            self._pf_mode.setCurrentIndex(max(0, self._pf_mode.findData(p.get("mode", "rect"))))
+            self._pf_mode.setCurrentIndex(max(0, self._pf_mode.findData(p.get("mode", "auto"))))
         finally:
             self._pf_loading = False
-        # modo da faca so vale para PDF (imagem ja corta pelo contorno)
-        self._pf_mode.setEnabled(not self._selected_is_image)
-        self._pf_mode_label.setEnabled(not self._selected_is_image)
-        # suavizar vale para imagem e para PDF cortado pelo contorno
-        contour_cut = self._selected_is_image or p.get("mode") == "contour"
+        # o tipo de faca agora vale para imagem tambem (retangulo/contorno/auto)
+        self._pf_mode.setEnabled(True)
+        self._pf_mode_label.setEnabled(True)
+        # suavizar so faz sentido nas variacoes de contorno (nao no retangulo).
+        # 'auto' pode virar contorno numa imagem com transparencia -> libera.
+        mode = p.get("mode", "auto")
+        contour_cut = mode in self._CONTOUR_MODES or (
+            mode == "auto" and self._selected_is_image
+        )
         self._pf_smooth.setEnabled(contour_cut)
         self._pf_smooth_label.setEnabled(contour_cut)
         self._pf_reset.setVisible(path in self._file_overrides)
@@ -3380,17 +3403,19 @@ class MainWindow(QMainWindow):
             "Corta as bordas da arte (mm em cada lado) antes de gerar a faca."
         ))
         self._faca_mode = NoWheelComboBox()
-        self._faca_mode.addItem("Retangulo (por fora)", "rect")
-        self._faca_mode.addItem("Pelo contorno (rasteriza)", "contour")
-        self._faca_mode.addItem("Faca do cliente (vetor do PDF)", "vector")
+        for label, data in self._FACA_MODES:
+            self._faca_mode.addItem(label, data)
         self._faca_mode.setToolTip(
-            "Retangulo: corta a caixa do PDF (por fora).\n"
-            "Pelo contorno: rasteriza a pagina e corta no formato do desenho\n"
-            "(ex.: circulo), removendo o fundo branco.\n"
+            "Automatico: escolhe sozinho - JPG/fundo solido vira retangulo,\n"
+            "imagem com transparencia (PNG) corta no formato (recorte).\n"
+            "Retangulo: corta a caixa por fora (corte reto), vale p/ imagem tambem.\n"
+            "Contorno justo: corta no formato do desenho (rasteriza).\n"
+            "Contorno suave: idem, arredondando os cantos/serrilhado.\n"
+            "Contorno simplificado: idem, com menos nos (faca mais leve).\n"
             "Faca do cliente: usa a linha de corte vetorial que veio no PDF."
         )
         self._faca_mode.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
-        card.body.addWidget(labeled("Tipo de faca (PDF)", self._faca_mode))
+        card.body.addWidget(labeled("Tipo de faca", self._faca_mode))
         self._shared = NoWheelComboBox()
         self._shared.addItems(["Faca por peca (quadrados)", "Faca compartilhada (grade)"])
         self._shared.setToolTip(
@@ -3656,7 +3681,7 @@ class MainWindow(QMainWindow):
             "rotation": self._rotation_value(),
             "smooth": int(self._auto_smooth.value()),
             "corner": self._faca_corner,  # canto do contorno: round/miter/bevel
-            "mode": self._faca_mode.currentData(),  # "rect" | "contour" (PDF)
+            "mode": self._faca_mode.currentData(),  # ver _FACA_MODES (auto/rect/...)
         }
 
     def _params_for(self, path) -> dict:
@@ -3698,15 +3723,40 @@ class MainWindow(QMainWindow):
             # modo "soltar sem faca": so a arte (com recorte/giro/tamanho), sem
             # gerar a faca. A faca surge ao clicar "Gerar Faca"/"Gerar Producao".
             return self._transform(base, params)
-        if isinstance(base, ImageArtwork):
-            return self._image_faca(base, params)
-        if params.get("mode") == "vector":  # faca do cliente (linha vetorial do PDF)
+        is_img = isinstance(base, ImageArtwork)
+        # imagem usa a "sangria de imagem" (auto_offset); PDF usa a sangria da faca.
+        sangria = params["auto_offset"] if is_img else params["offset"]
+        mode = self._resolve_faca_mode(params.get("mode", "auto"), base)
+        if mode == "rect":  # corte reto por fora (vale p/ imagem e PDF)
+            return self._faca_uc.execute(self._transform(base, params), sangria)
+        if mode == "vector":  # faca do cliente (linha vetorial do PDF)
             raw = self._scaled_contour(self._pdf_vector_contour(base), sx, sy)
             return self._contour_faca(base, raw, params, params["offset"])
-        if params.get("mode") == "contour":  # PDF cortado pelo contorno (rasteriza)
+        # contorno (justo / suave / simplificado), para imagem ou PDF rasterizado
+        if is_img:
+            raw = base.raw_contour
+        else:
             raw = self._scaled_contour(self._pdf_raster_contour(base), sx, sy)
-            return self._contour_faca(base, raw, params, params["offset"])
-        return self._faca_uc.execute(self._transform(base, params), params["offset"])
+        return self._contour_faca(base, raw, params, sangria, mode)
+
+    def _resolve_faca_mode(self, mode: str, base) -> str:
+        """Resolve o modo 'auto' pelo tipo da arte e valida o modo pedido.
+
+        - PDF: 'auto' -> retangulo (corte reto da caixa).
+        - Imagem opaca (JPG / fundo solido): 'auto' -> retangulo. Assim um JPG
+          retangular sai quadrado, sem serrilhado do contorno.
+        - Imagem com transparencia (PNG alpha): 'auto' -> contorno (recorte).
+        - 'vector' so faz sentido em PDF; numa imagem cai para contorno.
+        """
+        if isinstance(base, ImageArtwork):
+            if mode == "vector":
+                return "contour"
+            if mode == "auto":
+                return "contour" if base.image_kind == ImageKind.IMAGE_ALPHA else "rect"
+            return mode
+        if mode == "auto":
+            return "rect"
+        return mode
 
     def _resized_base(self, base, path):
         """Aplica o tamanho desejado do arquivo (se houver) a arte base.
@@ -3801,12 +3851,16 @@ class MainWindow(QMainWindow):
         self._pdf_contours[key] = contour
         return contour
 
-    def _contour_faca(self, base, raw_contour, params, sangria):
+    def _contour_faca(self, base, raw_contour, params, sangria, mode="contour"):
         """Monta a faca a partir de um contorno (imagem, PDF rasterizado ou vetor
         do cliente): aplica recorte + giro + suavizar + sangria. A 'sangria' vem
         do chamador (PDF usa a "Sangria da faca"; imagem usa a sangria da imagem).
         Sem contorno utilizavel, cai no RETANGULO com a mesma sangria (igual ao
-        modo retangulo), em vez de ignora-la."""
+        modo retangulo), em vez de ignora-la.
+
+        'mode' escolhe a variacao do contorno: 'contour' (justo, respeita os
+        controles manuais), 'contour_smooth' (forca mais suavizacao, arredonda o
+        serrilhado) ou 'contour_simplify' (forca mais simplificacao, menos nos)."""
         crop = params["crop"]
         rotation = params["rotation"]
         if raw_contour is None:
@@ -3816,9 +3870,13 @@ class MainWindow(QMainWindow):
             raw_contour, crop, rotation, base.size.width, base.size.height
         )
         tol = self._density_tol()  # densidade: reduz nos/ruido antes de suavizar
+        if mode == "contour_simplify":
+            tol = max(tol, 0.6)  # variacao "simplificado": garante menos nos
         if tol > 0:
             contour = simplify_contour(contour, tol)
         smooth = int(params["smooth"])
+        if mode == "contour_smooth":
+            smooth = max(smooth, 3)  # variacao "suave": garante arredondamento
         if smooth > 0:
             contour = smooth_contour(contour, smooth)
         if sangria != 0:
@@ -3860,7 +3918,7 @@ class MainWindow(QMainWindow):
             self._auto_ignore_white.setChecked(True)
             self._faca_corner = "round"  # canto padrao seguro
             self._rotation.setCurrentIndex(0)  # 0 graus
-            self._faca_mode.setCurrentIndex(0)  # retangulo (padrao)
+            self._faca_mode.setCurrentIndex(0)  # Automatico (padrao)
         finally:
             self._suspend_relayout = False
         self._relayout()
@@ -3894,16 +3952,6 @@ class MainWindow(QMainWindow):
         self._file_sizes = {}
         self._piece_rotations = {}
         self._relayout()
-
-    def _image_faca(self, base: ImageArtwork, params: dict):
-        """Faca de uma imagem: contorno detectado, recortado/rotacionado igual a
-        arte exibida (crop + rotacao), depois suavizado e com offset.
-
-        Recorte e rotacao precisam valer para a faca tambem (o pixmap do preview
-        e girado/cortado em _display_pixmap); senao a faca fica desalinhada e o
-        tamanho usado no nesting/exportacao nao bate com a imagem girada.
-        """
-        return self._contour_faca(base, base.raw_contour, params, params["auto_offset"])
 
     # ---- lista de arquivos ----
     def add_pdfs(self) -> None:
