@@ -446,6 +446,28 @@ def test_exportar_faca_pdf(qapp, tmp_path):
     assert fitz.open(str(out)).page_count == 1
 
 
+def test_registro_ambos_bolinhas_e_mimaki(qapp, tmp_path):
+    # "Bolinhas + Mimaki": impressao e DXF levam os DOIS tipos de marca juntos
+    # (fluxo cortar na Mimaki e depois na IECHO).
+    src = _n_page_pdf(tmp_path, 2, name="reg", w=283, h=170)
+    window = _window(tmp_path)
+    window._width.setValue(2000)
+    window._height.setValue(2000)
+    window.add_paths([src])
+    window._reg_type.setCurrentIndex(window._reg_type.findData("both"))
+    window.generate(blocking=True)
+
+    sheets = window._effective_sheets()
+    ps = window._print_export.build_print_sheets(
+        sheets, window._result.artworks, window._result.sources, **window._print_kwargs()
+    )
+    assert any(s.circles for s in ps)  # bolinhas no PDF de impressao
+    assert any(s.lines for s in ps)    # marcas Mimaki (linhas) no PDF de impressao
+
+    contours, _segments, marks, _mk = window._dxf_payload(sheets)
+    assert marks  # bolinhas tambem no DXF
+
+
 def test_faca_pdf_leva_bolinhas_de_registro(qapp, tmp_path):
     # as marcas de registro (bolinhas) tem que sair na faca, igual ao DXF.
     src = _two_page_pdf(tmp_path)

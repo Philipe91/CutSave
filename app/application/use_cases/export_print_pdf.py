@@ -58,12 +58,11 @@ class ExportPrintPdfUseCase:
             raise ValidationError("Nenhuma chapa com pecas para imprimir.")
         by_id = {art.id: art for art in artworks}
 
-        if reg_type == "circles":
-            pad = reg_margin_mm + reg_diameter_mm
-        elif reg_type == "mimaki":
-            pad = mimaki_distance_mm + mimaki_thickness_mm
-        else:
-            pad = 0.0
+        pad = 0.0
+        if reg_type in ("circles", "both"):
+            pad = max(pad, reg_margin_mm + reg_diameter_mm)
+        if reg_type in ("mimaki", "both"):
+            pad = max(pad, mimaki_distance_mm + mimaki_thickness_mm)
 
         print_sheets: list[PrintSheet] = []
         for layout in layouts:
@@ -131,14 +130,14 @@ class ExportPrintPdfUseCase:
     ):
         circles: tuple[PrintCircle, ...] = ()
         lines: tuple[PrintLine, ...] = ()
-        if reg_type == "circles":
+        if reg_type in ("circles", "both"):
             marks = registration_marks(
                 layout, artworks, margin_mm=reg_margin_mm, diameter_mm=reg_diameter_mm
             )
             circles = tuple(
                 PrintCircle(m.center.translated(pad, pad), m.diameter) for m in marks
             )
-        elif reg_type == "mimaki":
+        if reg_type in ("mimaki", "both"):
             marks = mimaki_marks(
                 layout, artworks,
                 distance_mm=mimaki_distance_mm, mark_size_mm=mimaki_size_mm,

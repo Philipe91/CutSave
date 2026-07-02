@@ -3433,8 +3433,9 @@ class MainWindow(QMainWindow):
         card = self._doc_card("Marcas de registro", "registro", collapsed=True)
         self._reg_type = NoWheelComboBox()
         self._reg_type.addItem("Nenhum", "none")
-        self._reg_type.addItem("Bolinhas (5)", "circles")
+        self._reg_type.addItem("IECHO (bolinhas)", "circles")
         self._reg_type.addItem("Mimaki (marcas em L)", "mimaki")
+        self._reg_type.addItem("Mimaki + IECHO", "both")  # cortar na Mimaki, refilar na IECHO
         self._reg_type.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
         card.body.addWidget(labeled("Tipo de registro", self._reg_type))
         self._reg_margin = LengthSpin(0, 200)
@@ -5239,7 +5240,7 @@ class MainWindow(QMainWindow):
         self._relayout(from_table=True)
 
     def _draw_marks(self, layout, artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen) -> None:
-        if reg == "circles":
+        if reg in ("circles", "both"):
             for mark in registration_marks(
                 layout, artworks,
                 margin_mm=float(self._reg_margin.value()),
@@ -5249,7 +5250,7 @@ class MainWindow(QMainWindow):
                     dx + mark.center.x - mark.radius, dy + mark.center.y - mark.radius,
                     mark.diameter, mark.diameter, mark_pen, mark_brush,
                 ))
-        elif reg == "mimaki":
+        if reg in ("mimaki", "both"):
             marks = mimaki_marks(
                 layout, artworks,
                 distance_mm=float(self._mk_distance.value()),
@@ -5542,14 +5543,14 @@ class MainWindow(QMainWindow):
             contours = positioned_cut_contours_sheets(sheets, artworks, sheet_width)
             segments = []
         marks, mark_segments = [], []
-        if reg == "circles":
+        if reg in ("circles", "both"):
             # bolinhas continuam no corte (comportamento ja validado)
             marks = registration_marks_sheets(
                 sheets, artworks, sheet_width,
                 margin_mm=float(self._reg_margin.value()),
                 diameter_mm=float(self._reg_diameter.value()),
             )
-        elif reg == "mimaki":
+        if reg in ("mimaki", "both"):
             # mantem o QUADRADO (frame) que posiciona as marcas em L, junto com a
             # faca; mas NAO leva as marcas de registro em L (mark_segments fica
             # vazio). As marcas em L seguem apenas no PDF de impressao.
@@ -5618,11 +5619,12 @@ class MainWindow(QMainWindow):
         """Folga (mm) ao redor da faca para as marcas de registro caberem na
         pagina (mesma conta do PDF de impressao)."""
         reg = self._reg()
-        if reg == "circles":
-            return float(self._reg_margin.value()) + float(self._reg_diameter.value())
-        if reg == "mimaki":
-            return float(self._mk_distance.value()) + float(self._mk_thickness.value())
-        return 0.0
+        pad = 0.0
+        if reg in ("circles", "both"):
+            pad = max(pad, float(self._reg_margin.value()) + float(self._reg_diameter.value()))
+        if reg in ("mimaki", "both"):
+            pad = max(pad, float(self._mk_distance.value()) + float(self._mk_thickness.value()))
+        return pad
 
     def export_faca_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
         """Exporta a faca (linhas de corte) em PDF vetorial, uma pagina por chapa.
