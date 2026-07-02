@@ -1,6 +1,6 @@
 """Toasts: notificacoes discretas no canto inferior direito.
 
-Para confirmar ações sem interromper o fluxo (substituem varios QMessageBox de
+Para confirmar ações sem interromper o fluxo (substituem vários QMessageBox de
 "sucesso"): "Produção gerada", "PDF exportado", "DXF criado", "Projeto salvo".
 Auto-somem em alguns segundos e se empilham.
 

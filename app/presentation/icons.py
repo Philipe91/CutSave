@@ -6,7 +6,7 @@ Uso:
     botao.setIcon(icons.icon("save"))
     botao.setIcon(icons.icon("zap", color=theme.ACCENT))
 
-Os icones sao cacheados por (nome, cor, tamanho). Se um SVG nao existir, retorna
+Os icones são cacheados por (nome, cor, tamanho). Se um SVG nao existir, retorna
 um QIcon vazio (a UI segue funcionando, so sem o icone).
 """
 

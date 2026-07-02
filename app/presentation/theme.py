@@ -7,7 +7,7 @@ nivel de softwares gráficos profissionais (Affinity, Figma, Illustrator): muito
 espaco em branco, hierarquia forte, componentes consistentes e microinteracoes
 discretas.
 
-IMPORTANTE: os NOMES dos tokens sao contrato com o resto do codigo — mude os
+IMPORTANTE: os NOMES dos tokens são contrato com o resto do codigo — mude os
 valores livremente, mas não renomeie/remova constantes já usadas.
 """
 

@@ -1,4 +1,4 @@
-"""Unidade de exibicao (mm/cm).
+"""Unidade de exibição (mm/cm).
 
 Regra de ouro: TUDO e armazenado em milímetros (dominio, settings, posições da
 cena). Este modulo só converte/formata para EXIBIR e EDITAR na unidade que o
@@ -35,12 +35,12 @@ def _u(u: str | None) -> str:
 
 
 def from_mm(mm: float, u: str | None = None) -> float:
-    """Converte mm para a unidade de exibicao."""
+    """Converte mm para a unidade de exibição."""
     return float(mm) * _PER_MM[_u(u)]
 
 
 def to_mm(value: float, u: str | None = None) -> float:
-    """Converte um valor na unidade de exibicao de volta para mm."""
+    """Converte um valor na unidade de exibição de volta para mm."""
     return float(value) / _PER_MM[_u(u)]
 
 

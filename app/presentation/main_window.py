@@ -386,7 +386,7 @@ class PieceItem(QGraphicsRectItem):
         self.setPen(QPen(Qt.NoPen))
 
     def paint(self, painter, option, widget=None) -> None:  # noqa: ARG002
-        # a arte e a faca sao itens filhos; a peça em si só desenha o contorno
+        # a arte e a faca são itens filhos; a peça em si só desenha o contorno
         # AZUL quando esta selecionada (feedback de seleção, estilo CorelDRAW).
         # Não chama super().paint para não mostrar o tracejado padrão do Qt.
         if self.isSelected():
@@ -1198,7 +1198,7 @@ class MainWindow(QMainWindow):
         self._pixmaps: dict[tuple[str, int], QPixmap] = {}
         self._thumb_cache: dict[str, QIcon] = {}
         self._loaded = False
-        self._suspend_relayout = False  # agrupa varias mudancas num só relayout
+        self._suspend_relayout = False  # agrupa várias mudancas num só relayout
         self._suspend_undo = False  # ao gerar/abrir, não registra passo de desfazer
         self._faca_on = False  # faca só e gerada ao clicar "Gerar Faca"/"Gerar Produção"
         self._move_before = None  # snapshot do arranjo no inicio de um arraste
@@ -1209,11 +1209,11 @@ class MainWindow(QMainWindow):
         self._file_overrides: dict[str, dict] = {}
         # tamanho por arquivo: caminho -> Size (mm) desejado. Sem entrada, o
         # arquivo mantem o tamanho original importado. Aplicado na arte base
-        # antes da faca (escala arte + contornos); vale para todas as copias.
+        # antes da faca (escala arte + contornos); vale para todas as cópias.
         self._file_sizes: dict[str, Size] = {}
         # rotação POR PECA: artwork_id -> giro extra (0/90/180/270) somado ao
         # giro do arquivo. Permite girar só uma peça (ex.: a sobra solta) para
-        # encaixar melhor no nesting, sem mexer nas outras copias/páginas.
+        # encaixar melhor no nesting, sem mexer nas outras cópias/páginas.
         self._piece_rotations: dict[str, int] = {}
         # centralizar o conteudo na LARGURA da chapa (margens iguais). A chapa
         # cresce/diminui no comprimento conforme adiciona/remove peças.
@@ -1336,7 +1336,7 @@ class MainWindow(QMainWindow):
                             "Duplica SO a(s) página(s) selecionada(s) na quantidade "
                             "escolhida e re-encaixa (não duplica o PDF inteiro)")
         step = self._act("Repetir em grade...", self._step_repeat_dialog, "Ctrl+Shift+D",
-                         "Cria varias copias em linhas e colunas (step and repeat)")
+                         "Cria várias cópias em linhas e colunas (step and repeat)")
         # atalhos de uma letra (padrão CorelDRAW): T/B/L/R/C/E. Seguros: campos
         # de texto/número tem prioridade sobre eles enquanto digitando.
         al_l = self._act("Alinhar a esquerda", lambda: self._align("left"), "L",
@@ -1447,7 +1447,7 @@ class MainWindow(QMainWindow):
         m_ferr.addAction(gerar_faca)
 
         # Opções (ao lado de Ajuda): unidade de medida (cm/mm)
-        m_opt = bar.addMenu("O&pcoes")  # Alt+P (Alt+O já e do menu Organizar; QA-09)
+        m_opt = bar.addMenu("O&pções")  # Alt+P (Alt+O já e do menu Organizar; QA-09)
         um = m_opt.addMenu("Unidade de medida")
         self._unit_group = QActionGroup(self)
         self._unit_group.setExclusive(True)
@@ -1494,16 +1494,16 @@ class MainWindow(QMainWindow):
         for action in self._export_actions:
             action.setEnabled(False)
 
-        # toggle de réguas espelhando o checkbox de Exibicao
+        # toggle de réguas espelhando o checkbox de Exibição
         reguas = QAction("Réguas", self)
         reguas.setCheckable(True)
         reguas.setChecked(self._show_rulers.isChecked())
         reguas.setIcon(icons.icon("ruler"))
         reguas.toggled.connect(self._show_rulers.setChecked)
 
-        # botão "Exibicao" na barra: abre um popup com os controles de exibicao
+        # botão "Exibição" na barra: abre um popup com os controles de exibição
         disp_btn = QToolButton()
-        disp_btn.setText("Exibicao")
+        disp_btn.setText("Exibição")
         disp_btn.setIcon(icons.icon("eye", theme.ICON, 18))
         disp_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         disp_btn.setPopupMode(QToolButton.InstantPopup)
@@ -1575,7 +1575,7 @@ class MainWindow(QMainWindow):
         cap.setProperty("role", "caption")
         lay.addWidget(cap)
         # largura folgada: a opção mais longa ("Faca do cliente (vetor do PDF)")
-        # precisa caber SEM reticencias também fechada (auditoria QA #1)
+        # precisa caber SEM reticências também fechada (auditoria QA #1)
         self._faca_mode.setMinimumWidth(200)
         self._faca_mode.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         lay.addWidget(self._faca_mode)
@@ -1756,7 +1756,7 @@ class MainWindow(QMainWindow):
     def _build_property_bar(self) -> QWidget:
         """Barra horizontal abaixo da ribbon que muda com a seleção (estilo Corel):
         sem seleção -> Projeto; 1 peça -> Objeto (X/Y editaveis, L/A, girar,
-        duplicar/excluir); varias -> Grupo (contagem, tamanho, alinhar/distribuir).
+        duplicar/excluir); várias -> Grupo (contagem, tamanho, alinhar/distribuir).
 
         Só UI: reusa _nudge (mover, com undo), _rotate_selected, _align,
         _distribute, _duplicate_selected, _delete_selected, _group_selected.
@@ -1817,13 +1817,13 @@ class MainWindow(QMainWindow):
             sp.setFixedWidth(90)
         self._pb_w.editingFinished.connect(lambda: self._pbar_resize("w"))
         self._pb_h.editingFinished.connect(lambda: self._pbar_resize("h"))
-        # cadeado: mantem a proporcao ao mudar L/A ou arrastar as alças.
+        # cadeado: mantem a proporção ao mudar L/A ou arrastar as alças.
         self._pb_lock = QPushButton()
         self._pb_lock.setIcon(icons.icon("lock", theme.ICON))
         self._pb_lock.setCheckable(True)
         self._pb_lock.setChecked(True)
         self._pb_lock.setFixedSize(28, 28)
-        self._pb_lock.setToolTip("Manter proporcao ao redimensionar (arrastar as alças).")
+        self._pb_lock.setToolTip("Manter proporção ao redimensionar (arrastar as alças).")
         self._pb_lock.toggled.connect(lambda on: self._ps_lock.setChecked(on))
         b_rl = QPushButton()
         b_rl.setIcon(icons.icon("rotate-ccw", theme.ICON))
@@ -1854,7 +1854,7 @@ class MainWindow(QMainWindow):
         ol.addWidget(b_del)
         self._pbar_stack.addWidget(obj)
 
-        # --- página 2: GRUPO (varias peças) ---
+        # --- página 2: GRUPO (várias peças) ---
         grp = QWidget()
         gl = QHBoxLayout(grp)
         gl.setContentsMargins(0, 0, 0, 0)
@@ -2057,7 +2057,7 @@ class MainWindow(QMainWindow):
 
     def _pbar_resize(self, which: str) -> None:
         """Muda o tamanho da peça pela numeracao (L/A da barra Objeto), reusando o
-        redimensionar do painel Peça (respeita o cadeado / proporcao)."""
+        redimensionar do painel Peça (respeita o cadeado / proporção)."""
         if self._pbar_loading or len(self._selected_pieces()) != 1:
             return
         if which == "w":
@@ -2069,7 +2069,7 @@ class MainWindow(QMainWindow):
     def _update_resize_handles(self) -> None:
         """Mostra alças na peça quando ha UMA selecionada; some com o resto.
 
-        As alças sao FILHAS da peça (em coordenadas locais), entao seguem a peça
+        As alças são FILHAS da peça (em coordenadas locais), entao seguem a peça
         ao mover/redimensionar, sem ficar para tras."""
         for h in self._resize_handles:
             with contextlib.suppress(RuntimeError, ValueError):
@@ -2106,7 +2106,7 @@ class MainWindow(QMainWindow):
 
     def _resize_dims(self, piece, scene_pos, axis):
         """(largura, altura) do footprint a partir do arraste, ancorado no topo-
-        esquerda; aplica proporcao quando o cadeado esta ligado."""
+        esquerda; aplica proporção quando o cadeado esta ligado."""
         w = max(2.0, scene_pos.x() - piece.scenePos().x()) if axis in ("wh", "w")\
             else piece.rect().width()
         h = max(2.0, scene_pos.y() - piece.scenePos().y()) if axis in ("wh", "h")\
@@ -2139,7 +2139,7 @@ class MainWindow(QMainWindow):
         if cur_w <= 0 or cur_h <= 0:
             return
         fw, fh = self._resize_dims(piece, scene_pos, axis)
-        # footprint -> tamanho da ARTE (mesma proporcao footprint/arte)
+        # footprint -> tamanho da ARTE (mesma proporção footprint/arte)
         aw = art.size.width * (fw / cur_w)
         ah = art.size.height * (fh / cur_h)
         try:
@@ -2456,7 +2456,7 @@ class MainWindow(QMainWindow):
 
         self._overlay = MeasureOverlay(self._view.viewport())
         self._view.view_changed.connect(self._position_overlay)
-        # controles de Exibicao: vivem no popup do botão da barra de cima
+        # controles de Exibição: vivem no popup do botão da barra de cima
         self._display_panel = self._build_display_controls()
 
         for ruler in (self._h_ruler, self._v_ruler):
@@ -2645,8 +2645,8 @@ class MainWindow(QMainWindow):
     # ==================== Aba "Transformar" (duplicação inteligente) ==========
     def _build_transform_page(self) -> QWidget:
         """Aba 'Transformar' (estilo CorelDRAW): duplicar por posição (X/Y +
-        copias), gerar grade (colunas x linhas) e girar. Preview 'fantasma' em
-        tempo real. Só mexe na camada de edicao: as copias viram peças reais via
+        cópias), gerar grade (colunas x linhas) e girar. Preview 'fantasma' em
+        tempo real. Só mexe na camada de edicao: as cópias viram peças reais via
         _add_placed (entram no undo, no PDF, no DXF e no .printnest)."""
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -2667,20 +2667,20 @@ class MainWindow(QMainWindow):
         self._td_x.valueChanged.connect(lambda _: self._preview_duplicate())
         self._td_y.valueChanged.connect(lambda _: self._preview_duplicate())
         self._grid_fields(dup.body, [
-            ("Deslocamento X", self._td_x, "Distância entre copias no eixo X (mm)."),
-            ("Deslocamento Y", self._td_y, "Distância entre copias no eixo Y (mm)."),
+            ("Deslocamento X", self._td_x, "Distância entre cópias no eixo X (mm)."),
+            ("Deslocamento Y", self._td_y, "Distância entre cópias no eixo Y (mm)."),
         ])
-        self._td_relative = QCheckBox("Posição relativa (cada copia a partir da anterior)")
+        self._td_relative = QCheckBox("Posição relativa (cada cópia a partir da anterior)")
         self._td_relative.setChecked(True)
         self._td_relative.setToolTip(
-            "Marcado: X/Y sao o passo entre copias (0, X, 2X, 3X...). Desmarcado: "
-            "todas as copias vão para a MESMA posição (X, Y) informada."
+            "Marcado: X/Y são o passo entre cópias (0, X, 2X, 3X...). Desmarcado: "
+            "todas as cópias vão para a MESMA posição (X, Y) informada."
         )
         self._td_relative.toggled.connect(lambda _: self._preview_duplicate())
         dup.body.addWidget(self._td_relative)
         self._td_copies = QuantityStepper(1, 1000, 1)
         self._td_copies.valueChanged.connect(lambda _: self._preview_duplicate())
-        dup.body.addWidget(labeled("Copias", self._td_copies))
+        dup.body.addWidget(labeled("Cópias", self._td_copies))
         btn_dup = QPushButton("  Aplicar")
         btn_dup.setIcon(icons.icon("copy-plus", theme.ICON))
         btn_dup.clicked.connect(self._apply_transform_duplicate)
@@ -2702,8 +2702,8 @@ class MainWindow(QMainWindow):
         self._grid_fields(grid.body, [
             ("Colunas", self._tg_cols, "Número de colunas."),
             ("Linhas", self._tg_rows, "Número de linhas."),
-            ("Espaco H", self._tg_gap_h, "Espaçamento horizontal entre copias (mm)."),
-            ("Espaco V", self._tg_gap_v, "Espaçamento vertical entre copias (mm)."),
+            ("Espaco H", self._tg_gap_h, "Espaçamento horizontal entre cópias (mm)."),
+            ("Espaco V", self._tg_gap_v, "Espaçamento vertical entre cópias (mm)."),
         ])
         btn_grid = QPushButton("  Gerar Grade")
         btn_grid.setIcon(icons.icon("grid-3x3", theme.ICON))
@@ -2744,7 +2744,7 @@ class MainWindow(QMainWindow):
         self._ghost_items = []
 
     def _draw_ghosts(self, rects: list) -> None:
-        """Desenha copias fantasma (tracejado, opacidade 40%) nas posições dadas.
+        """Desenha cópias fantasma (tracejado, opacidade 40%) nas posições dadas.
         rects: lista de (x_cena, y_cena, largura, altura) em mm."""
         self._clear_ghost()
         pen = QPen(QColor(theme.ACCENT))
@@ -2856,7 +2856,7 @@ class MainWindow(QMainWindow):
             self._add_placed(add, text="duplicar (transformar)")
         finally:
             self._suppress_ghost = False
-        self._toasts.success(f"{len(sel)} peça(s) x {copies} copia(s)")
+        self._toasts.success(f"{len(sel)} peça(s) x {copies} cópia(s)")
 
     def _apply_transform_grid(self) -> None:
         if self._result is None:
@@ -2912,9 +2912,9 @@ class MainWindow(QMainWindow):
         self._ps_h = LengthSpin(1, 20000)
         self._ps_h.valueChanged.connect(lambda _: self._on_piece_size_changed("h"))
         size_card.body.addWidget(self._ps_h)
-        self._ps_lock = QCheckBox("Manter proporcao")
+        self._ps_lock = QCheckBox("Manter proporção")
         self._ps_lock.setChecked(True)
-        self._ps_lock.setToolTip("Ao mudar um lado, ajusta o outro mantendo a proporcao da arte")
+        self._ps_lock.setToolTip("Ao mudar um lado, ajusta o outro mantendo a proporção da arte")
         size_card.body.addWidget(self._ps_lock)
         self._ps_reset = QPushButton("  Voltar ao tamanho original")
         self._ps_reset.setIcon(icons.icon("rotate-ccw", theme.ICON))
@@ -2966,7 +2966,7 @@ class MainWindow(QMainWindow):
         return page
 
     def _build_group_page(self) -> QWidget:
-        """Propriedades de varias peças: medidas do grupo + alinhar/distribuir."""
+        """Propriedades de várias peças: medidas do grupo + alinhar/distribuir."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -3212,8 +3212,8 @@ class MainWindow(QMainWindow):
     def _on_piece_size_changed(self, which: str) -> None:
         """Grava o tamanho desejado do arquivo selecionado e recalcula.
 
-        Com 'Manter proporcao' marcado, mudar um lado ajusta o outro pela
-        proporcao da arte original. Se o tamanho voltar ao original, o
+        Com 'Manter proporção' marcado, mudar um lado ajusta o outro pela
+        proporção da arte original. Se o tamanho voltar ao original, o
         redimensionamento e removido (volta a seguir o arquivo importado).
         """
         if self._ps_loading or not self._selected_path:
@@ -3287,7 +3287,7 @@ class MainWindow(QMainWindow):
         self._gm_count.set_value(str(g.count))
 
     def _apply_tooltips(self) -> None:
-        self._table.setToolTip("Arquivos e a quantidade de copias de cada um")
+        self._table.setToolTip("Arquivos e a quantidade de cópias de cada um")
         self._import_box.setToolTip(
             "Caixa de Mídia mantem a sangria; Caixa de Apara corta no traco de corte do PDF"
         )
@@ -3440,7 +3440,7 @@ class MainWindow(QMainWindow):
         self._height.valueChanged.connect(lambda _: self._relayout())
         self._grid_fields(card.body, [
             ("Largura da chapa", self._width,
-             "Largura útil da chapa/bobina onde as peças sao encaixadas."),
+             "Largura útil da chapa/bobina onde as peças são encaixadas."),
             ("Altura (0 = única)", self._height,
              "Altura da chapa. 0 = chapa única (cresce conforme o conteudo)."),
         ])
@@ -3628,8 +3628,8 @@ class MainWindow(QMainWindow):
         self._sum_reg.set_value(self._reg_type.currentText())
 
     def _build_display_controls(self) -> QWidget:
-        """Painel de Exibicao (unidade, modo de visualização, réguas, snap) usado
-        no popup do botão 'Exibicao' da barra de cima."""
+        """Painel de Exibição (unidade, modo de visualização, réguas, snap) usado
+        no popup do botão 'Exibição' da barra de cima."""
         panel = QWidget()
         panel.setObjectName("displayPopup")
         lay = QVBoxLayout(panel)
@@ -3774,7 +3774,7 @@ class MainWindow(QMainWindow):
         """Params efetivos de UMA peça: os do arquivo + o giro próprio da peça.
 
         A rotação da peça (self._piece_rotations) soma ao giro do arquivo, sem
-        afetar as outras páginas/copias. Como toda a geometria (tamanho, faca,
+        afetar as outras páginas/cópias. Como toda a geometria (tamanho, faca,
         pixmap) sai daqui, girar uma peça se propaga ao nesting e a exportação.
         """
         params = self._params_for(self._path_of(art_id))
@@ -4539,7 +4539,7 @@ class MainWindow(QMainWindow):
         renest=False: PRESERVA o arranjo manual atual (posições, duplicatas e
         chapas/áreas em branco), só trocando a geometria das artes. Usado por
         mudancas de geometria (giro, sangria, recorte, tamanho, faca): assim
-        rotacionar NAO perde as copias duplicadas nem o que foi organizado.
+        rotacionar NAO perde as cópias duplicadas nem o que foi organizado.
 
         NAO zera mais o histórico: o estado anterior e guardado como um passo de
         desfazer. Mudancas seguidas no mesmo parametro se fundem num passo só.
@@ -4549,7 +4549,7 @@ class MainWindow(QMainWindow):
         before = None
         if self._result is not None and not self._suspend_undo:
             before = self._state_snapshot()
-        self._faca_notice = None  # avisos de detecção (faca do cliente) sao refeitos
+        self._faca_notice = None  # avisos de detecção (faca do cliente) são refeitos
         material = self._material()
         sheet_height = float(self._height.value())
         quantities = self._quantities()
@@ -4562,7 +4562,7 @@ class MainWindow(QMainWindow):
                 AlertLevel.ERROR, "Recorte/recuo grande demais para a peça."
             )
             return
-        # 2. define as INSTANCIAS (quantas copias de cada arte):
+        # 2. define as INSTANCIAS (quantas cópias de cada arte):
         #    - from_table/fresh: contagem da tabela (gerar / mudar quantidade);
         #    - senao: contagem ATUAL do arranjo (mantem duplicatas manuais).
         fresh = self._result is None or not self._piece_items
@@ -4661,8 +4661,8 @@ class MainWindow(QMainWindow):
         """Mantem o arranjo manual atual (posições, duplicatas e chapas/áreas em
         branco), apenas trocando a geometria das artes (nova faca/giro/tamanho).
 
-        Placements que referenciam uma arte que sumiu (id removido) sao
-        descartados; o resto (inclusive copias duplicadas, que compartilham o
+        Placements que referenciam uma arte que sumiu (id removido) são
+        descartados; o resto (inclusive cópias duplicadas, que compartilham o
         mesmo id) e mantido com a posição e o comprimento usado atuais."""
         sheets = []
         for layout in self._effective_sheets():
@@ -4810,7 +4810,7 @@ class MainWindow(QMainWindow):
         cropped_cache: dict = {}
         # memoizacao por id DENTRO deste redesenho (QA-07): footprint e params
         # eram recalculados para CADA peça (centenas de vezes por operacao com
-        # muitas copias do mesmo arquivo) — por id, calcula uma vez só.
+        # muitas cópias do mesmo arquivo) — por id, calcula uma vez só.
         fp_cache: dict = {}
         params_cache: dict = {}
 
@@ -5155,7 +5155,7 @@ class MainWindow(QMainWindow):
         self._select_pieces_at(add_by_sheet)
 
     def _select_pieces_at(self, add_by_sheet: dict) -> None:
-        """Seleciona as peças recem-adicionadas (a copia vira a nova seleção)."""
+        """Seleciona as peças recem-adicionadas (a cópia vira a nova seleção)."""
         targets = {
             (idx, p.artwork_id, round(p.position.x, 2), round(p.position.y, 2))
             for idx, placed in add_by_sheet.items()
@@ -5253,7 +5253,7 @@ class MainWindow(QMainWindow):
 
     def _duplicate_selected(self) -> None:
         """Duplica as peças selecionadas com deslocamento diagonal (Corel: Ctrl+D).
-        A copia vira a nova seleção: segurar Ctrl+D duplica em cadeia."""
+        A cópia vira a nova seleção: segurar Ctrl+D duplica em cadeia."""
         if self._result is None:
             return
         sel = self._selected_pieces()
@@ -5286,7 +5286,7 @@ class MainWindow(QMainWindow):
 
     def _paste_clipboard(self) -> None:
         """Ctrl+V: cola as peças copiadas, deslocadas em diagonal. Colagens
-        seguidas cascateiam; a copia vira a seleção (Ctrl+D continua a serie)."""
+        seguidas cascateiam; a cópia vira a seleção (Ctrl+D continua a serie)."""
         if self._result is None or not getattr(self, "_piece_clipboard", None):
             return
         self._paste_count = getattr(self, "_paste_count", 0) + 1
@@ -5306,8 +5306,8 @@ class MainWindow(QMainWindow):
         """Duplica SO a(s) página(s)/peça(s) selecionada(s) numa quantidade
         escolhida e re-encaixa, sem mexer na quantidade das outras páginas.
 
-        Resolve o caso do PDF com varias páginas: selecionar uma página e pedir
-        N copias dela, sem duplicar o documento inteiro (a quantidade da tabela
+        Resolve o caso do PDF com várias páginas: selecionar uma página e pedir
+        N cópias dela, sem duplicar o documento inteiro (a quantidade da tabela
         e por arquivo e duplicaria todas as páginas)."""
         if self._result is None:
             return
@@ -5319,14 +5319,14 @@ class MainWindow(QMainWindow):
             return
         n, ok = QInputDialog.getInt(
             self, "Duplicar página",
-            f"Quantas copias a mais de cada peça selecionada ({len(sel)})?",
+            f"Quantas cópias a mais de cada peça selecionada ({len(sel)})?",
             1, 1, 500,
         )
         if not ok or n < 1:
             return
         before = self._state_snapshot()
         by_id = {a.id: a for a in self._result.artworks}
-        # contagem ATUAL do arranjo (mantem o que já esta na chapa) + as copias
+        # contagem ATUAL do arranjo (mantem o que já esta na chapa) + as cópias
         instances = [
             by_id[it.artwork_id]
             for layout in self._effective_sheets()
@@ -5349,7 +5349,7 @@ class MainWindow(QMainWindow):
         self._toasts.success(f"{len(sel)} página(s) duplicada(s) (+{n} cada)")
 
     def _step_repeat(self, cols: int, rows: int, gap: float) -> None:
-        """Cria copias em grade das peças selecionadas (step and repeat)."""
+        """Cria cópias em grade das peças selecionadas (step and repeat)."""
         if self._result is None:
             return
         sel = self._selected_pieces()
@@ -5387,7 +5387,7 @@ class MainWindow(QMainWindow):
         if not ok:
             return
         gap, ok = QInputDialog.getDouble(
-            self, "Repetir em grade", "Espaçamento entre copias (mm):", 5.0, 0.0, 1000.0, 1
+            self, "Repetir em grade", "Espaçamento entre cópias (mm):", 5.0, 0.0, 1000.0, 1
         )
         if not ok:
             return
@@ -5450,7 +5450,7 @@ class MainWindow(QMainWindow):
     def _commit_arrangement(self, before, after, text: str) -> None:
         """Aplica 'after' e registra o passo no histórico (Ctrl+Z desfaz).
 
-        'before'/'after' sao listas de Layout. As artes não mudam numa operacao
+        'before'/'after' são listas de Layout. As artes não mudam numa operacao
         de arranjo (mover/excluir/duplicar), entao o estado usa as artes atuais.
         """
         arts = list(self._result.artworks)
@@ -5499,7 +5499,7 @@ class MainWindow(QMainWindow):
         nesting (mantendo a contagem) para a peça girada aproveitar o vão.
 
         Cada peça gira sozinha (por artwork_id): selecionar a sobra solta e
-        girar não mexe nas outras páginas/copias. Sem seleção, gira TODOS
+        girar não mexe nas outras páginas/cópias. Sem seleção, gira TODOS
         (rotação global do documento)."""
         if not self._loaded:
             self._toasts.info("Gere a produção primeiro (Gerar Produção).")

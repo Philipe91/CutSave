@@ -744,6 +744,69 @@ def test_copiar_colar_e_ctrl_d_em_cadeia(qapp, tmp_path):
     assert sum(s.item_count for s in window._result.sheets) == n0 + 4
 
 
+def test_colar_em_cenarios_hostis_nao_quebra(qapp, tmp_path):
+    # Regressoes do QA (caça-bugs): colar apos remover o arquivo nao insere
+    # peça fantasma; clipboard com ids inexistentes e ignorado em silencio;
+    # colar muitas vezes mantem o arranjo integro (used_length >= 0).
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    n0 = sum(s.item_count for s in window._result.sheets)
+
+    # clipboard forjado com id que nao existe na producao -> no-op
+    window._piece_clipboard = [(0, "id_fantasma#p1", 10.0, 10.0)]
+    window._paste_count = 0
+    window._paste_clipboard()
+    assert sum(s.item_count for s in window._result.sheets) == n0
+
+    # copiar de verdade e colar 30x em cadeia -> integro
+    window._piece_items[0].setSelected(True)
+    window._copy_selected()
+    for _ in range(30):
+        window._paste_clipboard()
+    assert sum(s.item_count for s in window._result.sheets) == n0 + 30
+    assert all(s.used_length >= 0 for s in window._result.sheets)
+
+    # remover o arquivo da biblioteca -> colar de novo nao quebra nem insere
+    window._table.setCurrentCell(0, 0)
+    window.remove_selected()
+    window._paste_clipboard()  # nao deve estourar
+
+
+def test_clipboard_e_por_aba(qapp, tmp_path):
+    # QA-12: copiar numa aba e trocar de aba NAO leva o clipboard junto
+    # (ids homonimos entre trabalhos colariam peça em posição errada).
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)
+    window._copy_selected()
+    assert window._piece_clipboard  # copiou
+
+    window._new_tab()  # troca para uma aba nova
+    assert window._piece_clipboard == []  # clipboard nao atravessa abas
+
+
+def test_faca_do_canvas_usa_o_vermelho_do_tema(qapp, tmp_path):
+    # QA-06: a linha de faca desenhada no canvas sai EXATAMENTE no token
+    # theme.CUT (fim do drift de cores hardcoded).
+    from app.presentation import theme
+    from PySide6.QtWidgets import QGraphicsPolygonItem
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    facas = [
+        it for it in window._scene.items()
+        if isinstance(it, QGraphicsPolygonItem)
+    ]
+    assert facas, "faca nao desenhada no canvas"
+    assert facas[0].pen().color().name() == theme.CUT
+
+
 def test_barra_propriedades_contextual(qapp, tmp_path):
     # Barra contextual: Projeto (sem selecao) -> Objeto (1 peca) -> Grupo (varias).
     src = _two_page_pdf(tmp_path)
