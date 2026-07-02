@@ -1813,6 +1813,45 @@ def test_remover_ultimo_arquivo_limpa_producao(qapp, tmp_path):
     assert window._base_artworks == []
 
 
+def test_abas_preservam_projetos_separados(qapp, tmp_path):
+    # Abas de trabalho: cada aba e um projeto independente; trocar preserva tudo.
+    pdf1 = _n_page_pdf(tmp_path, 1, name="proj1")
+    pdf2 = _n_page_pdf(tmp_path, 3, name="proj2")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+
+    # aba 1: pdf1 (1 peca)
+    window.add_paths([pdf1])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+    # nova aba (projeto 2, em branco)
+    window._new_tab()
+    assert window._tabbar.count() == 2
+    assert window._paths == [] and window._result is None
+
+    # aba 2: pdf2 (3 pecas)
+    window.add_paths([pdf2])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 3
+
+    # volta para a aba 1 -> pdf1 preservado
+    window._tabbar.setCurrentIndex(0)
+    assert window._paths == [pdf1]
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+    # volta para a aba 2 -> pdf2 preservado
+    window._tabbar.setCurrentIndex(1)
+    assert window._paths == [pdf2]
+    assert sum(s.item_count for s in window._result.sheets) == 3
+
+    # fechar a aba 2 volta para a 1
+    window._close_tab(1)
+    assert window._tabbar.count() == 1
+    assert window._paths == [pdf1]
+
+
 def test_recortar_imagem_reduz_tamanho(qapp, tmp_path):
     # "Recortar" agora vale para imagem tambem (mesmo esquema do PDF): cortar
     # bordas reduz o tamanho da arte; a origem continua sendo o arquivo original.

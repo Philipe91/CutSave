@@ -70,6 +70,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
+    QTabBar,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -1201,6 +1202,12 @@ class MainWindow(QMainWindow):
         self._pbar_loading = False  # evita loop ao popular a barra de propriedades
         self._faca_corner = "round"  # canto da faca (contorno): round/miter/bevel
         self._ct_loading = False  # evita loop ao sincronizar a toolbar de contorno
+        # abas de trabalho (multi-projeto, estilo CorelDRAW): cada aba guarda um
+        # snapshot completo da sessao; trocar de aba salva a atual e restaura a outra.
+        self._sessions: list = []
+        self._active_tab = 0
+        self._switching_tab = False
+        self._tab_counter = 1
         self._ps_loading = False  # evita reentrancia ao carregar os campos
         # recorte de pagina (por arquivo/pagina): caminho -> {pagina: (l,t,r,b) mm}.
         # Aplicado "assando" um PDF recortado em cache; o resto do fluxo nao muda.
@@ -2076,6 +2083,202 @@ class MainWindow(QMainWindow):
         finally:
             self._keep_tab = False
 
+    # ==================== Abas de trabalho (multi-projeto) ====================
+    # Widgets de configuracao que fazem parte de cada projeto (salvos por aba).
+    _SESSION_WIDGETS = (
+        ("_width", "spin"), ("_height", "spin"), ("_spacing", "spin"),
+        ("_spacing_v", "spin"), ("_offset", "spin"), ("_crop", "spin"),
+        ("_faca_mode", "combo"), ("_rotation", "combo"), ("_shared", "combo"),
+        ("_auto_sensitivity", "spin"), ("_auto_smooth", "spin"),
+        ("_auto_offset", "spin"), ("_auto_ignore_white", "check"),
+        ("_reg_type", "combo"), ("_reg_margin", "spin"), ("_reg_diameter", "spin"),
+        ("_mk_distance", "spin"), ("_mk_size", "spin"), ("_mk_thickness", "spin"),
+        ("_import_box", "combo"), ("_view_mode", "combo"), ("_center_check", "check"),
+    )
+
+    def _build_tab_bar(self) -> QWidget:
+        """Barra de abas (estilo CorelDRAW): cada aba e um projeto independente."""
+        w = QWidget()
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        self._tabbar = QTabBar()
+        self._tabbar.setTabsClosable(True)
+        self._tabbar.setExpanding(False)
+        self._tabbar.setDocumentMode(True)
+        self._tabbar.addTab("Sem título 1")
+        self._sessions = [None]  # aba ativa: estado vive nos widgets/atributos
+        self._tabbar.currentChanged.connect(self._on_tab_changed)
+        self._tabbar.tabCloseRequested.connect(self._close_tab)
+        lay.addWidget(self._tabbar)
+        plus = QToolButton()
+        plus.setText("+")
+        plus.setToolTip("Novo trabalho (aba)")
+        plus.clicked.connect(self._new_tab)
+        lay.addWidget(plus)
+        lay.addStretch()
+        return w
+
+    def _capture_widget_values(self) -> dict:
+        out = {}
+        for name, kind in self._SESSION_WIDGETS:
+            w = getattr(self, name, None)
+            if w is None:
+                continue
+            out[name] = (
+                w.value() if kind == "spin"
+                else w.currentIndex() if kind == "combo"
+                else w.isChecked()
+            )
+        return out
+
+    def _restore_widget_values(self, vals: dict) -> None:
+        for name, kind in self._SESSION_WIDGETS:
+            if name not in vals:
+                continue
+            w = getattr(self, name, None)
+            if w is None:
+                continue
+            w.blockSignals(True)
+            try:
+                if kind == "spin":
+                    w.setValue(vals[name])
+                elif kind == "combo":
+                    w.setCurrentIndex(vals[name])
+                else:
+                    w.setChecked(vals[name])
+            finally:
+                w.blockSignals(False)
+
+    def _snapshot_session(self) -> dict:
+        """Fotografa TODO o estado do projeto atual (para guardar na aba)."""
+        return {
+            "paths": list(self._paths),
+            "quantities": self._quantities(),
+            "result": self._result,
+            "base_artworks": list(self._base_artworks),
+            "sources": dict(self._sources),
+            "origins": dict(self._origins),
+            "pixmaps": dict(self._pixmaps),
+            "file_sizes": dict(self._file_sizes),
+            "page_crops": {k: dict(v) for k, v in self._page_crops.items()},
+            "baked_crops": dict(self._baked_crops),
+            "crop_cache": dict(self._crop_cache),
+            "file_overrides": {k: dict(v) for k, v in self._file_overrides.items()},
+            "piece_rotations": dict(self._piece_rotations),
+            "faca_on": self._faca_on,
+            "loaded": self._loaded,
+            "project_path": self._project_path,
+            "center_on_sheet": self._center_on_sheet,
+            "faca_corner": self._faca_corner,
+            "guides": [list(g) for g in self._guides],
+            "widgets": self._capture_widget_values(),
+        }
+
+    def _blank_session(self) -> dict:
+        """Sessao de um projeto NOVO (vazio), herdando as configs atuais."""
+        s = self._snapshot_session()
+        s.update(
+            paths=[], quantities={}, result=None, base_artworks=[], sources={},
+            origins={}, pixmaps={}, file_sizes={}, page_crops={}, baked_crops={},
+            crop_cache={}, file_overrides={}, piece_rotations={}, faca_on=False,
+            loaded=False, project_path=None, guides=[],
+        )
+        return s
+
+    def _rebuild_table(self, paths: list, quantities: dict) -> None:
+        """Recria as linhas da biblioteca a partir dos caminhos + quantidades."""
+        self._table.setRowCount(0)
+        for path in paths:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            item = QTableWidgetItem(f"{Path(path).name}\n{self._file_type(path)}")
+            item.setIcon(self._thumbnail(path))
+            self._table.setItem(row, 0, item)
+            spin = QuantityStepper(1, 100000, int(quantities.get(path, 1)))
+            spin.valueChanged.connect(lambda _: self._relayout(from_table=True))
+            self._table.setCellWidget(row, 1, spin)
+            self._table.setRowHeight(row, 46)
+
+    def _apply_session(self, s: dict) -> None:
+        """Restaura uma sessao inteira (troca de aba) e redesenha."""
+        self._suspend_relayout = True
+        try:
+            self._restore_widget_values(s["widgets"])
+            self._paths = list(s["paths"])
+            self._rebuild_table(s["paths"], s["quantities"])
+            self._result = s["result"]
+            self._base_artworks = list(s["base_artworks"])
+            self._sources = dict(s["sources"])
+            self._origins = dict(s["origins"])
+            self._pixmaps = dict(s["pixmaps"])
+            self._file_sizes = dict(s["file_sizes"])
+            self._page_crops = {k: dict(v) for k, v in s["page_crops"].items()}
+            self._baked_crops = dict(s["baked_crops"])
+            self._crop_cache = dict(s["crop_cache"])
+            self._file_overrides = {k: dict(v) for k, v in s["file_overrides"].items()}
+            self._piece_rotations = dict(s["piece_rotations"])
+            self._faca_on = s["faca_on"]
+            self._loaded = s["loaded"]
+            self._project_path = s["project_path"]
+            self._center_on_sheet = s["center_on_sheet"]
+            self._faca_corner = s["faca_corner"]
+            self._guides = [list(g) for g in s["guides"]]
+            self._pdf_contours = {}
+            self._vector_contours = {}
+        finally:
+            self._suspend_relayout = False
+        self._undo.clear()  # desfazer reinicia ao trocar de aba
+        if self._result is not None:
+            self._draw_preview()
+        else:
+            self._piece_items = []
+            self._decor_items = []
+            self._scene.clear()
+        self._update_property_bar()
+        self._update_title()
+        self._set_exports_enabled(self._result is not None)
+
+    def _on_tab_changed(self, index: int) -> None:
+        if self._switching_tab or index < 0 or index == self._active_tab:
+            return
+        self._switching_tab = True
+        try:
+            self._sessions[self._active_tab] = self._snapshot_session()  # salva a atual
+            self._active_tab = index
+            self._apply_session(self._sessions[index])  # restaura a alvo
+        finally:
+            self._switching_tab = False
+
+    def _new_tab(self) -> None:
+        """Cria um projeto novo numa aba nova e vai para ela."""
+        self._sessions[self._active_tab] = self._snapshot_session()  # salva a atual
+        self._tab_counter += 1
+        self._sessions.append(self._blank_session())
+        idx = self._tabbar.count()
+        self._switching_tab = True
+        self._tabbar.addTab(f"Sem título {self._tab_counter}")
+        self._active_tab = idx
+        self._switching_tab = False
+        self._apply_session(self._sessions[idx])
+        self._switching_tab = True
+        self._tabbar.setCurrentIndex(idx)
+        self._switching_tab = False
+
+    def _close_tab(self, index: int) -> None:
+        if self._tabbar.count() <= 1:
+            return  # sempre resta uma aba
+        going_active = index == self._active_tab
+        if going_active:
+            target = index - 1 if index > 0 else index + 1
+            self._active_tab = index  # evita salvar a que vai fechar
+            self._apply_session(self._sessions[target])
+        del self._sessions[index]
+        self._switching_tab = True
+        self._tabbar.removeTab(index)
+        self._active_tab = self._tabbar.currentIndex()
+        self._switching_tab = False
+
     # ---- construcao da UI ----
     def _build_ui(self) -> None:
         """Monta a janela: biblioteca | area de trabalho | propriedades, com
@@ -2108,6 +2311,7 @@ class MainWindow(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM, 0)
         root.setSpacing(theme.SPACE_SM)
+        root.addWidget(self._build_tab_bar())        # abas de trabalho (multi-projeto)
         root.addWidget(self._build_property_bar())  # barra contextual (Projeto/Objeto/Grupo)
         root.addWidget(self._alert)
         root.addWidget(self._progress)
