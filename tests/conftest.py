@@ -1,3 +1,4 @@
+import contextlib
 import gc
 import os
 
@@ -25,3 +26,57 @@ def _qt_cleanup():
     app = QApplication.instance()
     if app is not None:
         app.processEvents()
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:
+    """Fim da suite com Qt (QA-11): fecha as janelas e agenda o desarme.
+
+    O shutdown implicito do PySide6 no exit do interpretador segfaultava
+    (exit 139) quando a suite combinava as janelas da MainWindow com o
+    QLocalServer do teste de instancia unica — DEPOIS de 100% verde. Nao
+    adianta destruir o QApplication na mao: os caches de QPixmap (icones,
+    miniaturas) morrem no gc seguinte sem app vivo e crasham igual. O caminho
+    seguro e nem deixar o Qt chegar ao teardown: pytest_unconfigure sai com
+    os._exit(exitstatus) quando um QApplication existiu na sessao.
+    """
+    try:
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return  # sessao sem Qt: teardown normal do pytest, sem desarme
+    global _EXIT_STATUS
+    _EXIT_STATUS = int(exitstatus)
+    for widget in QApplication.topLevelWidgets():
+        with contextlib.suppress(RuntimeError):
+            widget.close()
+    app.processEvents()
+
+
+_EXIT_STATUS: int | None = None
+
+
+def pytest_unconfigure(config) -> None:
+    """Desarme do QA-11: roda depois de TODOS os hooks (relatorio impresso e
+    limpeza do pytest concluida) e encerra o processo antes do teardown das
+    DLLs do Qt — preservando o exitstatus real da suite. So e acionado quando
+    um QApplication chegou a existir na sessao.
+
+    No Windows, os._exit (ExitProcess) ainda roda o detach das DLLs, onde o
+    Qt crasha e o faulthandler imprime um stack assustador (exit ja correto,
+    mas suja a saida). TerminateProcess pula o detach: saida limpa."""
+    if _EXIT_STATUS is None:
+        return
+    import faulthandler
+    import sys
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+    faulthandler.disable()
+    if sys.platform == "win32":
+        import ctypes
+
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        ctypes.windll.kernel32.TerminateProcess(handle, _EXIT_STATUS)
+    os._exit(_EXIT_STATUS)
