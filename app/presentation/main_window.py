@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGraphicsItem,
     QGraphicsItemGroup,
     QGraphicsLineItem,
@@ -184,7 +185,7 @@ class ZoomableGraphicsView(QGraphicsView):
         # meio faz pan; roda da zoom.
         self.setDragMode(QGraphicsView.NoDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setBackgroundBrush(QColor(170, 170, 170))  # mesa cinza
+        self.setBackgroundBrush(QColor(theme.CANVAS_BG))  # mesa clara (estilo Affinity)
         self.setMouseTracking(True)  # cursor reportado mesmo sem botao pressionado
         self.setAcceptDrops(True)  # aceita arquivos arrastados da biblioteca
         # laco seleciona tudo que ele TOCAR (nao precisa envolver por inteiro)
@@ -4681,7 +4682,9 @@ class MainWindow(QMainWindow):
         result = self._result
         by_id = {a.id: a for a in result.artworks}
         sheet_brush = QBrush(QColor(255, 255, 255))  # chapa = pagina branca
-        material_pen = QPen(QColor(40, 40, 40))
+        sheet_pen = QPen(QColor(theme.SHEET_BORDER))  # borda suave da chapa (mesa clara)
+        sheet_pen.setCosmetic(True)
+        material_pen = QPen(QColor(theme.BORDER_STRONG))  # contorno leve das pecas vazias
         material_pen.setCosmetic(True)
         faca_pen = QPen(QColor(220, 0, 0))
         faca_pen.setCosmetic(True)
@@ -4699,9 +4702,15 @@ class MainWindow(QMainWindow):
 
         for index, layout in enumerate(result.sheets):
             dx = index * (layout.material.width + SHEET_GAP_MM)
-            self._keep(self._scene.addRect(
-                dx, dy, layout.material.width, layout.used_length, material_pen, sheet_brush
-            ))
+            sheet_rect = self._scene.addRect(
+                dx, dy, layout.material.width, layout.used_length, sheet_pen, sheet_brush
+            )
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(24)
+            shadow.setOffset(0, 6)
+            shadow.setColor(QColor(17, 24, 39, 38))  # preto ~15% (sombra discreta)
+            sheet_rect.setGraphicsEffect(shadow)
+            self._keep(sheet_rect)
             for item in layout.items:
                 art = by_id.get(item.artwork_id)
                 if art is None:
