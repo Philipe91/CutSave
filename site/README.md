@@ -1,7 +1,10 @@
 # Site de vendas — PrintNest
 
-Base do site comercial do PrintNest. Landing page pronta para abrir, apresentar o
-produto e receber o fluxo de venda (download do teste → compra → entrega da licença).
+Base do site comercial do PrintNest. Landing page pronta para apresentar o
+produto e receber o fluxo de venda (compra → entrega da licença).
+
+> **📌 Comece pelo [`ESTADO-SITE.md`](ESTADO-SITE.md)** — é o ponto de retomada, com o
+> estado atual e o que falta.
 
 > A parte **legal/técnica** de virar produto (licenciamento, code signing, EULA,
 > gateway de pagamento) está descrita em
@@ -10,30 +13,32 @@ produto e receber o fluxo de venda (download do teste → compra → entrega da 
 
 ---
 
-## O que já está pronto
+## ⚠️ O site agora é React (migrado em 03/07/2026)
+
+A landing foi migrada de HTML+CSS puro para **React + Vite + TypeScript + Tailwind v4 +
+shadcn/ui**. O projeto ativo é **`site/app/`**. O visual premium foi preservado 1:1.
 
 ```
 site/
-├── index.html      # Landing page completa (hero, problema→solução, recursos,
-│                   #   como funciona, para quem, planos, FAQ, CTA, footer)
-├── styles.css      # Identidade visual (azul #0B5CFF + navy, tokens em :root)
-├── assets/         # Logos reais do produto (símbolo + logotipo)
-└── README.md       # Este arquivo
+├── app/            # 👈 SITE ATIVO (React/Vite). Ver site/app/README.md
+├── index.html      # site estático ANTIGO (HTML puro) — só referência/backup
+├── styles.css      # CSS do site antigo — só referência
+├── assets/         # logos + screenshot (copiados para app/public/assets)
+├── ESTADO-SITE.md  # ponto de retomada (comece aqui)
+├── ARQUITETURA-SITE.md · UX-EXPERIENCIA.md · DESIGN-SYSTEM.md · COPY.md  # estratégia
+└── README.md       # este arquivo
 ```
 
-Todo o conteúdo é fiel ao produto (faca automática, nesting, export PDF+DXF,
-100% offline, atalhos CorelDRAW, integração Corel), tirado do `README.md` do
-projeto e dos docs.
-
-### Como ver
-Abra `site/index.html` no navegador (duplo clique) — não precisa de servidor.
-Para recarregar automático ao editar, dá pra rodar um servidor local simples:
-
+### Como rodar (site ativo, React)
 ```bash
-# na pasta site/
-python -m http.server 5500
-# depois abra http://localhost:5500
+cd site/app
+npm install     # só na primeira vez
+npm run dev     # abre em http://localhost:5173
+npm run build   # gera dist/ para publicar
 ```
+
+### Site antigo (referência)
+Ainda abre com `python -m http.server 5500` dentro de `site/`, mas não é mais o site de verdade.
 
 ---
 

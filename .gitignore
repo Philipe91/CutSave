@@ -26,3 +26,6 @@ assets/printnest.ico
 tools/license_private_key.pem
 *.private.pem
 licenses_emitidas/
+
+# Site (app Node/Vite): dependencias nunca vao para o Git
+node_modules/

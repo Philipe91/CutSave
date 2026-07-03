@@ -1,114 +1,148 @@
 # Estado do Site de Vendas — PrintNest Pro
 
 > Ponto de retomada. Se a sessão/energia acabar, comece por aqui.
-> Última atualização: sessão de 03/07/2026.
+> Última atualização: sessão de 03/07/2026 (migração para React).
 
-> **A landing agora segue o brief oficial** `docs/produto/COPY-SITE-VENDAS.md`
-> (8 seções, copy definitiva, preço **R$ 397**, garantia 7 dias). Produto: **PrintNest Pro**.
-> Placeholders `[SUPORTE]` e `[LINK_PAGAMENTO]` deixados no HTML até o Philipe definir.
+> **⚠️ MUDANÇA GRANDE nesta sessão:** o site foi **migrado de HTML+CSS puro para
+> React + Vite + TypeScript + Tailwind v4 + shadcn/ui**. O novo projeto vive em
+> **`site/app/`**. O site estático antigo continua **intacto** em `site/index.html`
+> (serve de referência/backup). A copy foi atualizada: sem travessões, e "chapa/adesivo"
+> virou "material / máquina de corte" (serve para plotter, router, laser e outras).
 
 ---
 
 ## 0. Resumo em uma linha
-Landing page de vendas **funcional e refinada** (nível Apple/Stripe) já está pronta
-em `site/index.html`. Falta **conteúdo real** (prints, vídeo, preços) e a **parte
-comercial/legal** (pagamento, download do .exe, páginas legais, publicação).
+Landing de vendas **funcional, refinada e agora em React/shadcn** (`site/app/`), com o
+mesmo visual premium de antes (nível Apple/Stripe). Falta **conteúdo real** (prints extras,
+vídeo, depoimentos), a **parte comercial/legal** (pagamento, download do .exe, páginas
+legais) e **publicar**.
 
-## Como abrir
-Duplo clique em `site/index.html` (não precisa de servidor). Para live-reload:
-`python -m http.server 5500` dentro de `site/` → abrir `http://localhost:5500`.
+## Como rodar (IMPORTANTE — mudou!)
+O site não é mais "abre com dois cliques". Precisa de Node.js (já instalado: v24).
+
+```bash
+cd site/app
+npm install     # só na primeira vez (ou na primeira vez em casa)
+npm run dev     # abre em http://localhost:5173
+```
+
+- Build de produção: `npm run build` → gera `site/app/dist/` (site estático).
+- Conferir o build: `npm run preview`.
+- O site **antigo** (HTML puro) ainda pode ser aberto com `python -m http.server 5500`
+  dentro de `site/`, mas ele é só referência agora.
 
 ---
 
 ## 1. O que JÁ está feito ✅
 
-### Arquivos entregues (pasta `site/`)
-| Arquivo | O que é | Status |
-|---|---|---|
-| `index.html` | Landing completa (16 seções) | ✅ pronto e refinado |
-| `styles.css` | Design system premium (tokens, componentes) | ✅ pronto |
-| `assets/` | Logos + screenshot real do app | ✅ |
-| `README.md` | Visão geral + roteiro | ✅ |
-| `ARQUITETURA-SITE.md` | Arquitetura de informação (CPO) | ✅ |
-| `UX-EXPERIENCIA.md` | UX/fluxo (Hick, Fitts, Miller…) | ✅ |
-| `DESIGN-SYSTEM.md` | Tokens + specs de componentes | ✅ |
-| `COPY.md` | Copy de venda + 30 FAQ + extras (ads, e-mails) | ✅ |
-| `ESTADO-SITE.md` | Este documento | ✅ |
+### Migração para React (nesta sessão)
+| Item | Status |
+|---|---|
+| Scaffold Vite + React + TypeScript em `site/app/` | ✅ |
+| Tailwind CSS v4 (plugin oficial do Vite) + path alias `@/` | ✅ |
+| shadcn/ui inicializado (preset Nova, base Radix) | ✅ |
+| Tema shadcn mapeado para a marca (azul `#2563EB`, fonte Inter) | ✅ |
+| Design system original preservado em `src/styles/printnest.css` | ✅ |
+| Landing portada 1:1 (`src/App.tsx` + `src/components/site/Faq.tsx`) | ✅ |
+| `npm run build` passando (TS estrito + bundle) | ✅ |
+| Validação visual no Chrome (hero, preço, FAQ, recursos) | ✅ idêntico ao original |
+
+### Estrutura do app (`site/app/`)
+```
+src/
+├── App.tsx                  # landing completa (todas as seções)
+├── components/site/Faq.tsx  # acordeão de dúvidas (React, 1º item aberto)
+├── components/ui/           # componentes shadcn/ui (button, ...)
+├── styles/printnest.css     # design system original (tokens + componentes)
+├── index.css                # Tailwind v4 + tema shadcn (paleta da marca)
+└── lib/utils.ts             # helper cn() do shadcn
+public/assets/               # logos + screenshot do app (app-producao.jpg)
+```
 
 ### Seções da landing (8 seções do brief oficial)
-Header · **1** Hero (com print real + CTA R$ 397) · **2** O Problema · **3** A Solução
-(grade de 5 recursos) · **4** Por que PrintNest (4 cards) · **5** Como funciona (3 passos) ·
+Header · **1** Hero (print real + CTA R$ 397) · **2** O Problema · **3** A Solução
+(5 recursos) · **4** Por que PrintNest (4 cards) · **5** Como funciona (3 passos) ·
 **6** Preço (card único R$ 397 + âncora de valor + garantia) · **7** FAQ (7 perguntas) ·
 **8** CTA final · Requisitos · Footer.
 
-### Refino visual aplicado (nível premium)
-- **Paleta:** preto / branco / **azul `#2563EB`** (token único; sombras e foco derivam dele).
-- **Ícones:** família única **Lucide** (46 SVGs) — **zero emoji**. FAQ "+" gira e vira ×;
-  ✓/✕/– são check/x/minus do Lucide.
-- **Padronizado:** tipografia (Inter, tracking calibrado, numerais tabulares), espaçamento
-  (ritmo 4pt, seções 112px), sombras ultra-suaves, radius em escala, hover unificado,
-  hairlines `#ECEDF1`, header com blur sutil, `prefers-reduced-motion`, responsivo.
-- **Sem:** glassmorphism, gradiente chapado, card colorido, sombra pesada, cara de template.
+### Copy já atualizada nesta sessão
+- **Sem travessões** (—) no texto; escrita mais profissional e cativante.
+- **Não fala mais em "chapa/adesivo"** como se fosse só isso: usa "material",
+  "área/perímetro que você define" e deixa claro que a faca serve para **qualquer
+  máquina de corte** (plotter de recorte, router, laser, mesa de corte, IECHO, Mimaki…).
+- Adesivos aparecem só como **um exemplo** dentro de uma lista maior.
 
-### Conteúdo real já incorporado
-- Screenshot **`assets/app-producao.jpg`** (produção com 435 peças / 7 chapas / 77%)
-  no hero, no bloco de vídeo (poster) e no 1º slot da galeria.
-- Copy fiel ao produto (faca, nesting, PDF+DXF, offline, atalhos Corel, integração Corel).
+### Docs de estratégia (referência, não vão pro ar)
+`ARQUITETURA-SITE.md` · `UX-EXPERIENCIA.md` · `DESIGN-SYSTEM.md` · `COPY.md`.
+> Obs.: esses docs foram escritos assumindo "teste grátis 15 dias + 3 planos". A decisão
+> atual é **R$ 397, licença vitalícia, sem trial, garantia 7 dias**. Estão desatualizados
+> nesse ponto — atualizar quando sobrar tempo (baixa prioridade).
 
 ---
 
 ## 2. O que FALTA fazer ⏳
 
-### A) Conteúdo (rápido — depende de material)
-- [ ] **Prints novos** para os 3 slots da galeria (já estilizados, esperando):
-  1. ⭐ **Zoom de 1 chapa** (impressão em cima + faca vermelha embaixo) — o mais forte
-  2. Momento **"Gerar Faca"** (contorno acompanhando a arte)
-  3. **Centro de Exportação** (PDF + DXF)
-  - Extras úteis: contorno de imagem, biblioteca com arquivos, botão no CorelDRAW.
-- [ ] **Vídeo/GIF** de 20–40s do fluxo (importar→faca→nesting→exportar) — substitui o placeholder.
-- [ ] **Depoimentos reais** (hoje são exemplos rotulados; trocar por clientes com consentimento).
+### A) Seções novas (agora fáceis com React/shadcn/21st)
+- [ ] **Depoimentos** (prova social) — cards ou marquee. **Nunca inventar**; usar reais com consentimento.
+- [ ] **Comparação** "Na mão × Com o PrintNest" (tabela).
+- [ ] **Galeria de screenshots** (3+ prints) com legenda por benefício.
+- [ ] **Vídeo/GIF** de 20–40s do fluxo (importar→faca→nesting→exportar).
+- [ ] (opcional) Seção de **Benefícios** (resultado em R$/tempo) antes de Recursos.
+> Base React pronta: dá pra colar componentes do shadcn/21st direto. Ver nota do 21st abaixo.
 
-### B) Comercial (decisões + integração)
+### B) Conteúdo real (depende de material do Philipe)
+- [ ] **Prints novos** para a galeria (⭐ zoom de 1 chapa; momento "Gerar Faca"; Centro de Exportação).
+- [ ] **Vídeo** do fluxo real.
+- [ ] **Depoimentos** de clientes reais.
+
+### C) Comercial (decisões + integração)
 - [x] **Preço definido:** R$ 397, pagamento único, licença vitalícia, garantia 7 dias.
-- [ ] **Preencher `[LINK_PAGAMENTO]`** (2 lugares: card de preço + CTA final) com o link do gateway.
-- [ ] **Preencher `[SUPORTE]`** (2 lugares: linha de requisitos + footer) com WhatsApp/e-mail.
-- [ ] **Escolher gateway** (Hotmart/Eduzz *ou* Mercado Pago/Stripe) e gerar o `[LINK_PAGAMENTO]`.
-- [ ] **Hospedar o instalador `.exe` assinado** + fluxo de **entrega da chave** (liga com `app/licensing/`).
+- [ ] **Preencher `[LINK_PAGAMENTO]`** (2 lugares em `src/App.tsx`: card de preço + CTA final).
+- [ ] **Preencher `[SUPORTE]`** (2 lugares em `src/App.tsx`: requisitos + footer) com WhatsApp/e-mail.
+- [ ] **Escolher gateway** (Hotmart/Eduzz *ou* Mercado Pago/Stripe) e gerar o link.
+- [ ] **Hospedar o instalador `.exe` assinado** + fluxo de entrega da chave (liga com `app/licensing/` do produto).
 
-### C) Legal (páginas + textos)
-- [ ] `termos.html` (EULA) · `privacidade.html` (LGPD) · `reembolso.html` (7 dias).
-  (Links já existem no footer, faltam as páginas. Base de texto em `COPY.md`.)
+### D) Legal (páginas + textos)
+- [ ] `termos` (EULA) · `privacidade` (LGPD) · `reembolso` (7 dias).
+  (Links no footer ainda apontam para `#`. Base de texto em `COPY.md`.)
+  Em React, viram rotas/páginas — decidir se vale trazer um router (react-router) ou páginas estáticas.
 
-### D) Publicação
+### E) Publicação
 - [ ] Registrar **domínio** (ex.: `printnest.com.br`).
-- [ ] Publicar (Netlify / Vercel / Cloudflare Pages / GitHub Pages — site estático).
+- [ ] Publicar: host estático buildando `site/app` com `npm run build` e servindo `dist/`
+      (**Vercel / Netlify / Cloudflare Pages** detectam Vite automaticamente).
 - [ ] SEO: Open Graph/`og:image`, favicon final, sitemap; analytics/pixel se for anunciar.
 
-### E) Bloqueador herdado (do produto, não do site)
-- [ ] ⚠️ **Licença do PyMuPDF (AGPL)** — resolver antes de vender (comprar comercial da
-  Artifex ou trocar a dependência). Ver `docs/produto/PLANO-COMERCIALIZACAO.md` §5.
-- [ ] Code signing do instalador, EULA/LGPD, figura jurídica + nota fiscal (mesmo plano).
+### F) Bloqueador herdado (do produto, não do site)
+- [ ] ⚠️ **Licença do PyMuPDF (AGPL)** — resolver antes de vender. Ver `docs/produto/PLANO-COMERCIALIZACAO.md` §5.
+- [ ] Code signing do instalador, EULA/LGPD, figura jurídica + nota fiscal.
 
 ---
 
-## 3. Próximo passo recomendado (quando retomar)
-1. **Tirar o print "zoom de 1 chapa"** e mandar → encaixo no slot 1 da galeria (impacto imediato).
-2. **Decidir preço + gateway** → preencho os planos e ligo os botões de compra.
-3. Criar as **3 páginas legais** (texto-base já está no `COPY.md`).
-4. **Publicar** num host estático com o domínio.
+## 3. Próximo passo recomendado (quando retomar em casa)
+1. `cd site/app && npm install && npm run dev` → conferir que abre.
+2. Preencher `[LINK_PAGAMENTO]` e `[SUPORTE]` no `src/App.tsx` (quando tiver gateway/contato).
+3. Adicionar as **seções novas** (comparação → garantia → galeria → depoimentos → vídeo).
+4. Criar as **páginas legais**.
+5. **Publicar** num host estático com o domínio.
 
 ## 4. Decisões pendentes (do usuário)
 | Tema | A decidir |
 |---|---|
-| Preço | Perpétua × assinatura × híbrido + valores |
 | Gateway | Hotmart/Eduzz × Mercado Pago/Stripe |
 | Domínio | Nome final + registrador |
-| Hospedagem | Netlify/Vercel/Cloudflare/GitHub Pages |
+| Hospedagem | Vercel/Netlify/Cloudflare Pages |
+| Router legal | react-router × páginas estáticas soltas |
 | Marca | Registro "PrintNest" no INPI |
 
 ## 5. Notas técnicas
-- Editar cor da marca: `--blue` no topo de `styles.css` (tudo deriva dela).
-- Fonte Inter via Google Fonts (com fallback do sistema).
-- Só HTML + CSS, sem framework/JS pesado. FAQ usa `<details>` nativo.
-- Referências estratégicas completas nos 4 docs `.md` desta pasta.
+- **Cor da marca:** `--blue` no `src/styles/printnest.css` (tudo deriva dela). O tema shadcn
+  (azul primário) está em `src/index.css` (`--primary` em oklch).
+- **Fonte Inter** via Google Fonts no `site/app/index.html`.
+- **Adicionar componente shadcn:** `npx shadcn@latest add <componente>` dentro de `site/app`.
+- **MCP 21st.dev:** foi adicionado nesta sessão (`claude mcp add ... 21st`). As ferramentas
+  dele só carregam **reiniciando o Claude Code**. Depois de reiniciar, dá pra buscar
+  componentes (heroes, testimonials, pricing…) e colar no React. ⚠️ A API key do 21st foi
+  colada no chat — considerar **rotacionar** por segurança.
+- **README do app:** instruções completas em `site/app/README.md`.
 - Nada foi commitado ainda — commit só quando o Philipe pedir ("faça commit").
