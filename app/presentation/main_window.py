@@ -154,6 +154,10 @@ NUDGE_MICRO_MM = 0.1
 NUDGE_SUPER_MM = 10.0
 # DPI para rasterizar a página de PDF ao detectar a faca "pelo contorno".
 PDF_CONTOUR_DPI = 150
+# Pos-processamento da faca: remove nós redundantes com desvio máximo deste
+# valor (mm). Suavizar dobra os nós por passada e a sangria arredondada gera
+# arcos densos — menos nós = corte mais fluido na máquina, mesma forma.
+FACA_POST_SIMPLIFY_MM = 0.1
 SNAP_THRESHOLD_MM = 2.0  # distância (mm) para o encaixe "grudar"
 # zona morta do arraste (px na tela): só move a peça depois de passar disso.
 # Evita que um clique com leve tremor do mouse arraste a peça sem querer.
@@ -4442,6 +4446,13 @@ class MainWindow(QMainWindow):
             contour = smooth_contour(contour, smooth)
         if sangria != 0:
             contour = offset_contour(contour, sangria, params.get("corner", "round"))
+        # pos-processamento: tira os nós redundantes que suavizar (dobra por
+        # passada) e a sangria arredondada (arcos densos) criam. Desvio máximo
+        # de FACA_POST_SIMPLIFY_MM — mesma forma, corte mais fluido na máquina.
+        if len(contour.points) > 8:
+            reduced = simplify_contour(contour, FACA_POST_SIMPLIFY_MM)
+            if len(reduced.points) >= 3:
+                contour = reduced
         return contour
 
     def _density_tol(self) -> float:

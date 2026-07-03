@@ -2283,3 +2283,20 @@ def test_projeto_com_imagem_salva_e_reabre(qapp, tmp_path):
     w2 = _window_cfg(tmp_path, "wi2")
     assert w2.open_project(str(proj)) is True
     assert w2._paths == [img]
+
+
+def test_faca_gerada_sai_com_poucos_nos(qapp, tmp_path):
+    # Suavizar dobra os nós por passada e a sangria arredondada gera arcos
+    # densos — a faca ia pra máquina com centenas de nós. O pós-processamento
+    # (FACA_POST_SIMPLIFY_MM) reduz sem mudar a forma (desvio <= 0.1mm).
+    from tests import synth_images as si
+    src = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._auto_smooth.setValue(3)      # suavizar (x8 nos sem o pos-processo)
+    window._auto_offset.setValue(2.0)    # sangria arredondada (x2 de novo)
+    window.generate(blocking=True)
+
+    faca = window._result.artworks[0].cut_contour
+    assert len(faca.points) <= 60, f"faca com nós demais: {len(faca.points)}"
+    assert len(faca.points) >= 8   # continua uma curva, não um retângulo
