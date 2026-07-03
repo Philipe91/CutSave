@@ -163,6 +163,10 @@ FACA_NODE_TOLERANCES = {
     "medio": 0.3,   # recomendado: mesma qualidade visível, bem menos nós
     "leve": 0.6,    # faca bem enxuta (curvas ligeiramente facetadas)
 }
+# Com SUAVIZAR ligado a tolerância cai: a simplificação removeria justamente
+# os pontos que o suavizado criou ("des-suavizando" a curva em facetas).
+# Nestes valores a curva continua macia e ainda corta ~85% dos nós.
+FACA_NODE_TOLERANCES_SMOOTH = {"fino": 0.05, "medio": 0.08, "leve": 0.12}
 FACA_POST_SIMPLIFY_MM = FACA_NODE_TOLERANCES["medio"]  # padrão
 SNAP_THRESHOLD_MM = 2.0  # distância (mm) para o encaixe "grudar"
 # zona morta do arraste (px na tela): só move a peça depois de passar disso.
@@ -4472,21 +4476,23 @@ class MainWindow(QMainWindow):
             contour = offset_contour(contour, sangria, params.get("corner", "round"))
         # pos-processamento: tira os nós redundantes que suavizar (dobra por
         # passada) e a sangria arredondada (arcos densos) criam. Tolerância do
-        # seletor "Nós da faca" — retas continuam retas, curvas desviam no
-        # máximo esse valor; menos nós = corte mais fluido na máquina.
+        # seletor "Nós da faca"; com suavizar ligado ela cai (tabela _SMOOTH)
+        # para NAO desfazer a curva que o suavizado acabou de criar.
         if len(contour.points) > 8:
-            reduced = simplify_contour(contour, self._faca_nodes_tol())
+            reduced = simplify_contour(contour, self._faca_nodes_tol(smooth))
             if len(reduced.points) >= 3:
                 contour = reduced
         return contour
 
-    def _faca_nodes_tol(self) -> float:
-        """Tolerância (mm) do seletor 'Nós da faca' (padrão: Médio)."""
+    def _faca_nodes_tol(self, smooth: int = 0) -> float:
+        """Tolerância (mm) do seletor 'Nós da faca' (padrão: Médio).
+
+        Com suavização ativa usa a tabela fina (preserva a curva macia)."""
+        table = FACA_NODE_TOLERANCES_SMOOTH if smooth > 0 else FACA_NODE_TOLERANCES
+        default = table["medio"]
         if not hasattr(self, "_faca_nodes"):
-            return FACA_POST_SIMPLIFY_MM
-        return FACA_NODE_TOLERANCES.get(
-            self._faca_nodes.currentData(), FACA_POST_SIMPLIFY_MM
-        )
+            return default
+        return table.get(self._faca_nodes.currentData(), default)
 
     def _density_tol(self) -> float:
         """Tolerancia de simplificacao (mm) a partir da 'Densidade da faca'.
