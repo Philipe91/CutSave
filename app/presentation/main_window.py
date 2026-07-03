@@ -1048,6 +1048,9 @@ class ExportCenterDialog(QDialog):
             )
             chk.setChecked(i in pre or not pre)  # selecionadas no canvas; senao todas
             chk.toggled.connect(self._sync_options)
+            # mexer numa chapa = quero exportar chapas -> troca do modo "seleção"
+            # (clicked so dispara por interacao do usuario, nao no setChecked)
+            chk.clicked.connect(self._pick_sheets_mode)
             self._checks.append(chk)
             rl.addWidget(chk, 1)
             list_lay.addWidget(row)
@@ -1138,8 +1141,15 @@ class ExportCenterDialog(QDialog):
         self._update_preview()
 
     def _set_all(self, on: bool) -> None:
+        self._pick_sheets_mode()  # usar Todas/Nenhuma = exportar chapas
         for chk in self._checks:
             chk.setChecked(on)
+
+    def _pick_sheets_mode(self, *_) -> None:
+        """Tocar na lista de chapas troca do modo 'Apenas a seleção' para
+        'Chapas marcadas' (senao a lista fica inerte e confunde)."""
+        if self._sel_export is not None and not self._mode_sheets.isChecked():
+            self._mode_sheets.setChecked(True)
 
     def _checked_indices(self) -> list[int]:
         return [i for i, chk in enumerate(self._checks) if chk.isChecked()]
@@ -1158,7 +1168,8 @@ class ExportCenterDialog(QDialog):
         sel = self._selection_mode()
         self._opt_dxf_per.setVisible(fmt == "dxf" and not sel)  # não se aplica a seleção
         self._dpi_host.setVisible(fmt == "img")
-        self._scroll.setEnabled(not sel)  # "apenas seleção" ignora a lista de chapas
+        # a lista de chapas fica SEMPRE interativa: mexer nela troca para o modo
+        # "Chapas marcadas" (antes ela era desabilitada e nao dava p/ desmarcar).
         self._update_dims()
         self._update_preview()
 

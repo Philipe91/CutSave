@@ -21,6 +21,7 @@ from app.shared.resources import resource_path
 # estiliza os sub-botões, o Qt descarta as setas nativas: sem estas imagens,
 # os botões ficam clicaveis porem invisiveis.
 _CHECK_ICON = resource_path("assets/icons/check-white.svg").as_posix()
+_RADIO_ON = resource_path("assets/icons/radio-on.svg").as_posix()
 _ARROW_UP = resource_path("assets/icons/spin-up.svg").as_posix()
 _ARROW_DOWN = resource_path("assets/icons/spin-down.svg").as_posix()
 
@@ -236,8 +237,11 @@ def build_app_qss() -> str:
         background: {ACCENT}; border-color: {ACCENT};
         image: url("{_CHECK_ICON}");
     }}
+    /* radio marcado como IMAGEM (circulo azul + ponto branco): borda espessa
+       com border-radius sai "quadrada" em algumas versoes do Qt. */
     QRadioButton::indicator:checked {{
-        background: {ACCENT}; border: 5px solid {ACCENT};
+        border: none; background: transparent;
+        image: url("{_RADIO_ON}");
     }}
 
     /* ===================== scrollarea ===================== */

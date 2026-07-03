@@ -721,6 +721,29 @@ def test_desfazer_giro_de_peca_limpa_o_giro_de_verdade(qapp, tmp_path):
     assert abs(art_final.size.width - w0) < 0.01  # continua NAO girada
 
 
+def test_export_center_desmarca_chapas_mesmo_com_selecao(qapp, tmp_path):
+    # Bug: com peca selecionada no canvas o modo vira "Apenas a selecao" e a
+    # lista de chapas ficava DESABILITADA -> nao dava para desmarcar chapa.
+    from app.presentation.main_window import ExportCenterDialog
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._piece_items[0].setSelected(True)  # forca modo "apenas a selecao"
+
+    dlg = ExportCenterDialog(window)
+    assert dlg._sel_export is not None  # ha selecao
+    assert dlg._checks, "sem checkboxes de chapa"
+    # a lista NAO pode estar desabilitada (senao nao da p/ mexer)
+    assert dlg._scroll.isEnabled()
+
+    # "Nenhuma" desmarca tudo E troca para o modo "Chapas marcadas"
+    dlg._set_all(False)
+    assert not any(c.isChecked() for c in dlg._checks)
+    assert dlg._mode_sheets.isChecked()
+    dlg.deleteLater()
+
+
 def test_copiar_colar_e_ctrl_d_em_cadeia(qapp, tmp_path):
     # Fluxo do Corel: Ctrl+C copia, Ctrl+V cola (deslocado) e, como a copia
     # vira a nova selecao, Ctrl+D repetido segue duplicando em cadeia.
