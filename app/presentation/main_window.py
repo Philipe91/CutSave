@@ -154,10 +154,16 @@ NUDGE_MICRO_MM = 0.1
 NUDGE_SUPER_MM = 10.0
 # DPI para rasterizar a página de PDF ao detectar a faca "pelo contorno".
 PDF_CONTOUR_DPI = 150
-# Pos-processamento da faca: remove nós redundantes com desvio máximo deste
-# valor (mm). Suavizar dobra os nós por passada e a sangria arredondada gera
-# arcos densos — menos nós = corte mais fluido na máquina, mesma forma.
-FACA_POST_SIMPLIFY_MM = 0.1
+# Pos-processamento da faca: remove nós redundantes com desvio máximo (mm)
+# escolhido no seletor "Nós da faca". Retas ficam perfeitamente retas (os
+# pontos colineares saem); curvas desviam no máximo a tolerância — bem abaixo
+# do kerf da lâmina. Menos nós = corte mais fluido na máquina.
+FACA_NODE_TOLERANCES = {
+    "fino": 0.1,    # máximo detalhe (mais nós)
+    "medio": 0.3,   # recomendado: mesma qualidade visível, bem menos nós
+    "leve": 0.6,    # faca bem enxuta (curvas ligeiramente facetadas)
+}
+FACA_POST_SIMPLIFY_MM = FACA_NODE_TOLERANCES["medio"]  # padrão
 SNAP_THRESHOLD_MM = 2.0  # distância (mm) para o encaixe "grudar"
 # zona morta do arraste (px na tela): só move a peça depois de passar disso.
 # Evita que um clique com leve tremor do mouse arraste a peça sem querer.
@@ -2576,7 +2582,8 @@ class MainWindow(QMainWindow):
     _SESSION_WIDGETS = (
         ("_width", "spin"), ("_height", "spin"), ("_spacing", "spin"),
         ("_spacing_v", "spin"), ("_offset", "spin"), ("_crop", "spin"),
-        ("_faca_mode", "combo"), ("_rotation", "combo"), ("_shared", "combo"),
+        ("_faca_mode", "combo"), ("_faca_nodes", "combo"),
+        ("_rotation", "combo"), ("_shared", "combo"),
         ("_auto_sensitivity", "spin"), ("_auto_smooth", "spin"),
         ("_auto_offset", "spin"), ("_auto_ignore_white", "check"),
         ("_reg_type", "combo"), ("_reg_margin", "spin"), ("_reg_diameter", "spin"),
@@ -3945,6 +3952,23 @@ class MainWindow(QMainWindow):
             "Faca do cliente: usa a linha de corte vetorial que veio no PDF."
         )
         self._faca_mode.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
+        # "Nós da faca": pós-simplificação da linha de corte. Retas ficam
+        # perfeitamente retas em qualquer nível; muda só o detalhe das curvas.
+        self._faca_nodes = NoWheelComboBox()
+        self._faca_nodes.addItem("Fino (mais nós, máximo detalhe)", "fino")
+        self._faca_nodes.addItem("Médio (recomendado)", "medio")
+        self._faca_nodes.addItem("Leve (menos nós, corte fluido)", "leve")
+        self._faca_nodes.setCurrentIndex(1)  # Médio por padrão
+        self._faca_nodes.setToolTip(
+            "Quantidade de nós da linha de corte enviada à máquina.\n"
+            "Retas continuam retas em qualquer nível (pontos colineares saem).\n"
+            "Fino: desvio máx. 0,1mm · Médio: 0,3mm · Leve: 0,6mm — todos\n"
+            "abaixo da espessura da lâmina; menos nós = corte mais fluido."
+        )
+        self._faca_nodes.currentIndexChanged.connect(
+            lambda _: self._relayout(renest=False)
+        )
+        card.body.addWidget(labeled("Nós da faca", self._faca_nodes))
         # o combo "Tipo de faca" NAO fica neste card: ele mora na barra de cima,
         # colado ao botão "Gerar Faca" (escolher o tipo -> gerar, um gesto só).
         self._shared = NoWheelComboBox()
@@ -4447,13 +4471,22 @@ class MainWindow(QMainWindow):
         if sangria != 0:
             contour = offset_contour(contour, sangria, params.get("corner", "round"))
         # pos-processamento: tira os nós redundantes que suavizar (dobra por
-        # passada) e a sangria arredondada (arcos densos) criam. Desvio máximo
-        # de FACA_POST_SIMPLIFY_MM — mesma forma, corte mais fluido na máquina.
+        # passada) e a sangria arredondada (arcos densos) criam. Tolerância do
+        # seletor "Nós da faca" — retas continuam retas, curvas desviam no
+        # máximo esse valor; menos nós = corte mais fluido na máquina.
         if len(contour.points) > 8:
-            reduced = simplify_contour(contour, FACA_POST_SIMPLIFY_MM)
+            reduced = simplify_contour(contour, self._faca_nodes_tol())
             if len(reduced.points) >= 3:
                 contour = reduced
         return contour
+
+    def _faca_nodes_tol(self) -> float:
+        """Tolerância (mm) do seletor 'Nós da faca' (padrão: Médio)."""
+        if not hasattr(self, "_faca_nodes"):
+            return FACA_POST_SIMPLIFY_MM
+        return FACA_NODE_TOLERANCES.get(
+            self._faca_nodes.currentData(), FACA_POST_SIMPLIFY_MM
+        )
 
     def _density_tol(self) -> float:
         """Tolerancia de simplificacao (mm) a partir da 'Densidade da faca'.

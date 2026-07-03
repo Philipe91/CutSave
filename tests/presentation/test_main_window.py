@@ -2300,3 +2300,28 @@ def test_faca_gerada_sai_com_poucos_nos(qapp, tmp_path):
     faca = window._result.artworks[0].cut_contour
     assert len(faca.points) <= 60, f"faca com nós demais: {len(faca.points)}"
     assert len(faca.points) >= 8   # continua uma curva, não um retângulo
+
+
+def test_seletor_nos_da_faca_fino_medio_leve(qapp, tmp_path):
+    # "Nós da faca": Fino > Médio > Leve em quantidade de nós; a forma se
+    # mantém (largura da faca ~igual nos três níveis).
+    from tests import synth_images as si
+    src = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._auto_smooth.setValue(3)
+    window._auto_offset.setValue(2.0)
+    window.generate(blocking=True)
+
+    contagens, larguras = {}, {}
+    for nivel in ("fino", "medio", "leve"):
+        window._faca_nodes.setCurrentIndex(window._faca_nodes.findData(nivel))
+        faca = window._result.artworks[0].cut_contour
+        contagens[nivel] = len(faca.points)
+        larguras[nivel] = faca.size.width
+
+    # ordem nao-estrita: formas simples convergem pro mesmo minimo em niveis
+    # vizinhos (a reducao em si ja e travada no teste de poucos_nos)
+    assert contagens["fino"] >= contagens["medio"] >= contagens["leve"] >= 6
+    # mesma forma: larguras variam menos de 1mm entre os níveis
+    assert max(larguras.values()) - min(larguras.values()) < 1.0
