@@ -1552,7 +1552,11 @@ class MainWindow(QMainWindow):
         self._act_unit_mm.setChecked(units.unit() == units.MM)
         self._act_unit_cm.setChecked(units.unit() != units.MM)
 
-        bar.addMenu("A&juda").addAction(sobre)
+        licenca = self._act("Licença...", self._show_license, None,
+                             "Ativar / ver / transferir a licenca do PrintNest")
+        m_ajuda = bar.addMenu("A&juda")
+        m_ajuda.addAction(licenca)
+        m_ajuda.addAction(sobre)
 
         # icones nas ações (aparecem no menu e na ribbon)
         for action, name in (
@@ -1707,6 +1711,13 @@ class MainWindow(QMainWindow):
         self._faca_mode.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         lay.addWidget(self._faca_mode)
         return box
+
+    def _show_license(self) -> None:
+        """Ajuda -> Licenca: ativar/ver/transferir (nao bloqueia o uso aqui)."""
+        from app.licensing.manager import LicenseManager
+        from app.presentation.licensing_dialog import ActivationDialog
+        from app.shared.config.paths import AppPaths
+        ActivationDialog(LicenseManager(AppPaths.default()), self).exec()
 
     def _show_about(self) -> None:
         from app import __version__

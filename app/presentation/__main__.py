@@ -60,6 +60,23 @@ def main() -> int:
     app_icon = QIcon(str(icon_file)) if icon_file.exists() else None
     if app_icon is not None:
         app.setWindowIcon(app_icon)
+
+    # licenciamento: no executavel empacotado, sem licenca valida o app NAO
+    # abre (mostra a ativacao; fechar = sair). Rodando do fonte (dev/testes)
+    # nao trava. A garantia de 7 dias e comercial, nao vive aqui.
+    if getattr(sys, "frozen", False):
+        from app.licensing.manager import LicenseManager
+        from app.presentation.licensing_dialog import ActivationDialog
+
+        lic = LicenseManager(paths)
+        if not lic.is_licensed():
+            dlg = ActivationDialog(lic, blocking=True)
+            if app_icon is not None:
+                dlg.setWindowIcon(app_icon)
+            dlg.exec()
+            if not lic.is_licensed():
+                return 0  # nao ativou -> encerra
+
     pipeline = RunProductionPipelineUseCase(
         ImportPdfUseCase(PyMuPdfImporter()),
         image_uc=ImportImageUseCase(Cv2ImageImporter(paths.cache_dir)),

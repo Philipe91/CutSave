@@ -8,3 +8,5 @@ opencv-python-headless>=4.9
 Pillow>=10.0
 numpy>=1.26
 ezdxf>=1.1
+# licenciamento: assinatura Ed25519 das licencas (app carrega so a chave publica)
+cryptography>=42.0

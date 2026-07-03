@@ -20,3 +20,9 @@ data/
 PrintNest_Build/
 *.exe
 assets/printnest.ico
+
+# SEGREDO: chave privada de licenciamento — NUNCA versionar (quem tiver ela
+# forja licencas). Fica so na maquina do dono do produto.
+tools/license_private_key.pem
+*.private.pem
+licenses_emitidas/

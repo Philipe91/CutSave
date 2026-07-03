@@ -45,7 +45,13 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=[],
+    # licenciamento: os modulos entram por importacao lazy (so no exe), garante
+    # que o PyInstaller empacote a cryptography e as licenses do app.
+    hiddenimports=[
+        "cryptography",
+        "app.licensing.manager",
+        "app.presentation.licensing_dialog",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

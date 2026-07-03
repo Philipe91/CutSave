@@ -19,6 +19,10 @@ class AppPaths:
         return self.home / "config.json"
 
     @property
+    def license_file(self) -> Path:
+        return self.home / "license.key"
+
+    @property
     def logs_dir(self) -> Path:
         return self.home / "logs"
 
