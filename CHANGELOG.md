@@ -4,6 +4,31 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [v1.3.0] — branch `v1.3-redesign` (sessão 03/07)
+
+### Comercialização — licenciamento
+- **Ativação por chave (node-locked, offline, sem trial)** + garantia de 7 dias.
+  Ed25519: o app tem só a chave pública; a privada fica com o dono
+  (`tools/license_private_key.pem`, gitignored). Sem licença o exe não abre
+  (dev não trava). Emissão: `gen_license.py` (CLI), `license_studio.py` (GUI),
+  `issuer.py` (compartilhado). Menu Ajuda → Licença. Ver `docs/produto/LICENCIAMENTO.md`.
+
+### Faca
+- **Múltiplos desenhos por imagem**: uma folha com N adesivos gera N facas (a
+  peça segue uma só; cortes internos). Preview e exportação (DXF/faca PDF) levam
+  todas as linhas.
+
+### UI / build
+- Ícone do exe/janela com o **logo real**; versão **v1.3.0** no título/About;
+  build carimba data no VERSAO.txt.
+- Cards do inspector azuis e compactos; barrinha de exibição flutuante no canvas
+  (não some mais); radio marcado redondo; lista de chapas do Centro de
+  Exportação sempre interativa.
+
+### Vendas
+- Copy da landing page em `docs/produto/COPY-SITE-VENDAS.md` (R$ 397, garantia
+  7 dias). Site em `site/` (feito por outra sessão).
+
 ## [Não lançado] — branch `v1.3-redesign` (sessão 02/07)
 
 ### Refinamento visual (PrintNest Design System) — sem mudar a estrutura
