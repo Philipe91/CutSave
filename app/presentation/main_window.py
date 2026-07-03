@@ -585,6 +585,84 @@ class MeasureOverlay(QFrame):
         self.raise_()
 
 
+class FloatingDisplayBar(QFrame):
+    """Barra flutuante e ARRASTAVEL no canvas com o modo de visualizacao.
+
+    Fica compacta e discreta no canto, para nao atrapalhar o trabalho, e o
+    usuario pode reposiciona-la arrastando pela alca (icone). O combo interno
+    e o self._view_mode canonico (impressao / corte / dividido).
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("floatBar")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 3, 8, 3)
+        lay.setSpacing(6)
+        self._grip = QLabel()
+        self._grip.setPixmap(icons.pixmap("eye", theme.TEXT_SECONDARY, 15))
+        self._grip.setCursor(Qt.OpenHandCursor)
+        self._grip.setToolTip("Arraste para mover · exibicao do canvas")
+        lay.addWidget(self._grip)
+        self.combo = NoWheelComboBox()
+        self.combo.setToolTip("Modo de visualizacao (impressao / corte / dividido)")
+        lay.addWidget(self.combo)
+        self.setStyleSheet(
+            "#floatBar{background:rgba(255,255,255,232);"
+            f" border:1px solid {theme.BORDER_STRONG}; border-radius:{theme.RADIUS}px;}}"
+            "#floatBar QComboBox{min-height:16px; padding:2px 8px;"
+            f" border:1px solid {theme.BORDER}; background:{theme.SURFACE};}}"
+        )
+        self._press_global = None
+        self._press_pos = None
+        self._moved = False
+        self._collapsed = False
+
+    # ---- arraste + clique (o combo trata os proprios cliques) ----
+    # Clicar no olho SEM arrastar colapsa a barra para so o icone (quadradinho);
+    # clicar de novo expande. Arrastar (mover alem de um limiar) reposiciona.
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._press_global = event.globalPosition().toPoint()
+            self._press_pos = self.pos()
+            self._moved = False
+            self._grip.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._press_global is None:
+            return
+        delta = event.globalPosition().toPoint() - self._press_global
+        if not self._moved and delta.manhattanLength() > 4:
+            self._moved = True  # passou do limiar -> vira arraste (nao clique)
+        if self._moved:
+            new = self._press_pos + delta
+            parent = self.parent()
+            if parent is not None:  # mantem dentro da area visivel do canvas
+                new.setX(max(0, min(new.x(), parent.width() - self.width())))
+                new.setY(max(0, min(new.y(), parent.height() - self.height())))
+            self.move(new)
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        was_click = self._press_global is not None and not self._moved
+        self._press_global = None
+        self._grip.setCursor(Qt.OpenHandCursor)
+        if was_click:
+            self.set_collapsed(not self._collapsed)
+        event.accept()
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Colapsa a barra para so o olho (quadradinho) ou expande de volta."""
+        self._collapsed = collapsed
+        self.combo.setVisible(not collapsed)
+        self._grip.setToolTip(
+            "Clique para expandir · arraste para mover" if collapsed
+            else "Clique para recolher · arraste para mover"
+        )
+        self.adjustSize()
+
+
 class CropPreview(QWidget):
     """Pre-visualização do recorte de página: mostra a página, sombreia o que
     será cortado e deixa arrastar as 4 bordas para definir o corte (mm)."""
@@ -1558,11 +1636,48 @@ class MainWindow(QMainWindow):
             ]),
             ("Exibir", [
                 tb.tool_button(fit, "maximize"),
+                self._view_mode_menu_button(),  # visualização ao lado de Ajustar
                 disp_btn,
                 tb.tool_button(reguas, "ruler", show_text=False),
             ]),
         ])
         self.addToolBar(rb)
+
+    def _view_mode_menu_button(self) -> QToolButton:
+        """Botão 'Visualização' na barra (ao lado de Ajustar à tela): um menu com
+        os 4 modos. Espelha o mesmo _view_mode da barrinha flutuante do canvas —
+        mudar num lado marca o outro (fonte única de estado)."""
+        btn = QToolButton()
+        btn.setText("Visualização")
+        btn.setIcon(icons.icon("eye", theme.ICON, 18))
+        btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        btn.setPopupMode(QToolButton.InstantPopup)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setToolTip("Modo de visualização do canvas")
+        menu = QMenu(btn)
+        self._view_mode_group = QActionGroup(self)
+        self._view_mode_group.setExclusive(True)
+        self._view_mode_actions = {}
+        for i in range(self._view_mode.count()):
+            data = self._view_mode.itemData(i)
+            act = QAction(self._view_mode.itemText(i), self, checkable=True)
+            act.setChecked(i == self._view_mode.currentIndex())
+            act.triggered.connect(
+                lambda _=False, d=data: self._view_mode.setCurrentIndex(
+                    self._view_mode.findData(d)
+                )
+            )
+            self._view_mode_group.addAction(act)
+            self._view_mode_actions[data] = act
+            menu.addAction(act)
+        btn.setMenu(menu)
+        self._view_mode.currentIndexChanged.connect(self._sync_view_mode_menu)
+        return btn
+
+    def _sync_view_mode_menu(self) -> None:
+        act = self._view_mode_actions.get(self._view_mode.currentData())
+        if act is not None:
+            act.setChecked(True)
 
     def _faca_mode_ribbon_widget(self) -> QWidget:
         """Widget da barra: rotulo discreto + combo "Tipo de faca", colado ao
@@ -2460,7 +2575,22 @@ class MainWindow(QMainWindow):
 
         self._overlay = MeasureOverlay(self._view.viewport())
         self._view.view_changed.connect(self._position_overlay)
-        # controles de Exibição: vivem no popup do botão da barra de cima
+
+        # barrinha flutuante de exibição (arrastável) no canto do canvas: dona do
+        # combo de modo de visualização (_view_mode canônico). Fica no canto
+        # superior esquerdo por padrão, longe da caixa de medidas (canto direito).
+        self._display_bar = FloatingDisplayBar(self._view.viewport())
+        self._view_mode = self._display_bar.combo
+        self._view_mode.addItem("Impressão + Corte", "both")
+        self._view_mode.addItem("Só Impressão", "print")
+        self._view_mode.addItem("Só Corte", "cut")
+        self._view_mode.addItem("Tela dividida (impressão / corte)", "split")
+        self._view_mode.currentIndexChanged.connect(lambda _: self._refresh_preview())
+        self._display_bar.adjustSize()
+        self._display_bar.move(12, 12)
+        self._display_bar.show()
+
+        # demais controles de Exibição (réguas, snap) no popup do botão da barra
         self._display_panel = self._build_display_controls()
 
         for ruler in (self._h_ruler, self._v_ruler):
@@ -2629,6 +2759,7 @@ class MainWindow(QMainWindow):
         self._sel_stack.addWidget(self._build_group_page())  # 2 = grupo
 
         self._props_tabs = QTabWidget()
+        self._props_tabs.setObjectName("inspectorTabs")  # barra de abas destacada
         self._props_tabs.addTab(doc_scroll, "Documento")
         self._props_tabs.addTab(self._sel_stack, "Seleção")
         self._props_tabs.addTab(self._build_object_page(), "Objeto")
@@ -3378,13 +3509,13 @@ class MainWindow(QMainWindow):
         self._import_box.addItem("Caixa de Apara (corte)", "trim")
         lay.addWidget(self._import_box)
 
-        cap_rot = QLabel("Rotacionar arquivo (graus)")
-        cap_rot.setProperty("role", "caption")
-        lay.addWidget(cap_rot)
-        self._rotation = QComboBox()
+        # "Rotacionar arquivo (graus)" saiu da UI (a rotação vive por peça: aba
+        # Objeto e Ctrl+[ / Ctrl+]). O combo continua existindo (oculto) para o
+        # estado/sessão e a lógica de giro global seguirem funcionando.
+        self._rotation = QComboBox(panel)
         self._rotation.addItems(["0", "90", "180", "270"])
         self._rotation.currentIndexChanged.connect(lambda _: self._relayout())
-        lay.addWidget(self._rotation)
+        self._rotation.hide()
 
         self._sel_info = QLabel("Selecione um arquivo")
         self._sel_info.setWordWrap(True)
@@ -3632,25 +3763,14 @@ class MainWindow(QMainWindow):
         self._sum_reg.set_value(self._reg_type.currentText())
 
     def _build_display_controls(self) -> QWidget:
-        """Painel de Exibição (unidade, modo de visualização, réguas, snap) usado
-        no popup do botão 'Exibição' da barra de cima."""
+        """Painel de Exibição (réguas, snap) usado no popup do botão 'Exibição'
+        da barra de cima. O modo de visualização mora na barrinha flutuante do
+        canvas (FloatingDisplayBar); a unidade, no menu 'Opções'."""
         panel = QWidget()
         panel.setObjectName("displayPopup")
         lay = QVBoxLayout(panel)
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(5)
-
-        # (a unidade de medida foi movida para o menu "Opções", ao lado de Ajuda)
-        cap_v = QLabel("Modo de visualização")
-        cap_v.setProperty("role", "caption")
-        lay.addWidget(cap_v)
-        self._view_mode = QComboBox()
-        self._view_mode.addItem("Impressao + Corte", "both")
-        self._view_mode.addItem("Só Impressao", "print")
-        self._view_mode.addItem("Só Corte", "cut")
-        self._view_mode.addItem("Tela dividida (impressao / corte)", "split")
-        self._view_mode.currentIndexChanged.connect(lambda _: self._refresh_preview())
-        lay.addWidget(self._view_mode)
 
         self._show_rulers = QCheckBox("Mostrar réguas")
         self._show_rulers.toggled.connect(lambda _: self._apply_rulers_visibility())

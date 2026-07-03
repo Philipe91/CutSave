@@ -294,6 +294,19 @@ def build_app_qss() -> str:
         font-weight: 600;
     }}
 
+    /* barra de abas do inspector: fundo proprio + linha de base, para ler
+       claramente como uma BARRA (e nao abas soltas no ar) */
+    QTabWidget#inspectorTabs::pane {{
+        border: none; border-top: 1px solid {BORDER}; top: -1px;
+    }}
+    QTabWidget#inspectorTabs > QTabBar {{
+        background: {SURFACE_ALT};
+        border-bottom: 1px solid {BORDER};
+    }}
+    QTabWidget#inspectorTabs > QTabBar::tab {{
+        margin-top: 3px; margin-bottom: 0; padding: 8px 14px;
+    }}
+
     /* ===================== status bar ===================== */
     QStatusBar {{
         background: {SURFACE}; border-top: 1px solid {BORDER};
