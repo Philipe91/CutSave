@@ -962,6 +962,102 @@ def test_remover_da_biblioteca_tira_a_peca_da_tela(qapp, tmp_path):
     assert not [it for it in window._scene.items() if isinstance(it, PieceItem)]
 
 
+def _art_of(window, piece):
+    return next(a for a in window._result.artworks if a.id == piece.artwork_id)
+
+
+def test_pontos_editar_no_vale_para_o_arquivo_e_copias(qapp, tmp_path):
+    # Ferramenta Pontos: mover um nó salva a faca MANUAL do arquivo; duplicar
+    # depois herda a faca corrigida (fluxo: arruma -> duplica -> nesting).
+    from app.domain.geometry import Point2D
+    from tests import synth_images as si
+    src = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    piece = window._piece_items[0]
+    piece.setSelected(True)
+
+    art0 = _art_of(window, piece)
+    pts = [list(c.points) for c in (art0.cut_contour, *art0.extra_cuts)]
+    original = pts[0][0]
+    pts[0][0] = Point2D(original.x + 7.0, original.y + 5.0)  # "puxa" um nó
+    window._commit_manual_faca(piece, pts, "mover nó")
+
+    path = window._paths[0]
+    assert path in window._faca_manual  # virou faca manual do ARQUIVO
+    art1 = _art_of(window, window._piece_items[0])
+    p0 = art1.cut_contour.points[0]
+    assert abs(p0.x - (original.x + 7.0)) < 0.01
+    assert abs(p0.y - (original.y + 5.0)) < 0.01
+
+    # duplicar herda a mesma faca (mesmo artwork_id -> mesma arte)
+    window._piece_items[0].setSelected(True)
+    window._duplicate_selected()
+    assert sum(s.item_count for s in window._result.sheets) == 2
+
+    # sangria de imagem NAO muda mais a faca manual
+    w_antes = _art_of(window, window._piece_items[0]).cut_contour.size.width
+    window._auto_offset.setValue(window._auto_offset.value() + 5)
+    w_depois = _art_of(window, window._piece_items[0]).cut_contour.size.width
+    assert abs(w_depois - w_antes) < 0.01
+
+    # desfazer (ate antes da edicao) limpa a faca manual de verdade
+    while path in window._faca_manual:
+        window._undo.undo()
+    assert path not in window._faca_manual
+
+
+def test_pontos_remover_e_adicionar_no(qapp, tmp_path):
+    from tests import synth_images as si
+    src = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    piece = window._piece_items[0]
+    piece.setSelected(True)
+    art0 = _art_of(window, piece)
+    n0 = len(art0.cut_contour.points)
+
+    window._remove_node(piece, 0, 0)  # remove o primeiro nó
+    art1 = _art_of(window, window._piece_items[0])
+    assert len(art1.cut_contour.points) == n0 - 1
+
+    # adiciona um nó de volta no meio do primeiro segmento (via commit direto)
+    pts = [list(c.points) for c in (art1.cut_contour, *art1.extra_cuts)]
+    from app.domain.geometry import Point2D
+    a, b = pts[0][0], pts[0][1]
+    pts[0].insert(1, Point2D((a.x + b.x) / 2, (a.y + b.y) / 2))
+    window._commit_manual_faca(piece, pts, "adicionar nó")
+    art2 = _art_of(window, window._piece_items[0])
+    assert len(art2.cut_contour.points) == n0
+
+
+def test_pontos_voltar_ao_automatico(qapp, tmp_path):
+    from app.domain.geometry import Point2D
+    from tests import synth_images as si
+    src = si.png_alpha_disc(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    piece = window._piece_items[0]
+    piece.setSelected(True)
+    art0 = _art_of(window, piece)
+    w_auto = art0.cut_contour.size.width
+
+    pts = [list(c.points) for c in (art0.cut_contour, *art0.extra_cuts)]
+    pts[0][0] = Point2D(pts[0][0].x + 15.0, pts[0][0].y)
+    window._commit_manual_faca(piece, pts)
+    path = window._paths[0]
+    assert path in window._faca_manual
+
+    window._selected_path = path
+    window._reset_manual_faca()
+    assert path not in window._faca_manual
+    art_back = _art_of(window, window._piece_items[0])
+    assert abs(art_back.cut_contour.size.width - w_auto) < 0.01  # recalculada
+
+
 def test_imagem_com_varios_desenhos_gera_faca_de_cada(qapp, tmp_path):
     # Folha com 2 adesivos separados -> a peca segue UMA so, mas com 2 facas
     # (a principal + 1 extra). Antes so saia a faca do maior desenho.

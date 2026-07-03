@@ -178,6 +178,7 @@ class ZoomableGraphicsView(QGraphicsView):
     nudge = Signal(float, float)  # deslocamento (dx, dy) em mm, via setas
     cursor_moved = Signal(float, float)  # posição do cursor (x, y) em mm na cena
     library_drop = Signal(QPointF)  # arquivo arrastado da biblioteca, soltou na cena
+    double_clicked = Signal(QPointF)  # duplo clique (posição de cena) — Pontos
 
     def __init__(self, scene: QGraphicsScene) -> None:
         super().__init__(scene)
@@ -239,6 +240,10 @@ class ZoomableGraphicsView(QGraphicsView):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.view_changed.emit()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        super().mouseDoubleClickEvent(event)  # itens (ex.: alça de nó) primeiro
+        self.double_clicked.emit(self.mapToScene(event.position().toPoint()))
 
     def keyPressEvent(self, event) -> None:
         deltas = {
@@ -819,6 +824,48 @@ class _ResizeHandle(QGraphicsRectItem):
         event.accept()
 
 
+class _NodeHandle(QGraphicsRectItem):
+    """Alça de nó da faca (ferramenta Pontos, estilo Corel F10).
+
+    Quadradinho sobre um ponto do contorno de corte: arrastar MOVE o nó
+    (corrige onde a faca "comeu" o desenho); duplo clique REMOVE o nó.
+    Filha da peça (coords locais), tamanho fixo na tela (ignora zoom)."""
+
+    S = 8.0
+
+    def __init__(self, window, piece, ci: int, pi: int) -> None:
+        super().__init__(-self.S / 2, -self.S / 2, self.S, self.S)
+        self._w = window
+        self._piece = piece
+        self.ci = ci  # indice do contorno (0 = principal; 1+ = extras)
+        self.pi = pi  # indice do ponto dentro do contorno
+        self.setBrush(QBrush(QColor(theme.SURFACE)))
+        pen = QPen(QColor(theme.CUT))
+        pen.setCosmetic(True)
+        pen.setWidth(2)
+        self.setPen(pen)
+        self.setZValue(2100)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self.setCursor(Qt.CrossCursor)
+
+    # arraste manual (mapeando a cena) para ficar 1:1 em qualquer zoom
+    def mousePressEvent(self, event) -> None:
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        self.setPos(self._piece.mapFromScene(event.scenePos()))
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        self.setPos(self._piece.mapFromScene(event.scenePos()))
+        self._w._end_node_drag(self._piece)
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        self._w._remove_node(self._piece, self.ci, self.pi)
+        event.accept()
+
+
 class GuideItem(QGraphicsLineItem):
     """Guia pontilhada (estilo CorelDRAW): selecionavel e arrastavel, presa ao
     eixo perpendicular. 'record' e a entrada mutavel [is_h, valor_mm] guardada
@@ -1296,6 +1343,14 @@ class MainWindow(QMainWindow):
         # faca por arquivo: caminho -> params proprios (override). Sem override,
         # o arquivo segue o padrão do painel Documento.
         self._file_overrides: dict[str, dict] = {}
+        # faca EDITADA A MAO (ferramenta Pontos): caminho -> {"contours": tuple
+        # de CutContour (principal + extras), "w"/"h": tamanho da arte e
+        # "rotation": giro efetivo no momento da edição. Quando existe, VENCE o
+        # recalculo automatico (sangria/suavizar não se aplicam mais ao arquivo
+        # até "voltar ao automático"). Todas as cópias do arquivo herdam.
+        self._faca_manual: dict[str, dict] = {}
+        self._nodes_tool_on = False       # ferramenta Pontos (F10) ativa?
+        self._node_handles: list = []     # alças de nó na peça selecionada
         # tamanho por arquivo: caminho -> Size (mm) desejado. Sem entrada, o
         # arquivo mantem o tamanho original importado. Aplicado na arte base
         # antes da faca (escala arte + contornos); vale para todas as cópias.
@@ -1531,9 +1586,23 @@ class MainWindow(QMainWindow):
         for action in (zoom_in, zoom_out, zoom_page, zoom_sel, None, hand, None,
                        limpar_guias):
             m_exib.addSeparator() if action is None else m_exib.addAction(action)
+        # ferramenta Pontos (F10): editar os nós da linha de corte
+        pontos = QAction("Pontos — editar nós da faca", self)
+        pontos.setCheckable(True)
+        pontos.setShortcut(QKeySequence("F10"))
+        pontos.setIcon(icons.icon("nodes"))
+        pontos.setToolTip(
+            "Edita os nós da linha de corte (F10): arraste um nó para mover;\n"
+            "duplo clique no traço adiciona; duplo clique num nó remove.\n"
+            "A faca editada vale para o ARQUIVO (as cópias herdam)."
+        )
+        pontos.toggled.connect(self._set_nodes_tool)
+        self._nodes_action = pontos
+
         m_ferr = bar.addMenu("&Ferramentas")
         m_ferr.addAction(gerar)
         m_ferr.addAction(gerar_faca)
+        m_ferr.addAction(pontos)
 
         # Opções (ao lado de Ajuda): unidade de medida (cm/mm)
         m_opt = bar.addMenu("O&pções")  # Alt+P (Alt+O já e do menu Organizar; QA-09)
@@ -1627,6 +1696,7 @@ class MainWindow(QMainWindow):
                 tb.tool_button(rot_r, "rotate-cw", show_text=False),
                 tb.tool_button(dup, "copy", show_text=False),
                 tb.tool_button(step, "grid-3x3", show_text=False),
+                tb.tool_button(pontos, "nodes", show_text=False),  # F10
                 tb.tool_button(excluir, "trash-2", show_text=False),
             ]),
             ("Organizar", [
@@ -1812,6 +1882,7 @@ class MainWindow(QMainWindow):
         self._reset_project_state()
         self._faca_on = False      # volta ao modo "soltar sem faca"
         self._file_overrides = {}  # descarta facas personalizadas por arquivo
+        self._faca_manual = {}     # descarta facas editadas a mao (Pontos)
         self._file_sizes = {}      # descarta tamanhos personalizados por arquivo
         self._piece_rotations = {}  # descarta giros por peça
         self._page_crops = {}      # descarta recortes de página
@@ -2218,7 +2289,8 @@ class MainWindow(QMainWindow):
                 self._scene.removeItem(h)
         self._resize_handles = []
         pieces = self._selected_pieces()
-        if len(pieces) != 1:
+        # com a ferramenta Pontos ativa, as alças de nó assumem (menos poluição)
+        if len(pieces) != 1 or self._nodes_tool_on:
             return
         p = pieces[0]
         w, h = p.rect().width(), p.rect().height()
@@ -2229,6 +2301,190 @@ class MainWindow(QMainWindow):
             handle.setParentItem(p)  # filha da peça: segue o movimento
             handle.setPos(hx, hy)
             self._resize_handles.append(handle)
+
+    # ---- ferramenta Pontos (F10): editar nós da faca, estilo CorelDRAW ----
+    def _set_nodes_tool(self, on: bool) -> None:
+        """Liga/desliga a ferramenta Pontos (edição de nós da linha de corte)."""
+        self._nodes_tool_on = bool(on)
+        self._update_resize_handles()
+        self._update_node_handles()
+        if on:
+            self._toasts.info(
+                "Pontos: arraste um nó para mover; duplo clique no traço "
+                "adiciona; duplo clique num nó remove."
+            )
+
+    def _update_node_handles(self) -> None:
+        """Mostra as alças de nó da faca na peça selecionada (Pontos ativa)."""
+        for h in self._node_handles:
+            with contextlib.suppress(RuntimeError, ValueError):
+                h.setParentItem(None)
+                self._scene.removeItem(h)
+        self._node_handles = []
+        if not self._nodes_tool_on or self._result is None:
+            return
+        pieces = self._selected_pieces()
+        if len(pieces) != 1:
+            return
+        piece = pieces[0]
+        art = next(
+            (a for a in self._result.artworks if a.id == piece.artwork_id), None
+        )
+        if art is None or not art.has_cut:
+            return
+        fp = artwork_footprint(art)
+        ax, ay = -fp.min_x, -fp.min_y
+        for ci, contour in enumerate((art.cut_contour, *art.extra_cuts)):
+            for pi, pt in enumerate(contour.points):
+                handle = _NodeHandle(self, piece, ci, pi)
+                handle.setParentItem(piece)
+                handle.setPos(ax + pt.x, ay + pt.y)
+                self._node_handles.append(handle)
+
+    def _piece_contours_points(self, piece):
+        """(art, ax, ay, contornos como listas de Point2D) da peça, ou None."""
+        if self._result is None:
+            return None
+        art = next(
+            (a for a in self._result.artworks if a.id == piece.artwork_id), None
+        )
+        if art is None or not art.has_cut:
+            return None
+        fp = artwork_footprint(art)
+        contours = [list(c.points) for c in (art.cut_contour, *art.extra_cuts)]
+        return art, -fp.min_x, -fp.min_y, contours
+
+    def _end_node_drag(self, piece) -> None:
+        """Solta um nó: reconstroi os contornos a partir das alças e salva."""
+        got = self._piece_contours_points(piece)
+        if got is None:
+            return
+        _art, ax, ay, contours = got
+        for h in self._node_handles:
+            pos = h.pos()
+            with contextlib.suppress(IndexError):
+                contours[h.ci][h.pi] = Point2D(pos.x() - ax, pos.y() - ay)
+        self._commit_manual_faca(piece, contours, "mover nó")
+
+    def _remove_node(self, piece, ci: int, pi: int) -> None:
+        """Duplo clique numa alça: remove o nó (mantendo o mínimo de 3)."""
+        got = self._piece_contours_points(piece)
+        if got is None:
+            return
+        _art, _ax, _ay, contours = got
+        if ci >= len(contours) or len(contours[ci]) <= 3:
+            self._toasts.info("O contorno precisa de pelo menos 3 nós.")
+            return
+        del contours[ci][pi]
+        self._commit_manual_faca(piece, contours, "remover nó")
+
+    def _on_canvas_double_click(self, scene_pos) -> None:
+        """Duplo clique no canvas com Pontos ativa: adiciona nó no traço."""
+        if not self._nodes_tool_on or self._result is None:
+            return
+        # se caiu numa alça, a própria alça tratou (remover) — não adiciona
+        for it in self._scene.items(scene_pos):
+            if isinstance(it, _NodeHandle):
+                return
+        pieces = self._selected_pieces()
+        if len(pieces) != 1:
+            return
+        piece = pieces[0]
+        got = self._piece_contours_points(piece)
+        if got is None:
+            return
+        _art, ax, ay, contours = got
+        local = piece.mapFromScene(scene_pos)
+        px, py = local.x() - ax, local.y() - ay
+        best = None  # (dist, ci, indice do segmento, ponto projetado)
+        for ci, pts in enumerate(contours):
+            n = len(pts)
+            for i in range(n):
+                a, b = pts[i], pts[(i + 1) % n]
+                d, proj = self._dist_point_segment(px, py, a, b)
+                if best is None or d < best[0]:
+                    best = (d, ci, i, proj)
+        if best is None:
+            return
+        # só adiciona se o clique foi PERTO do traço (~12px na tela, em mm)
+        threshold = 12.0 / max(self._view.zoom_factor(), 1e-6)
+        if best[0] > threshold:
+            return
+        _d, ci, i, proj = best
+        contours[ci].insert(i + 1, Point2D(proj[0], proj[1]))
+        self._commit_manual_faca(piece, contours, "adicionar nó")
+
+    @staticmethod
+    def _dist_point_segment(px, py, a, b):
+        """Distância do ponto (px,py) ao segmento a-b e o ponto projetado."""
+        ax_, ay_, bx, by = a.x, a.y, b.x, b.y
+        dx, dy = bx - ax_, by - ay_
+        length2 = dx * dx + dy * dy
+        if length2 <= 1e-12:
+            return ((px - ax_) ** 2 + (py - ay_) ** 2) ** 0.5, (ax_, ay_)
+        t = max(0.0, min(1.0, ((px - ax_) * dx + (py - ay_) * dy) / length2))
+        qx, qy = ax_ + t * dx, ay_ + t * dy
+        return ((px - qx) ** 2 + (py - qy) ** 2) ** 0.5, (qx, qy)
+
+    def _commit_manual_faca(self, piece, contours_pts, text="editar nós") -> None:
+        """Salva a faca editada como faca MANUAL do ARQUIVO (com desfazer).
+
+        Todas as cópias do arquivo herdam a correção — o fluxo recomendado é
+        arrumar a faca e SÓ DEPOIS duplicar para o nesting. A partir daqui os
+        ajustes automáticos (sangria/suavizar/modo) não mudam este arquivo,
+        até 'Voltar à faca automática'."""
+        art = next(
+            (a for a in self._result.artworks if a.id == piece.artwork_id), None
+        )
+        if art is None:
+            return
+        valid = [pts for pts in contours_pts if len(pts) >= 3]
+        if not valid:
+            return
+        path = self._path_of(piece.artwork_id)
+        rotation = int(self._art_params(piece.artwork_id).get("rotation", 0))
+        before = self._state_snapshot()
+        first_time = path not in self._faca_manual
+        self._faca_manual[path] = {
+            "contours": tuple(CutContour(pts) for pts in valid),
+            "w": art.size.width,
+            "h": art.size.height,
+            "rotation": rotation,
+        }
+        self._suspend_undo = True
+        try:
+            self._relayout(renest=False)
+        finally:
+            self._suspend_undo = False
+        if self._result is not None:
+            after = self._state_snapshot()
+            self._undo.push(SnapshotCommand(self, before, after, text))
+        self._reselect_by_artwork({piece.artwork_id})
+        self._update_node_handles()
+        if first_time:
+            self._toasts.info(
+                "Faca em edição manual — sangria/suavizar não mudam este "
+                "arquivo até voltar à faca automática."
+            )
+
+    def _reset_manual_faca(self) -> None:
+        """Descarta a faca manual do arquivo selecionado (volta ao automático)."""
+        path = self._selected_path
+        if not path or path not in self._faca_manual:
+            return
+        before = self._state_snapshot() if self._result is not None else None
+        del self._faca_manual[path]
+        self._suspend_undo = True
+        try:
+            self._relayout(renest=False)
+        finally:
+            self._suspend_undo = False
+        if before is not None and self._result is not None:
+            after = self._state_snapshot()
+            self._undo.push(SnapshotCommand(self, before, after, "faca automática"))
+        self._reselect_path(path)
+        self._update_node_handles()
+        self._toasts.success("Faca voltou ao automático.")
 
     def _clear_resize_preview(self) -> None:
         if self._resize_preview is not None:
@@ -2402,6 +2658,7 @@ class MainWindow(QMainWindow):
             "baked_crops": dict(self._baked_crops),
             "crop_cache": dict(self._crop_cache),
             "file_overrides": {k: dict(v) for k, v in self._file_overrides.items()},
+            "faca_manual": {k: dict(v) for k, v in self._faca_manual.items()},
             "piece_rotations": dict(self._piece_rotations),
             "faca_on": self._faca_on,
             "loaded": self._loaded,
@@ -2418,8 +2675,8 @@ class MainWindow(QMainWindow):
         s.update(
             paths=[], quantities={}, result=None, base_artworks=[], sources={},
             origins={}, pixmaps={}, file_sizes={}, page_crops={}, baked_crops={},
-            crop_cache={}, file_overrides={}, piece_rotations={}, faca_on=False,
-            loaded=False, project_path=None, guides=[],
+            crop_cache={}, file_overrides={}, piece_rotations={}, faca_manual={},
+            faca_on=False, loaded=False, project_path=None, guides=[],
         )
         return s
 
@@ -2458,6 +2715,7 @@ class MainWindow(QMainWindow):
             self._baked_crops = dict(s["baked_crops"])
             self._crop_cache = dict(s["crop_cache"])
             self._file_overrides = {k: dict(v) for k, v in s["file_overrides"].items()}
+            self._faca_manual = {k: dict(v) for k, v in s.get("faca_manual", {}).items()}
             self._piece_rotations = dict(s["piece_rotations"])
             self._faca_on = s["faca_on"]
             self._loaded = s["loaded"]
@@ -2581,6 +2839,7 @@ class MainWindow(QMainWindow):
         self._view.drag_finished.connect(self._end_move)
         self._view.nudge.connect(self._nudge)
         self._view.library_drop.connect(self._on_library_drop)
+        self._view.double_clicked.connect(self._on_canvas_double_click)
 
         work = QWidget()
         grid = QGridLayout(work)
@@ -3132,6 +3391,14 @@ class MainWindow(QMainWindow):
         self._pf_reset.setToolTip("Remove a faca personalizada e volta ao padrão do Documento")
         self._pf_reset.clicked.connect(self._reset_piece_faca)
         faca.body.addWidget(self._pf_reset)
+        self._pf_manual_reset = QPushButton("  Voltar à faca automática")
+        self._pf_manual_reset.setIcon(icons.icon("rotate-ccw", theme.ICON))
+        self._pf_manual_reset.setToolTip(
+            "Descarta a edição manual dos nós (ferramenta Pontos) e volta a\n"
+            "calcular a faca automaticamente para este arquivo."
+        )
+        self._pf_manual_reset.clicked.connect(self._reset_manual_faca)
+        faca.body.addWidget(self._pf_manual_reset)
         lay.addWidget(faca)
 
         lay.addWidget(self._actions_card([
@@ -3295,6 +3562,7 @@ class MainWindow(QMainWindow):
         self._refresh_transform_preview()  # atualiza os fantasmas da aba Transformar
         self._update_property_bar()  # barra contextual (Projeto/Objeto/Grupo)
         self._update_resize_handles()  # alças de redimensionar (peça selecionada)
+        self._update_node_handles()    # alças de nó (ferramenta Pontos)
 
     def _update_piece_page(self, piece: PieceItem) -> None:
         # As medidas/posição da peça ficam na barra de cima (contexto Objeto);
@@ -3330,6 +3598,7 @@ class MainWindow(QMainWindow):
         self._pf_smooth.setEnabled(contour_cut)
         self._pf_smooth_label.setEnabled(contour_cut)
         self._pf_reset.setVisible(path in self._file_overrides)
+        self._pf_manual_reset.setVisible(path in self._faca_manual)
         self._load_piece_size(path)
 
     def _load_piece_size(self, path) -> None:
@@ -3970,6 +4239,10 @@ class MainWindow(QMainWindow):
             # modo "soltar sem faca": só a arte (com recorte/giro/tamanho), sem
             # gerar a faca. A faca surge ao clicar "Gerar Faca"/"Gerar Produção".
             return self._transform(base, params)
+        manual = self._faca_manual.get(path)
+        if manual is not None:
+            # faca EDITADA A MAO (Pontos) vence o recalculo automatico
+            return self._manual_faca(base, params, manual)
         is_img = isinstance(base, ImageArtwork)
         # imagem usa a "sangria de imagem" (auto_offset); PDF usa a sangria da faca.
         sangria = params["auto_offset"] if is_img else params["offset"]
@@ -3985,6 +4258,31 @@ class MainWindow(QMainWindow):
         else:
             raw = self._scaled_contour(self._pdf_raster_contour(base), sx, sy)
         return self._contour_faca(base, raw, params, sangria, mode)
+
+    def _manual_faca(self, base, params: dict, manual: dict):
+        """Aplica a faca editada a mao (ferramenta Pontos) a arte base.
+
+        Os contornos foram salvos no espaco art-local da peça no momento da
+        edição ("w"/"h"/"rotation"). Se depois o usuario girar a peça ou
+        redimensionar o arquivo, os contornos giram/escalam junto — mas os
+        ajustes de faca (sangria/suavizar/modo) NAO se aplicam mais: manual e
+        manual, até "voltar ao automático"."""
+        art_t = self._transform(base, params)
+        w0, h0 = float(manual["w"]), float(manual["h"])
+        delta = (int(params.get("rotation", 0)) - int(manual.get("rotation", 0))) % 360
+        contours = list(manual["contours"])
+        if delta:
+            contours = [
+                crop_and_rotate_contour(c, 0.0, delta, w0, h0)[0] for c in contours
+            ]
+            if delta in (90, 270):
+                w0, h0 = h0, w0
+        sx = art_t.size.width / w0 if w0 else 1.0
+        sy = art_t.size.height / h0 if h0 else 1.0
+        scaled = [self._scaled_contour(c, sx, sy) for c in contours]
+        return replace(
+            art_t, cut_contour=scaled[0], extra_cuts=tuple(scaled[1:])
+        )
 
     def _resolve_faca_mode(self, mode: str, base) -> str:
         """Resolve o modo 'auto' pelo tipo da arte e valida o modo pedido.
@@ -4214,6 +4512,7 @@ class MainWindow(QMainWindow):
         self._file_overrides = {}
         self._file_sizes = {}
         self._piece_rotations = {}
+        self._faca_manual = {}  # restaurar padroes descarta a edicao manual
         self._relayout()
 
     # ---- lista de arquivos ----
@@ -4923,6 +5222,7 @@ class MainWindow(QMainWindow):
         self._decor_items = []
         self._ghost_items = []  # scene.clear() apaga os fantasmas; zera as refs
         self._resize_handles = []  # idem para as alças de redimensionar
+        self._node_handles = []    # e as alças de nó (Pontos)
         self._resize_preview = None
         # NAO limpa o histórico aqui: senao excluir/duplicar/desfazer (que
         # redesenham) apagariam o próprio comando. O reset do histórico acontece
@@ -5615,16 +5915,19 @@ class MainWindow(QMainWindow):
             self._snapshot_sheets(),
             list(self._result.artworks),
             dict(self._piece_rotations),
+            dict(self._faca_manual),  # facas editadas a mao (Pontos) tambem
         )
 
     def _apply_state(self, state) -> None:
-        """Reaplica um estado (chapas + artes + giros) e redesenha. Base de
-        desfazer/refazer. Aceita estados antigos de 2 itens (sem giros)."""
+        """Reaplica um estado (chapas + artes + giros + facas manuais) e
+        redesenha. Base de desfazer/refazer. Tolera estados mais curtos."""
         if self._result is None:
             return
         sheets, artworks, *rest = state
         if rest:
             self._piece_rotations = dict(rest[0])
+        if len(rest) > 1:
+            self._faca_manual = dict(rest[1])
         self._result = ProductionResult(
             sheets=sheets, artworks=artworks, sources=self._sources
         )
@@ -5641,7 +5944,9 @@ class MainWindow(QMainWindow):
         """
         arts = list(self._result.artworks)
         rot = dict(self._piece_rotations)  # arranjo não muda giros: mesmo dict
-        before_state, after_state = (before, arts, rot), (after, arts, rot)
+        man = dict(self._faca_manual)      # nem as facas manuais
+        before_state = (before, arts, rot, man)
+        after_state = (after, arts, rot, man)
         self._apply_state(after_state)
         self._undo.push(SnapshotCommand(self, before_state, after_state, text))
 
