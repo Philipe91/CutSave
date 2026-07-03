@@ -176,3 +176,26 @@ def test_formato_nao_suportado_levanta(tmp_path):
 def test_pdf_nao_e_imagem(tmp_path):
     with pytest.raises(ImageImportError):
         _imp(tmp_path).import_image(str(tmp_path / "x.pdf"))
+
+
+def test_detecta_varios_desenhos_incluindo_pequeno(tmp_path):
+    # Folha com um desenho grande + uma estrelinha pequena SEPARADA: os dois
+    # devem virar contornos (o pequeno nao pode ser descartado como ruido).
+    p = si.png_grande_e_pequeno(tmp_path)
+    art = _imp(tmp_path).import_image(p).artwork
+    assert len(art.raw_contours) == 1  # 1 extra alem do principal
+    total = 1 + len(art.raw_contours)
+    assert total == 2
+
+
+def test_ruido_minusculo_nao_vira_faca(tmp_path):
+    # Um respingo de 1px NAO pode virar um desenho (evita faca poluida).
+    import numpy as np
+    from PIL import Image
+    im = np.zeros((200, 200, 4), np.uint8)
+    im[40:160, 40:160] = (0, 120, 200, 255)   # desenho real
+    im[5, 5] = (0, 0, 0, 255)                  # 1 pixel de ruido
+    p = str(tmp_path / "ruido.png")
+    Image.fromarray(im).save(p, dpi=(96, 96))
+    art = _imp(tmp_path).import_image(p).artwork
+    assert len(art.raw_contours) == 0  # so o desenho real, ruido ignorado

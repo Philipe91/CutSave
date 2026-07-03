@@ -23,10 +23,12 @@ MAX_DETECT_SIDE = 1000
 SIMPLIFY_MM = 0.3
 # Alpha minimo (0-255) para considerar um pixel opaco ao classificar a imagem.
 _ALPHA_OPAQUE = 250
-# Multi-desenho: fracao minima da area da imagem para um contorno contar como
-# um desenho separado (abaixo disso e ruido/respingo). E teto de desenhos.
-MIN_DESIGN_AREA_FRAC = 0.01
-MAX_DESIGNS = 200
+# Multi-desenho: area MINIMA (em mm^2) para um contorno contar como um desenho
+# separado. Absoluto (nao fracao da imagem): pega elementos pequenos reais
+# (ex.: uma estrelinha ~4x4mm) mas ignora respingos/ruido, seja qual for o
+# tamanho da imagem. ~9mm^2 = um quadradinho de 3x3mm. E teto de desenhos.
+MIN_DESIGN_MM2 = 9.0
+MAX_DESIGNS = 400
 
 
 class Cv2ImageImporter(IImageImporter):
@@ -211,12 +213,12 @@ class Cv2ImageImporter(IImageImporter):
         found, _ = cv2.findContours(detect, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not found:
             return []
-        total = detect.shape[0] * detect.shape[1]
-        min_area = total * MIN_DESIGN_AREA_FRAC  # ignora respingos/ruido
-        # so aceita como "desenho separado" o que for grande o bastante; sempre
-        # mantem o maior (mesmo que a imagem seja um desenho unico pequeno).
-        big = [c for c in found if cv2.contourArea(c) >= min_area]
-        if not big:
+        # filtro por area ABSOLUTA (mm^2): pega elementos pequenos reais mas
+        # ignora ruido, sem depender do tamanho da imagem. cv2.contourArea vem
+        # em pixels da mascara de deteccao -> converte com mm_per_detect^2.
+        min_area_px = MIN_DESIGN_MM2 / (mm_per_detect * mm_per_detect)
+        big = [c for c in found if cv2.contourArea(c) >= min_area_px]
+        if not big:  # nada passou -> mantem ao menos o maior (desenho unico)
             big = [max(found, key=cv2.contourArea)]
         big.sort(key=cv2.contourArea, reverse=True)
         epsilon = max(1.0, SIMPLIFY_MM / mm_per_detect)

@@ -92,3 +92,18 @@ def png_dois_adesivos(dirpath, name="dois_adesivos.png", dpi=DPI):
     p = str(Path(dirpath) / name)
     im.save(p, dpi=(dpi, dpi))
     return p
+
+
+def png_grande_e_pequeno(dirpath, name="grande_pequeno.png", dpi=DPI):
+    """PNG transparente: um disco GRANDE + uma estrelinha PEQUENA separada.
+    Valida que a deteccao pega o elemento pequeno real (nao so o maior)."""
+    im = _rgba(400, 240)
+    d = ImageDraw.Draw(im)
+    d.ellipse([30, 40, 200, 210], fill=(0, 120, 200, 255))       # grande
+    # estrela pequena (~26px = varios mm) bem longe do disco
+    d.polygon([(330, 40), (338, 62), (360, 62), (342, 76),
+               (350, 98), (330, 84), (310, 98), (318, 76),
+               (300, 62), (322, 62)], fill=(240, 200, 0, 255))   # pequena
+    p = str(Path(dirpath) / name)
+    im.save(p, dpi=(dpi, dpi))
+    return p
