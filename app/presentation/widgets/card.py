@@ -43,10 +43,9 @@ class CollapsibleCard(QFrame):
 
         self._content = QWidget()
         self.body = QVBoxLayout(self._content)
-        # respiro generoso: 16px nas laterais/base + 4px sob o cabecalho, para o
-        # conteudo não "colar" no título (hierarquia Título -> Grupo -> Campo)
+        # cards enxutos: 12px nas laterais, 8px em cima/baixo (menos altura)
         self.body.setContentsMargins(
-            theme.SPACE_LG, theme.SPACE_XS, theme.SPACE_LG, theme.SPACE_LG
+            theme.SPACE_MD, theme.SPACE_SM, theme.SPACE_MD, theme.SPACE_MD
         )
         self.body.setSpacing(theme.SPACE_SM)
         outer.addWidget(self._content)
@@ -55,8 +54,12 @@ class CollapsibleCard(QFrame):
 
     def _sync(self) -> None:
         open_ = self._header.isChecked()
+        # cabecalho azul -> seta branca, para contraste
         self._header.setIcon(
-            icons.icon("chevron-down" if open_ else "chevron-right", theme.TEXT_MUTED, 16)
+            icons.icon(
+                "chevron-down" if open_ else "chevron-right",
+                theme.ICON_ON_ACCENT, 15,
+            )
         )
         self._header.setText(f"  {self._title}")
         self._content.setVisible(open_)

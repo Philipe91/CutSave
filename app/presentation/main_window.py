@@ -1524,7 +1524,8 @@ class MainWindow(QMainWindow):
                 tb.tool_button(novo, "file-plus", show_text=False),
                 tb.tool_button(abrir, "folder-open", show_text=False),
                 tb.tool_button(salvar, "save", show_text=False),
-                tb.tool_button(add, "plus"),
+                # "Adicionar arquivos" fica so na biblioteca (evita duplicidade);
+                # continua no menu Arquivo e no atalho Ctrl+I.
             ]),
             ("Editar", [
                 tb.tool_button(undo, "undo-2", show_text=False),
@@ -2188,7 +2189,7 @@ class MainWindow(QMainWindow):
         w = QWidget()
         lay = QHBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
+        lay.setSpacing(0)  # "+" colado na aba/X
         self._tabbar = QTabBar()
         self._tabbar.setTabsClosable(True)
         self._tabbar.setExpanding(False)
@@ -2201,12 +2202,15 @@ class MainWindow(QMainWindow):
         plus = QToolButton()
         plus.setText("+")
         plus.setToolTip("Novo trabalho (aba)")
-        plus.setFixedSize(44, 36)
-        pf = plus.font()
-        pf.setPointSize(pf.pointSize() + 10)
-        pf.setBold(True)
-        plus.setFont(pf)
+        plus.setFixedSize(34, 38)
         plus.setCursor(Qt.PointingHandCursor)
+        # tamanho da fonte NO stylesheet (setFont e ignorado quando ha QSS):
+        # glifo grande e azul do tema, puxado para a esquerda (colado na aba/X).
+        plus.setStyleSheet(
+            f"QToolButton{{color:{theme.ACCENT}; border:none; background:transparent;"
+            " font-size:26px; font-weight:400; padding:0 0 5px 0; margin-left:-8px;}"
+            f"QToolButton:hover{{color:{theme.ACCENT_HOVER};}}"
+        )
         plus.clicked.connect(self._new_tab)
         lay.addWidget(plus)
         lay.addStretch()
@@ -2583,7 +2587,7 @@ class MainWindow(QMainWindow):
         document = QWidget()
         dl = QVBoxLayout(document)
         dl.setContentsMargins(0, theme.SPACE_XS, 0, theme.SPACE_SM)
-        dl.setSpacing(theme.SPACE_MD)  # 12px entre cards (separacao natural)
+        dl.setSpacing(theme.SPACE_SM)  # 8px entre cards (compacto)
         self._doc_layout = dl  # usado pelo Modo Compacto
         self._doc_cards = []   # cards do documento (para o Modo Compacto)
 
@@ -3588,7 +3592,7 @@ class MainWindow(QMainWindow):
 
     def _apply_compact_mode(self, on: bool) -> None:
         """Modo Compacto: reduz espaçamentos e a altura dos campos (notebooks)."""
-        self._doc_layout.setSpacing(theme.SPACE_XS if on else theme.SPACE_MD)
+        self._doc_layout.setSpacing(theme.SPACE_XS if on else theme.SPACE_SM)
         gap = theme.SPACE_XS if on else theme.SPACE_SM
         for card in self._doc_cards:
             card.body.setSpacing(gap)

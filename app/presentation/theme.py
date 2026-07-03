@@ -323,47 +323,22 @@ def build_app_qss() -> str:
     QMenu::icon {{ padding-left: 8px; }}
 
     /* ===================== Card (inspector / acordeao) ===================== */
+    /* cabecalho AZUL solido (cor do CTA "Gerar Faca") em TODOS os cards,
+       compacto para ocupar menos altura. */
     QFrame#card {{
         background: {SURFACE};
         border: 1px solid {BORDER};
         border-radius: {RADIUS_CARD}px;
     }}
-    /* faixa colorida por secao (borda esquerda, discreta) */
-    QFrame#card[accent="produção"]  {{ border-left: 3px solid {ACCENT}; }}
-    QFrame#card[accent="acabamento"] {{ border-left: 3px solid {WARNING}; }}
-    QFrame#card[accent="imagens"]   {{ border-left: 3px solid {SUCCESS}; }}
-    QFrame#card[accent="registro"]  {{ border-left: 3px solid #8b5cf6; }}
-    QFrame#card[accent="avançado"]  {{ border-left: 3px solid {TEXT_MUTED}; }}
-    QFrame#card[accent="resumo"] {{
-        border-left: 3px solid {ACCENT}; background: {SURFACE_ALT};
-    }}
+    QFrame#card[accent="resumo"] {{ background: {SURFACE_ALT}; }}
     QPushButton#cardHeader {{
-        background: transparent; border: none; text-align: left;
-        padding: 12px 14px; color: {TEXT};
-        font-size: {FONT_LG}px; font-weight: 600;
+        background: {ACCENT}; border: none; text-align: left;
+        padding: 6px 12px; color: {ICON_ON_ACCENT};
+        font-size: {FONT_MD}px; font-weight: 600;
+        border-top-left-radius: {RADIUS_CARD}px;
+        border-top-right-radius: {RADIUS_CARD}px;
     }}
-    QPushButton#cardHeader:hover {{ background: {HOVER}; }}
-    /* identificacao por cor: cabecalho tingido + título na cor da secao */
-    QFrame#card[accent="produção"] > QPushButton#cardHeader {{
-        background: {INFO_SOFT}; color: #1d4ed8;
-        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
-    }}
-    QFrame#card[accent="acabamento"] > QPushButton#cardHeader {{
-        background: {WARNING_SOFT}; color: #b45309;
-        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
-    }}
-    QFrame#card[accent="imagens"] > QPushButton#cardHeader {{
-        background: {SUCCESS_SOFT}; color: #15803d;
-        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
-    }}
-    QFrame#card[accent="registro"] > QPushButton#cardHeader {{
-        background: #f1eafc; color: #7c3aed;
-        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
-    }}
-    QFrame#card[accent="avançado"] > QPushButton#cardHeader {{
-        background: {SURFACE_ALT}; color: {TEXT_SECONDARY};
-        border-top-left-radius: {RADIUS_CARD}px; border-top-right-radius: {RADIUS_CARD}px;
-    }}
+    QPushButton#cardHeader:hover {{ background: {ACCENT_HOVER}; }}
 
     /* ===================== Ribbon / toolbar ===================== */
     /* a ribbon e um QToolBar (objectName "ribbon") — seletor correto */
