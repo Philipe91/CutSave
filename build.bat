@@ -28,6 +28,9 @@ mkdir PrintNest_Build
 copy /y dist\PrintNest.exe PrintNest_Build\PrintNest.exe
 if exist "docs\build\BUILD.md" copy /y "docs\build\BUILD.md" PrintNest_Build\README.txt
 if exist "docs\build\VERSAO.txt" copy /y "docs\build\VERSAO.txt" PrintNest_Build\VERSAO.txt
+REM carimba a data/hora REAL desta build no VERSAO.txt (identifica cada exe)
+echo.>> PrintNest_Build\VERSAO.txt
+echo Build gerada em: %DATE% %TIME%>> PrintNest_Build\VERSAO.txt
 
 echo.
 echo Build concluida em: PrintNest_Build\PrintNest.exe

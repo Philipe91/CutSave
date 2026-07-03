@@ -1709,16 +1709,19 @@ class MainWindow(QMainWindow):
         return box
 
     def _show_about(self) -> None:
+        from app import __version__
         QMessageBox.about(
             self, "PrintNest Premium",
-            "PrintNest Premium - preparacao de produção gráfica.\n"
-            "Faca, nesting e exportação PDF/DXF.",
+            f"<b>PrintNest Premium</b> — versão {__version__}<br><br>"
+            "Preparação de produção gráfica: faca, nesting e "
+            "exportação PDF/DXF.",
         )
 
     # ---- projeto (.printnest) ----
     def _update_title(self) -> None:
+        from app import __version__
         name = Path(self._project_path).name if self._project_path else "Sem título"
-        self.setWindowTitle(f"PrintNest Premium — {name}")
+        self.setWindowTitle(f"PrintNest Premium v{__version__} — {name}")
 
     def _collect_project(self) -> ProjectDocument:
         """Captura o estado atual (arquivos + parametros) como ProjectDocument."""

@@ -1,28 +1,37 @@
-PrintNest - Preparacao de Producao Grafica
-============================================
+PrintNest Premium - Preparacao de Producao Grafica
+===================================================
 
-Versao:        V1.2 (prototipo de producao)
-Data da build: 2026-06-23
+Versao:        V1.3 (redesign + auditoria QA)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
+(a data/hora exata desta build e carimbada no rodape deste arquivo)
 
-Funcionalidades nesta versao
-----------------------------
-- Importacao de PDF (dimensao real, prioridade TrimBox > CropBox > MediaBox)
-- Caixa de Midia (sangria) ou Caixa de Apara (corte) na importacao
-- Geracao de faca retangular + offset (sangria) e recuo de seguranca
-- Recorte da arte (remover borda branca)
-- Faca por peca ou compartilhada (grade fora a fora)
-- Quantidade por item
-- Nesting automatico (grid) com divisao em multiplas chapas
-- Exportacao PDF de impressao (vetores preservados)
-- Exportacao DXF (mm, layers CUT/REGMARK) - unico ou um por chapa
-- Exportacao em imagem PNG/JPEG com DPI escolhido
-- Registro: Bolinhas (5) e Mimaki (marcas em L + quadro)
-- Rotacao
-- Ferramentas de canvas estilo CorelDRAW: nudge (setas), alinhar/distribuir,
-  duplicar, repetir em grade (step and repeat), encaixe magnetico (snap)
-- Sistema de Projeto (.printnest): Novo / Abrir / Salvar / Salvar Como,
-  reabre o ultimo projeto ao iniciar
-- Interface PySide6 com preview (zoom/pan), faixas por categoria recolhiveis
+Novidades da V1.3
+-----------------
+- Icone do executavel/janela com o LOGO real (S azul + play)
+- Faca com modos: Automatico (JPG->retangulo, PNG transparente->contorno),
+  Retangulo, Contorno justo/suave/simplificado, Faca do cliente (vetor)
+- Marcas de registro: IECHO (bolinhas), Mimaki, ou as DUAS juntas
+- Abas de trabalho (multi-projeto, estilo CorelDRAW)
+- Refinamento visual (PrintNest Design System): paleta clara, cards do
+  inspector em azul, barra de abas destacada, mesa do canvas clara com a
+  chapa "flutuando", inputs/checkbox/radio padronizados
+- Barrinha de exibicao flutuante no canvas (arrastavel/colapsavel) + botao
+  Visualizacao na barra de cima
+- Atalhos padrao CorelDRAW: Ctrl+C/V/D (copiar/colar/duplicar em cadeia),
+  Ctrl+W, Ctrl+P, alinhar T/B/L/R/C/E, zoom F2/F3/Shift+F2/Shift+F4, mao (H),
+  pan (Alt+setas), propriedades do objeto (Alt+Enter)
+- Interface acentuada (portugues completo)
+- Correcoes da auditoria QA (13 itens): undo do giro, exportacao nunca
+  silenciosa, faca vazia recusada, arquivo importado 2x, radio redondo,
+  lista de chapas destravada, entre outras
+
+Base (desde a V1.2)
+-------------------
+- Importacao PDF/PNG/JPG/WEBP; caixa de Midia (sangria) ou Apara (corte)
+- Nesting automatico (grade) com divisao em multiplas chapas
+- Exportacao PDF de impressao (vetores preservados), DXF (mm, layers
+  CUT/REGMARK, unico ou por chapa) e imagem PNG/JPEG no DPI escolhido
+- Recorte da arte, faca por peca ou compartilhada, quantidade por item
+- Sistema de Projeto (.printnest): Novo/Abrir/Salvar/Salvar Como
 - Configuracoes persistidas (em %APPDATA%\PrintNest)
