@@ -35,19 +35,27 @@ def _contours_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list[C
 
 
 def _faca_rects_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list[BoundingBox]:
-    """Retangulos envolventes das facas posicionadas na chapa (mm)."""
+    """Retangulos envolventes das facas posicionadas na chapa (mm).
+
+    Usa a extensao de TODAS as facas da peca (principal + extras). Com varios
+    desenhos numa imagem, considerar so o maior colocava as marcas de registro
+    no lugar errado (elas enquadravam um desenho, nao a peca inteira).
+    """
     rects: list[BoundingBox] = []
     for item in layout.items:
         art = by_id.get(item.artwork_id)
         if art is None or not art.has_cut:
             continue
-        faca = art.cut_contour
         footprint = artwork_footprint(art)
         tx = item.position.x - footprint.min_x + dx
         ty = item.position.y - footprint.min_y
-        ox = faca.origin.x + tx
-        oy = faca.origin.y + ty
-        rects.append(BoundingBox(ox, oy, ox + faca.size.width, oy + faca.size.height))
+        xs: list[float] = []
+        ys: list[float] = []
+        for faca in (art.cut_contour, *art.extra_cuts):
+            for p in faca.points:
+                xs.append(p.x + tx)
+                ys.append(p.y + ty)
+        rects.append(BoundingBox(min(xs), min(ys), max(xs), max(ys)))
     return rects
 
 

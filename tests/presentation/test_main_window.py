@@ -988,6 +988,27 @@ def test_imagem_com_varios_desenhos_gera_faca_de_cada(qapp, tmp_path):
     assert len(contornos) == 2  # 2 facas posicionadas
 
 
+def test_marcas_de_registro_enquadram_a_folha_toda(qapp, tmp_path):
+    # Bug: com varios desenhos, as marcas de registro usavam so o MAIOR desenho
+    # e saiam no lugar errado. O enquadramento tem que cobrir a peca inteira.
+    from app.application.positioning import _faca_rects_of, _union_bbox
+    from tests import synth_images as si
+    src = si.png_dois_adesivos(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("contour"))
+    window.generate(blocking=True)
+
+    art = window._result.artworks[0]
+    assert art.extra_cuts  # ha mais de um desenho
+    sheet = window._result.sheets[0]
+    by_id = {a.id: a for a in window._result.artworks}
+    bbox = _union_bbox(_faca_rects_of(sheet, by_id, 0.0))
+    # o enquadramento cobre os DOIS discos -> bem mais largo que um disco so
+    um_disco = art.cut_contour.size.width
+    assert (bbox.max_x - bbox.min_x) > um_disco * 1.5
+
+
 def test_duplicar_so_a_pagina_selecionada(qapp, tmp_path, monkeypatch):
     # PDF com varias paginas: duplicar SO a pagina selecionada, sem duplicar tudo.
     from collections import Counter
