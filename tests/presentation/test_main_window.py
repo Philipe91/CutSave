@@ -962,6 +962,32 @@ def test_remover_da_biblioteca_tira_a_peca_da_tela(qapp, tmp_path):
     assert not [it for it in window._scene.items() if isinstance(it, PieceItem)]
 
 
+def test_imagem_com_varios_desenhos_gera_faca_de_cada(qapp, tmp_path):
+    # Folha com 2 adesivos separados -> a peca segue UMA so, mas com 2 facas
+    # (a principal + 1 extra). Antes so saia a faca do maior desenho.
+    from tests import synth_images as si
+    src = si.png_dois_adesivos(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    # modo contorno (o alpha ja cai em contorno no auto, mas forcamos)
+    window._faca_mode.setCurrentIndex(window._faca_mode.findData("contour"))
+    window.generate(blocking=True)
+
+    art = window._result.artworks[0]
+    assert art.has_cut  # faca principal
+    assert len(art.extra_cuts) == 1  # o segundo adesivo virou faca extra
+    # continua UMA peca no nesting (a folha nao foi fatiada)
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+    # e a exportacao (DXF/faca) leva as 2 linhas de corte
+    from app.application.positioning import positioned_cut_contours_sheets
+    contornos = positioned_cut_contours_sheets(
+        window._result.sheets, window._result.artworks,
+        window._result.sheets[0].material.width,
+    )
+    assert len(contornos) == 2  # 2 facas posicionadas
+
+
 def test_duplicar_so_a_pagina_selecionada(qapp, tmp_path, monkeypatch):
     # PDF com varias paginas: duplicar SO a pagina selecionada, sem duplicar tudo.
     from collections import Counter

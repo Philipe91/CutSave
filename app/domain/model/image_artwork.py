@@ -27,3 +27,6 @@ class ImageArtwork(Artwork):
     dpi: float = 96.0
     image_kind: ImageKind = ImageKind.IMAGE_OPAQUE
     raw_contour: CutContour | None = None
+    # contornos ADICIONAIS detectados (demais desenhos separados na imagem);
+    # o raw_contour e o maior. A UI deriva extra_cuts destes (mesmos offsets).
+    raw_contours: tuple[CutContour, ...] = ()

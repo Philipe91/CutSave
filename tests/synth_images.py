@@ -80,3 +80,15 @@ def webp_opaque(dirpath, name="opaque.webp", dpi=DPI):
     p = str(Path(dirpath) / name)
     im.save(p)
     return p
+
+
+def png_dois_adesivos(dirpath, name="dois_adesivos.png", dpi=DPI):
+    """PNG transparente com DOIS discos opacos separados (2 desenhos numa folha).
+    Simula a folha de adesivos: cada disco vira uma faca."""
+    im = _rgba(400, 200)
+    d = ImageDraw.Draw(im)
+    d.ellipse([40, 40, 160, 160], fill=(0, 120, 200, 255))     # adesivo 1
+    d.ellipse([240, 40, 360, 160], fill=(200, 60, 60, 255))    # adesivo 2
+    p = str(Path(dirpath) / name)
+    im.save(p, dpi=(dpi, dpi))
+    return p

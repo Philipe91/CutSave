@@ -4002,7 +4002,8 @@ class MainWindow(QMainWindow):
         sy = target.height / base.size.height
         if isinstance(base, ImageArtwork) and base.raw_contour is not None:
             raw = self._scaled_contour(base.raw_contour, sx, sy)
-            return replace(base, size=target, raw_contour=raw), sx, sy
+            raws = tuple(self._scaled_contour(c, sx, sy) for c in base.raw_contours)
+            return replace(base, size=target, raw_contour=raw, raw_contours=raws), sx, sy
         return replace(base, size=target), sx, sy
 
     @staticmethod
@@ -4099,6 +4100,21 @@ class MainWindow(QMainWindow):
         contour, w, h = crop_and_rotate_contour(
             raw_contour, crop, rotation, base.size.width, base.size.height
         )
+        contour = self._finish_contour(contour, params, sangria, mode)
+        # facas ADICIONAIS: demais desenhos separados na imagem (mesmos transforms
+        # do principal). So imagens tem raw_contours; PDF/vetor -> vazio.
+        extras = []
+        for raw in getattr(base, "raw_contours", ()):
+            c, _, _ = crop_and_rotate_contour(
+                raw, crop, rotation, base.size.width, base.size.height
+            )
+            extras.append(self._finish_contour(c, params, sangria, mode))
+        return replace(
+            base, size=Size(w, h), cut_contour=contour, extra_cuts=tuple(extras)
+        )
+
+    def _finish_contour(self, contour, params, sangria, mode):
+        """Aplica densidade + suavizar + sangria a UM contorno ja recortado/girado."""
         tol = self._density_tol()  # densidade: reduz nos/ruido antes de suavizar
         if mode == "contour_simplify":
             tol = max(tol, 0.6)  # variacao "simplificado": garante menos nos
@@ -4111,7 +4127,7 @@ class MainWindow(QMainWindow):
             contour = smooth_contour(contour, smooth)
         if sangria != 0:
             contour = offset_contour(contour, sangria, params.get("corner", "round"))
-        return replace(base, size=Size(w, h), cut_contour=contour)
+        return contour
 
     def _density_tol(self) -> float:
         """Tolerancia de simplificacao (mm) a partir da 'Densidade da faca'.
@@ -5037,11 +5053,15 @@ class MainWindow(QMainWindow):
                         self._params_for(self._path_of(item.artwork_id)).get("mode")
                         == "vector"
                     )
-                    faca = art.cut_contour
-                    poly = QPolygonF([QPointF(ax + p.x, ay + p.y) for p in faca.points])
-                    poly_item = QGraphicsPolygonItem(poly, piece)
-                    poly_item.setPen(client_pen if is_client else faca_pen)
-                    poly_item.setBrush(Qt.NoBrush)
+                    pen = client_pen if is_client else faca_pen
+                    # faca principal + facas adicionais (varios desenhos na peca)
+                    for faca in (art.cut_contour, *art.extra_cuts):
+                        poly = QPolygonF(
+                            [QPointF(ax + p.x, ay + p.y) for p in faca.points]
+                        )
+                        poly_item = QGraphicsPolygonItem(poly, piece)
+                        poly_item.setPen(pen)
+                        poly_item.setBrush(Qt.NoBrush)
                 self._scene.addItem(piece)
 
             if draw_cut and shared:

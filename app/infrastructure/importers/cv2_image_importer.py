@@ -23,6 +23,10 @@ MAX_DETECT_SIDE = 1000
 SIMPLIFY_MM = 0.3
 # Alpha minimo (0-255) para considerar um pixel opaco ao classificar a imagem.
 _ALPHA_OPAQUE = 250
+# Multi-desenho: fracao minima da area da imagem para um contorno contar como
+# um desenho separado (abaixo disso e ruido/respingo). E teto de desenhos.
+MIN_DESIGN_AREA_FRAC = 0.01
+MAX_DESIGNS = 200
 
 
 class Cv2ImageImporter(IImageImporter):
@@ -62,9 +66,17 @@ class Cv2ImageImporter(IImageImporter):
 
         has_alpha = bool(rgba[:, :, 3].min() < _ALPHA_OPAQUE)
         image_kind = ImageKind.IMAGE_ALPHA if has_alpha else ImageKind.IMAGE_OPAQUE
-        contour = self.detect_contour(
+        # detecta TODOS os desenhos separados (maior primeiro); o maior vira o
+        # contorno principal e os demais viram raw_contours (facas adicionais).
+        contours = self.detect_contours(
             rgba, dpi, sensitivity=sensitivity, ignore_white=ignore_white
         )
+        if contours:
+            contour = contours[0]
+            extras = tuple(contours[1:])
+        else:
+            contour = self._full_rect(size.width, size.height)
+            extras = ()
 
         stem = Path(path).stem or "imagem"
         art_id = f"{stem}#{self._short_hash(path)}"
@@ -78,6 +90,7 @@ class Cv2ImageImporter(IImageImporter):
             dpi=dpi,
             image_kind=image_kind,
             raw_contour=contour,
+            raw_contours=extras,
         )
         return ImportedImage(artwork, self._render_path(path, fmt, rgba))
 
@@ -172,6 +185,17 @@ class Cv2ImageImporter(IImageImporter):
 
     # ---- contorno externo ----
     def _contour(self, mask: np.ndarray, width: int, height: int, dpi: float) -> CutContour:
+        """Maior contorno (compat.: PDF rasterizado, faca unica)."""
+        multi = self._contours_multi(mask, width, height, dpi)
+        return multi[0] if multi else self._full_rect(
+            width * MM_PER_INCH / dpi, height * MM_PER_INCH / dpi
+        )
+
+    def _contours_multi(
+        self, mask: np.ndarray, width: int, height: int, dpi: float
+    ) -> list[CutContour]:
+        """TODOS os desenhos separados na imagem (maior primeiro), filtrando
+        ruido por area. Uma folha com N adesivos -> N contornos."""
         mm_per_px = MM_PER_INCH / dpi
         scale = 1.0
         detect = mask
@@ -184,19 +208,42 @@ class Cv2ImageImporter(IImageImporter):
             )
         mm_per_detect = mm_per_px / scale
 
-        contours, _ = cv2.findContours(detect, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return self._full_rect(width * mm_per_px, height * mm_per_px)
-        biggest = max(contours, key=cv2.contourArea)
-        if cv2.contourArea(biggest) <= 0:
-            return self._full_rect(width * mm_per_px, height * mm_per_px)
-
+        found, _ = cv2.findContours(detect, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not found:
+            return []
+        total = detect.shape[0] * detect.shape[1]
+        min_area = total * MIN_DESIGN_AREA_FRAC  # ignora respingos/ruido
+        # so aceita como "desenho separado" o que for grande o bastante; sempre
+        # mantem o maior (mesmo que a imagem seja um desenho unico pequeno).
+        big = [c for c in found if cv2.contourArea(c) >= min_area]
+        if not big:
+            big = [max(found, key=cv2.contourArea)]
+        big.sort(key=cv2.contourArea, reverse=True)
         epsilon = max(1.0, SIMPLIFY_MM / mm_per_detect)
-        approx = cv2.approxPolyDP(biggest, epsilon, True).reshape(-1, 2)
-        if len(approx) < 3:
-            return self._full_rect(width * mm_per_px, height * mm_per_px)
-        points = [Point2D(float(c) * mm_per_detect, float(r) * mm_per_detect) for c, r in approx]
-        return CutContour(points)
+        out: list[CutContour] = []
+        for cnt in big[:MAX_DESIGNS]:
+            approx = cv2.approxPolyDP(cnt, epsilon, True).reshape(-1, 2)
+            if len(approx) < 3:
+                continue
+            out.append(CutContour(
+                [Point2D(float(c) * mm_per_detect, float(r) * mm_per_detect)
+                 for c, r in approx]
+            ))
+        return out
+
+    def detect_contours(
+        self,
+        rgba: np.ndarray,
+        dpi: float,
+        *,
+        sensitivity: float = 50.0,
+        ignore_white: bool = True,
+    ) -> list[CutContour]:
+        """Todos os contornos (desenhos separados) de um RGBA, maior primeiro."""
+        height, width = rgba.shape[:2]
+        has_alpha = bool(rgba[:, :, 3].min() < _ALPHA_OPAQUE)
+        mask = self._mask(rgba, has_alpha, sensitivity, ignore_white)
+        return self._contours_multi(mask, width, height, dpi)
 
     @staticmethod
     def _full_rect(w_mm: float, h_mm: float) -> CutContour:

@@ -50,6 +50,10 @@ class Artwork:
     size: Size
     kind: ArtKind
     cut_contour: CutContour | None = None
+    # facas ADICIONAIS na mesma peca: uma imagem pode conter varios desenhos
+    # separados (ex.: folha com 6 adesivos) -> uma linha de corte para cada.
+    # A peca segue sendo UMA so (bounding box); estas sao cortes internos.
+    extra_cuts: tuple[CutContour, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id:

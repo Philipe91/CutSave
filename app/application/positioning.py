@@ -24,12 +24,13 @@ def _contours_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list[C
         art = by_id.get(item.artwork_id)
         if art is None or not art.has_cut:
             continue
-        faca = art.cut_contour
         footprint = artwork_footprint(art)
         # origem art-local (0,0) vai para item.position - footprint.min
         tx = item.position.x - footprint.min_x + dx
         ty = item.position.y - footprint.min_y
-        contours.append(CutContour([p.translated(tx, ty) for p in faca.points]))
+        # faca principal + facas adicionais (varios desenhos na mesma peca)
+        for faca in (art.cut_contour, *art.extra_cuts):
+            contours.append(CutContour([p.translated(tx, ty) for p in faca.points]))
     return contours
 
 
