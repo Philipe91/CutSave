@@ -2614,6 +2614,10 @@ class MainWindow(QMainWindow):
         self._display_bar.adjustSize()
         self._display_bar.move(12, 12)
         self._display_bar.show()
+        # mantem a barrinha SEMPRE por cima e visivel (o QGraphicsView pode
+        # deixa-la atras do canvas ao rolar/zoom -> "some"). Igual a caixa de
+        # medidas, que se re-eleva a cada atualizacao.
+        self._view.view_changed.connect(self._keep_display_bar)
 
         # demais controles de Exibição (réguas, snap) no popup do botão da barra
         self._display_panel = self._build_display_controls()
@@ -2622,6 +2626,19 @@ class MainWindow(QMainWindow):
             ruler.guide_preview.connect(self._on_guide_preview)
             ruler.guide_dropped.connect(self._on_guide_dropped)
         return work
+
+    def _keep_display_bar(self) -> None:
+        """Garante a barrinha de exibição visivel e no topo (anti-'sumiu')."""
+        bar = getattr(self, "_display_bar", None)
+        if bar is None:
+            return
+        parent = bar.parent()
+        if parent is not None:  # nao deixa escapar da area visivel apos resize
+            x = max(0, min(bar.x(), parent.width() - bar.width()))
+            y = max(0, min(bar.y(), parent.height() - bar.height()))
+            bar.move(x, y)
+        bar.show()
+        bar.raise_()
 
     # ---- guias (arrastar da régua, estilo CorelDRAW) ----
     @staticmethod
