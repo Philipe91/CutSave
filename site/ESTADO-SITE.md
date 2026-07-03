@@ -1,7 +1,11 @@
-# Estado do Site de Vendas — PrintNest Premium
+# Estado do Site de Vendas — PrintNest Pro
 
 > Ponto de retomada. Se a sessão/energia acabar, comece por aqui.
 > Última atualização: sessão de 03/07/2026.
+
+> **A landing agora segue o brief oficial** `docs/produto/COPY-SITE-VENDAS.md`
+> (8 seções, copy definitiva, preço **R$ 397**, garantia 7 dias). Produto: **PrintNest Pro**.
+> Placeholders `[SUPORTE]` e `[LINK_PAGAMENTO]` deixados no HTML até o Philipe definir.
 
 ---
 
@@ -31,10 +35,11 @@ Duplo clique em `site/index.html` (não precisa de servidor). Para live-reload:
 | `COPY.md` | Copy de venda + 30 FAQ + extras (ads, e-mails) | ✅ |
 | `ESTADO-SITE.md` | Este documento | ✅ |
 
-### Seções da landing (todas construídas)
-Header · Hero (com print real) · Segmentos · Problema×Solução · Como funciona ·
-Benefícios · Recursos · Vídeo (placeholder) · Screenshots (galeria) · Comparação ·
-Depoimentos · Planos · Garantia · FAQ · CTA final · Footer.
+### Seções da landing (8 seções do brief oficial)
+Header · **1** Hero (com print real + CTA R$ 397) · **2** O Problema · **3** A Solução
+(grade de 5 recursos) · **4** Por que PrintNest (4 cards) · **5** Como funciona (3 passos) ·
+**6** Preço (card único R$ 397 + âncora de valor + garantia) · **7** FAQ (7 perguntas) ·
+**8** CTA final · Requisitos · Footer.
 
 ### Refino visual aplicado (nível premium)
 - **Paleta:** preto / branco / **azul `#2563EB`** (token único; sombras e foco derivam dele).
@@ -64,10 +69,11 @@ Depoimentos · Planos · Garantia · FAQ · CTA final · Footer.
 - [ ] **Depoimentos reais** (hoje são exemplos rotulados; trocar por clientes com consentimento).
 
 ### B) Comercial (decisões + integração)
-- [ ] **Definir preço** e modelo (perpétua / assinatura / híbrido) → preencher `R$ —` nos planos.
-- [ ] **Escolher gateway** (Hotmart/Eduzz *ou* Mercado Pago/Stripe) e ligar os botões de compra.
-- [ ] **Hospedar o instalador `.exe` assinado** e apontar os botões "Baixar".
-- [ ] Fluxo de **entrega da chave** por e-mail (liga com `app/licensing/`).
+- [x] **Preço definido:** R$ 397, pagamento único, licença vitalícia, garantia 7 dias.
+- [ ] **Preencher `[LINK_PAGAMENTO]`** (2 lugares: card de preço + CTA final) com o link do gateway.
+- [ ] **Preencher `[SUPORTE]`** (2 lugares: linha de requisitos + footer) com WhatsApp/e-mail.
+- [ ] **Escolher gateway** (Hotmart/Eduzz *ou* Mercado Pago/Stripe) e gerar o `[LINK_PAGAMENTO]`.
+- [ ] **Hospedar o instalador `.exe` assinado** + fluxo de **entrega da chave** (liga com `app/licensing/`).
 
 ### C) Legal (páginas + textos)
 - [ ] `termos.html` (EULA) · `privacidade.html` (LGPD) · `reembolso.html` (7 dias).
