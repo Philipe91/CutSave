@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import (
+    QEvent,
     QLocale,
     QObject,
     QPointF,
@@ -26,6 +27,7 @@ from PySide6.QtGui import (
     QIcon,
     QKeySequence,
     QPainter,
+    QPainterPath,
     QPainterPathStroker,
     QPen,
     QPixmap,
@@ -48,6 +50,7 @@ from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsItemGroup,
     QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsPolygonItem,
     QGraphicsRectItem,
@@ -89,12 +92,15 @@ from app.application.positioning import (
     mimaki_frame_contours,
     mimaki_marks,
     mimaki_marks_sheets,
+    positioned_cut_contours,
     positioned_cut_contours_sheets,
     registration_marks,
     registration_marks_sheets,
     shared_cut_segments,
     shared_cut_segments_sheets,
 )
+from app.domain.cut.curves import cubic_segments, has_curves
+from app.domain.cut.shared import merge_touching_rect_cuts
 from app.application.project_io import (
     PROJECT_EXTENSION,
     PROJECT_SETTING_KEYS,
@@ -403,6 +409,18 @@ class PieceItem(QGraphicsRectItem):
         self.snap: SnapConfig | None = None
         self.sheet_rect: tuple[float, float, float, float] | None = None
         self.setPen(QPen(Qt.NoPen))
+        # maozinha estilo Corel/Photoshop: aberta ao pairar, fechada movendo
+        # (so faz sentido quando a peça e movel — ver mousePress/Release).
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mousePressEvent(self, event) -> None:
+        if self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
+            self.setCursor(Qt.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
 
     def paint(self, painter, option, widget=None) -> None:  # noqa: ARG002
         # a arte e a faca são itens filhos; a peça em si só desenha o contorno
@@ -2183,7 +2201,9 @@ class MainWindow(QMainWindow):
         sep2.setStyleSheet(f"color:{theme.TEXT_MUTED};")
         cl.addWidget(sep2)
         self._ct_smooth = _spin(0, 5)
-        self._ct_smooth.setFixedWidth(52)
+        # largura MINIMA (nao fixa): 52px fixos cortavam o numero em monitores
+        # com escala 125/150% (fonte maior nao cabia) — bug visto no beta.
+        self._ct_smooth.setMinimumWidth(64)
         self._ct_smooth.setToolTip("Suavizar curvas da faca: 0 = reto, 5 = macio.")
         self._ct_smooth.valueChanged.connect(lambda _: self._apply_contour_smooth())
         cl.addWidget(QLabel("Suavizar"))
@@ -5374,6 +5394,15 @@ class MainWindow(QMainWindow):
                 dx, dy, layout.material.width, layout.used_length, sheet_pen, sheet_brush
             )
             self._keep(sheet_rect)
+            # fusao automatica (corte rente): retangulos colados viram grade.
+            # 'consumed' segue a MESMA ordem de _contours_of (itens -> facas).
+            fused_consumed: set[int] = set()
+            fused_segments: list = []
+            if draw_cut and not shared:
+                fused_consumed, fused_segments = merge_touching_rect_cuts(
+                    [c.points for c in positioned_cut_contours(layout, result.artworks)]
+                )
+            faca_idx = 0
             for item in layout.items:
                 art = by_id.get(item.artwork_id)
                 if art is None:
@@ -5423,6 +5452,26 @@ class MainWindow(QMainWindow):
                     pen = client_pen if is_client else faca_pen
                     # faca principal + facas adicionais (varios desenhos na peca)
                     for faca in (art.cut_contour, *art.extra_cuts):
+                        idx = faca_idx
+                        faca_idx += 1
+                        if idx in fused_consumed:
+                            continue  # esta faca virou linha da grade fundida
+                        # contorno curvo vira Bezier no canvas (curva lisa,
+                        # igual ao que sai no PDF/DXF); reto segue poligono
+                        segs = cubic_segments(faca.points)
+                        if segs and has_curves(segs):
+                            pp = QPainterPath()
+                            pp.moveTo(ax + segs[0].p0.x, ay + segs[0].p0.y)
+                            for s in segs:
+                                pp.cubicTo(
+                                    ax + s.c1.x, ay + s.c1.y,
+                                    ax + s.c2.x, ay + s.c2.y,
+                                    ax + s.p1.x, ay + s.p1.y,
+                                )
+                            path_item = QGraphicsPathItem(pp, piece)
+                            path_item.setPen(pen)
+                            path_item.setBrush(Qt.NoBrush)
+                            continue
                         poly = QPolygonF(
                             [QPointF(ax + p.x, ay + p.y) for p in faca.points]
                         )
@@ -5431,6 +5480,12 @@ class MainWindow(QMainWindow):
                         poly_item.setBrush(Qt.NoBrush)
                 self._scene.addItem(piece)
 
+            if draw_cut and not shared and fused_segments:
+                for seg in fused_segments:
+                    self._keep(self._scene.addLine(
+                        dx + seg.start.x, dy + seg.start.y,
+                        dx + seg.end.x, dy + seg.end.y, faca_pen,
+                    ))
             if draw_cut and shared:
                 for seg in shared_cut_segments(layout, result.artworks):
                     self._keep(self._scene.addLine(
@@ -5450,6 +5505,24 @@ class MainWindow(QMainWindow):
         if not rect.isEmpty():
             self._view.fitInView(rect, Qt.KeepAspectRatio)
             self._view.view_changed.emit()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        # Restaurar da barra de tarefas com o canvas "perdido" (pan/zoom longe
+        # da chapa — feedback do beta: "minimizei e nao acho mais a pagina"):
+        # se NENHUMA parte da cena esta visivel, re-enquadra sozinho.
+        if event.type() == QEvent.Type.WindowStateChange and not (
+            self.windowState() & Qt.WindowState.WindowMinimized
+        ):
+            QTimer.singleShot(0, self._rescue_lost_view)
+
+    def _rescue_lost_view(self) -> None:
+        rect = self._scene.itemsBoundingRect()
+        if rect.isEmpty():
+            return
+        visible = self._view.mapToScene(self._view.viewport().rect()).boundingRect()
+        if not visible.intersects(rect):
+            self._fit_view()
 
     # ---- zoom e navegacao (atalhos padrão CorelDRAW) ----
     def _zoom_step(self, factor: float) -> None:
@@ -6404,7 +6477,17 @@ class MainWindow(QMainWindow):
             segments = shared_cut_segments_sheets(sheets, artworks, sheet_width)
         else:
             contours = positioned_cut_contours_sheets(sheets, artworks, sheet_width)
-            segments = []
+            # fusao automatica: retangulos COLADOS (corte rente, espacamento 0)
+            # viram linhas continuas — a maquina corta 1x na linha em vez de 2x
+            # na mesma borda. Pecas com espacamento seguem individuais.
+            consumed, fused = merge_touching_rect_cuts(
+                [c.points for c in contours]
+            )
+            if consumed:
+                contours = [c for i, c in enumerate(contours) if i not in consumed]
+                segments = fused
+            else:
+                segments = []
         marks, mark_segments = [], []
         if reg in ("circles", "both"):
             # bolinhas continuam no corte (comportamento já validado)
@@ -6539,6 +6622,20 @@ class MainWindow(QMainWindow):
                 contours, segments, marks, _mk = self._dxf_payload([sheet])
                 pen = {"color": (0.86, 0.0, 0.0), "width": 0.5}  # faca (vermelho)
                 for contour in contours:
+                    # contorno curvo sai como Bezier NATIVO do PDF (curva lisa,
+                    # mesmos nos); retas/retangulos seguem como polilinha.
+                    segs = cubic_segments(contour.points)
+                    if segs and has_curves(segs):
+                        P = fitz.Point
+                        for s in segs:
+                            page.draw_bezier(
+                                P((s.p0.x + pad) * mm2pt, (s.p0.y + pad) * mm2pt),
+                                P((s.c1.x + pad) * mm2pt, (s.c1.y + pad) * mm2pt),
+                                P((s.c2.x + pad) * mm2pt, (s.c2.y + pad) * mm2pt),
+                                P((s.p1.x + pad) * mm2pt, (s.p1.y + pad) * mm2pt),
+                                **pen,
+                            )
+                        continue
                     pts = [
                         fitz.Point((p.x + pad) * mm2pt, (p.y + pad) * mm2pt)
                         for p in contour.points

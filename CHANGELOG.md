@@ -19,6 +19,27 @@ sessão fica em [`docs/historico/`](docs/historico/).
   após desativar — brecha fechada).
 
 ### Faca
+- **Curvas de VERDADE (Bézier)**: contornos curvos saem como curva contínua no
+  canvas, Bézier nativo na Faca PDF e **SPLINE no DXF** — mesma contagem de
+  nós, ≥4× mais fiel que as cordas retas. Cantos vivos e retas preservados
+  exatos (retângulo continua retângulo).
+- **Fusão automática de cortes rentes**: quadrados com espaçamento 0 viram
+  grade de linhas contínuas (1 passada por linha, sem cortar 2× a mesma
+  borda); com espaçamento, corte individual — sem botão, é automático.
+- **Detecção sub-pixel**: em imagens pequenas a máscara é ampliada com
+  interpolação — a faca deixa de seguir os degraus dos pixels (facetamento
+  medido: 0,44 → 0,11 mm num círculo de 30 mm).
+
+### Beta (feedback do chefe — 06/07)
+- Cursor **mãozinha** ao pairar/mover peças (estilo Corel/Photoshop).
+- Campo "Suavizar" não corta mais o número em monitores com escala 125/150%.
+- Restaurar a janela com o canvas "perdido" (pan/zoom longe da chapa)
+  **re-enquadra sozinho**.
+
+### Jurídico (rascunhos para validação)
+- `docs/produto/juridico/`: EULA, Política de Privacidade (LGPD) e Termos de
+  Venda com a garantia de 7 dias.
+
 - **Ferramenta Pontos (F10)**, estilo Corel: mover nó (arrastar), adicionar
   (duplo-clique no segmento), remover (duplo-clique no nó); escopo por arquivo
   (cópias herdam); faca manual sobrevive a rotação/redimensionamento e entra no

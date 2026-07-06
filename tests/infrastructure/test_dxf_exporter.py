@@ -34,6 +34,28 @@ def test_layer_cut_existe(tmp_path):
     assert "CUT" in doc.layers
 
 
+def _circle_contour(n=24, r=15.0, cx=20.0, cy=20.0):
+    import math
+    return CutContour([
+        Point2D(cx + r * math.cos(2 * math.pi * i / n),
+                cy + r * math.sin(2 * math.pi * i / n))
+        for i in range(n)
+    ])
+
+
+def test_contorno_curvo_sai_como_spline(tmp_path):
+    # curva de verdade no DXF (corte liso na maquina); o retangulo continua
+    # como polilinha (retas exatas)
+    out = tmp_path / "faca.dxf"
+    DxfExporter().export([_circle_contour(), _rect_contour()], str(out))
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    splines = msp.query("SPLINE")
+    plines = msp.query("LWPOLYLINE")
+    assert len(splines) >= 1 and splines[0].dxf.layer == "CUT"
+    assert len(plines) == 1  # so o retangulo
+
+
 def test_polilinha_fechada_na_layer_cut(tmp_path):
     out = tmp_path / "faca.dxf"
     DxfExporter().export([_rect_contour()], str(out))

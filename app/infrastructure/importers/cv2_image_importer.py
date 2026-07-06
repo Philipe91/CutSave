@@ -17,10 +17,18 @@ from app.shared.errors import ImageImportError
 
 MM_PER_INCH = 25.4
 DEFAULT_DPI = 96.0
-# Lado maximo (px) da mascara antes do findContours: limita o custo em imagens grandes.
-MAX_DETECT_SIDE = 1000
+# Lado maximo (px) da mascara antes do findContours: limita o custo em imagens
+# grandes. 1600 (era 1000): mascara mais fina = curva mais fiel ao desenho.
+MAX_DETECT_SIDE = 1600
+# Imagens PEQUENAS (adesivo em baixa resolucao): amplia a mascara com
+# interpolacao antes do contorno — precisao SUB-PIXEL, a curva para de seguir
+# os degraus dos pixels (faca "reta demais" em circulos pequenos).
+MIN_DETECT_SIDE = 900
+UPSCALE_MAX = 6.0
 # Tolerancia de simplificacao do contorno (mm): remove pontos redundantes.
-SIMPLIFY_MM = 0.3
+# 0.12 (era 0.3): cordas curtas preservam a CURVA na origem — a suavizacao e a
+# reducao de nos (Fino/Medio/Leve) atuam depois e controlam a contagem final.
+SIMPLIFY_MM = 0.12
 # Alpha minimo (0-255) para considerar um pixel opaco ao classificar a imagem.
 _ALPHA_OPAQUE = 250
 # Multi-desenho: area MINIMA (em mm^2) para um contorno contar como um desenho
@@ -208,6 +216,16 @@ class Cv2ImageImporter(IImageImporter):
                 mask, (max(1, int(width * scale)), max(1, int(height * scale))),
                 interpolation=cv2.INTER_NEAREST,
             )
+        elif longest < MIN_DETECT_SIDE:
+            # sub-pixel: amplia a mascara suavizando os degraus dos pixels; o
+            # contorno sai da CURVA real, nao da escadinha (limiar re-binariza)
+            scale = min(UPSCALE_MAX, MIN_DETECT_SIDE / longest)
+            big = cv2.resize(
+                mask * 255,
+                (max(1, round(width * scale)), max(1, round(height * scale))),
+                interpolation=cv2.INTER_CUBIC,
+            )
+            detect = (big >= 128).astype(np.uint8)
         mm_per_detect = mm_per_px / scale
 
         found, _ = cv2.findContours(detect, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)

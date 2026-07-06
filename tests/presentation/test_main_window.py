@@ -2008,7 +2008,12 @@ def test_fluxo_imagem_png_gera_faca_e_exporta(qapp, tmp_path):
     window.export_dxf(str(dxf_out))
     assert dxf_out.exists()
     doc = ezdxf.readfile(str(dxf_out))
-    assert len(doc.modelspace().query("LWPOLYLINE")) >= 1  # contorno irregular
+    # contorno irregular: sai como SPLINE (curva de verdade) ou LWPOLYLINE
+    # (se a deteccao devolver so retas) — o que importa e ter corte na CUT
+    msp = doc.modelspace()
+    cortes = list(msp.query("SPLINE")) + list(msp.query("LWPOLYLINE"))
+    assert len(cortes) >= 1
+    assert all(e.dxf.layer == "CUT" for e in cortes)
 
     png_out = tmp_path / "IMG_OUT.png"
     window.export_image(str(png_out), dpi=72)
