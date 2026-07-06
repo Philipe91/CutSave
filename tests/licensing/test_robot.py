@@ -114,6 +114,20 @@ def test_pedido_incompleto_orienta_sem_emitir(store, issue):
     assert not ok and "digo de compra" in corpo
 
 
+# ---- e-mail HTML ----
+def test_html_destaca_a_chave_e_escapa_texto(store, issue):
+    from tools.license_robot import _build_html
+    (code,) = store.generate(1)
+    _, corpo = process_request(store, MID, code, "Cliente <c@x.com>", issue)
+    html = _build_html(corpo)
+    key = next(l for l in corpo.splitlines() if l.startswith("PNEST1."))
+    assert key in html  # chave presente, inteira
+    assert 'cid:printnest-logo' in html  # logo embutida
+    assert "SUA CHAVE" in html  # caixa de destaque
+    perigo = _build_html("ola <script>alert(1)</script>")
+    assert "<script>" not in perigo  # texto do cliente sempre escapado
+
+
 # ---- dialogo: pedido pronto ----
 def test_dialogo_monta_pedido_com_id_e_endereco(tmp_path):
     import os

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import email
 import email.utils
+import html as html_mod
 import imaplib
 import json
 import re
@@ -38,6 +39,7 @@ from tools.vouchers import VoucherStore, normalize  # noqa: E402
 CONFIG_PATH = Path(__file__).with_name("robot_config.json")
 LOG_PATH = Path(__file__).with_name("licenses_emitidas") / "robo-log.jsonl"
 PROCESSED_PATH = Path(__file__).with_name("licenses_emitidas") / "processados.json"
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "printnest_email.png"
 
 MACHINE_RE = re.compile(r"PN(?:-[A-Z0-9]{4}){4}")
 VOUCHER_RE = re.compile(r"PNC[\s-]*([A-Z0-9]{4})[\s-]*([A-Z0-9]{4})")
@@ -182,12 +184,63 @@ def _body_text(msg: email.message.Message) -> str:
     return plain or re.sub(r"<[^>]+>", " ", html)
 
 
+def _build_html(body: str) -> str:
+    """Versao HTML profissional da resposta: logo, texto e a chave em destaque
+    numa caixa propria (facil de copiar). Estilos inline (padrao de e-mail)."""
+    paragraphs: list[str] = []
+    for raw in body.split("\n\n"):
+        block = raw.strip()
+        if not block:
+            continue
+        if block.startswith("PNEST1."):
+            paragraphs.append(
+                '<div style="background:#F1F5F9;border:1px solid #E2E8F0;'
+                "border-left:4px solid #2563EB;border-radius:8px;padding:14px 16px;"
+                'margin:18px 0;">'
+                '<div style="font-size:11px;font-weight:700;color:#2563EB;'
+                'letter-spacing:.08em;margin-bottom:8px;">SUA CHAVE DE LICEN&Ccedil;A '
+                "&mdash; copie a linha inteira</div>"
+                '<div style="font-family:Consolas,Menlo,monospace;font-size:12px;'
+                'color:#0F172A;word-break:break-all;line-height:1.5;">'
+                f"{html_mod.escape(block)}</div></div>"
+            )
+        else:
+            text = html_mod.escape(block).replace("\n", "<br>")
+            paragraphs.append(
+                f'<p style="margin:0 0 14px;color:#334155;font-size:14px;'
+                f'line-height:1.6;">{text}</p>'
+            )
+    content = "".join(paragraphs)
+    return (
+        '<div style="background:#F8FAFC;padding:28px 12px;">'
+        '<div style="max-width:560px;margin:0 auto;background:#FFFFFF;'
+        'border:1px solid #E2E8F0;border-radius:12px;overflow:hidden;'
+        "font-family:Segoe UI,Arial,sans-serif;\">"
+        '<div style="padding:22px 28px;border-bottom:3px solid #2563EB;">'
+        '<img src="cid:printnest-logo" alt="PrintNest Pro" width="200" '
+        'style="display:block;max-width:200px;height:auto;"></div>'
+        f'<div style="padding:24px 28px;">{content}</div>'
+        '<div style="padding:14px 28px;background:#F8FAFC;'
+        'border-top:1px solid #E2E8F0;font-size:12px;color:#94A3B8;">'
+        "PrintNest Pro &middot; ativa&ccedil;&atilde;o autom&aacute;tica &middot; "
+        "responda este e-mail para falar com o suporte</div>"
+        "</div></div>"
+    )
+
+
 def _send_reply(cfg: dict, to_addr: str, subject: str, body: str) -> None:
     reply = EmailMessage()
-    reply["From"] = cfg["email"]
+    reply["From"] = f"PrintNest Pro <{cfg['email']}>"
     reply["To"] = to_addr
     reply["Subject"] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
     reply.set_content(body + "\n\n— PrintNest Pro (ativação automática)")
+    reply.add_alternative(_build_html(body), subtype="html")
+    if LOGO_PATH.exists():  # logo embutida (cid); sem ela o HTML segue valendo
+        html_part = reply.get_payload()[-1]
+        html_part.add_related(
+            LOGO_PATH.read_bytes(), maintype="image", subtype="png",
+            cid="<printnest-logo>",
+        )
     with smtplib.SMTP_SSL(cfg["smtp_host"], 465, timeout=30) as smtp:
         smtp.login(cfg["email"], cfg["app_password"])
         smtp.send_message(reply)
