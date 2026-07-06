@@ -110,6 +110,34 @@ def test_manager_ativar_licenca_de_outro_pc_falha(tmp_path, keypair):
     assert not ok and "outro computador" in msg.lower()
 
 
+def test_desativar_no_exe_fecha_o_app(tmp_path, keypair, monkeypatch):
+    # No executavel (sys.frozen), desativar encerra o app na hora — a checagem
+    # de licenca so roda no startup e nao alcancaria a sessao ja aberta.
+    import os
+    import sys as _sys
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from app.presentation.licensing_dialog import ActivationDialog
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    QApplication.instance() or QApplication([])
+    paths = AppPaths(home=tmp_path)
+    m = LicenseManager(paths=paths, today=date(2026, 1, 1))
+    m.activate(_issue(keypair, m.machine_id))
+    assert m.is_licensed()
+
+    dlg = ActivationDialog(m)
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+    )
+    monkeypatch.setattr(_sys, "frozen", True, raising=False)
+    fechou = []
+    monkeypatch.setattr(QApplication, "quit", staticmethod(lambda: fechou.append(1)))
+    dlg._deactivate()
+    assert not m.is_licensed()
+    assert fechou  # app encerrado junto com a desativacao
+    dlg.deleteLater()
+
+
 def test_dialogo_ativacao_ativa_com_chave_boa(tmp_path, keypair, monkeypatch):
     # Exercita o dialogo de ativacao (offscreen) com uma chave valida.
     import os

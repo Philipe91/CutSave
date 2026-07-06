@@ -6,6 +6,11 @@ Usado no startup (quando o app nao esta licenciado) e pelo menu Ajuda -> Licenca
 
 from __future__ import annotations
 
+import sys
+from urllib.parse import quote
+
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -19,6 +24,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.licensing import ACTIVATION_EMAIL
 from app.licensing.manager import LicenseManager
 from app.presentation import theme
 
@@ -55,6 +61,26 @@ class ActivationDialog(QDialog):
         id_row.addWidget(copy)
         lay.addLayout(id_row)
 
+        # pedido automatico: e-mail pronto para o robo de ativacao responder
+        req_row = QHBoxLayout()
+        req_btn = QPushButton("Pedir minha chave por e-mail")
+        req_btn.setToolTip(
+            "Abre um e-mail pronto (com o ID desta maquina) para "
+            f"{ACTIVATION_EMAIL}. Cole o seu codigo de compra e envie: a chave "
+            "chega em ate alguns minutos."
+        )
+        req_btn.clicked.connect(self._request_by_email)
+        req_row.addWidget(req_btn)
+        req_copy = QPushButton("Copiar pedido")
+        req_copy.setToolTip(
+            "Copia o texto do pedido para colar no seu e-mail ou webmail, caso "
+            "o botao ao lado nao abra o programa de e-mail."
+        )
+        req_copy.clicked.connect(self._copy_request)
+        req_row.addWidget(req_copy)
+        req_row.addStretch()
+        lay.addLayout(req_row)
+
         # colar a chave
         lay.addWidget(self._caption("2. Cole aqui a chave de licenca que voce recebeu:"))
         self._key_field = QPlainTextEdit()
@@ -87,6 +113,37 @@ class ActivationDialog(QDialog):
     def _copy_id(self) -> None:
         QApplication.clipboard().setText(self._m.machine_id)
 
+    # ---- pedido automatico (robo de ativacao) ----
+    def _request_subject(self) -> str:
+        return "Ativacao PrintNest"
+
+    def _request_text(self) -> str:
+        return (
+            "Quero ativar o PrintNest Pro.\n\n"
+            f"ID da Maquina: {self._m.machine_id}\n"
+            "Codigo de compra: (cole aqui o codigo PNC-XXXX-XXXX recebido na compra)\n"
+        )
+
+    def _request_mailto(self) -> str:
+        return (
+            f"mailto:{ACTIVATION_EMAIL}"
+            f"?subject={quote(self._request_subject())}"
+            f"&body={quote(self._request_text())}"
+        )
+
+    def _request_by_email(self) -> None:
+        if not QDesktopServices.openUrl(QUrl(self._request_mailto())):
+            self._copy_request()
+
+    def _copy_request(self) -> None:
+        QApplication.clipboard().setText(self._request_text())
+        QMessageBox.information(
+            self, "Pedido copiado",
+            "O texto do pedido foi copiado.\n\n"
+            f"Cole num e-mail para {ACTIVATION_EMAIL}, complete o seu codigo "
+            "de compra e envie. A chave chega em ate alguns minutos.",
+        )
+
     def _activate(self) -> None:
         key = self._key_field.toPlainText().strip()
         if not key:
@@ -105,11 +162,18 @@ class ActivationDialog(QDialog):
             return
         r = QMessageBox.question(
             self, "Desativar",
-            "Isto libera a licenca deste PC para ativar em outro. Continuar?",
+            "Isto libera a licenca deste PC para ativar em outro.\n"
+            "O PrintNest sera fechado agora (a proxima abertura pede a "
+            "ativacao). Continuar?",
         )
         if r == QMessageBox.Yes:
             self._m.deactivate()
             self._refresh()
+            # no executavel, sem licenca o app nao continua aberto (a checagem
+            # do startup nao alcanca a sessao ja aberta — fecha aqui mesmo)
+            if getattr(sys, "frozen", False):
+                self.accept()
+                QApplication.quit()
 
     def _on_close(self) -> None:
         # no startup, fechar sem licenca = sair do programa

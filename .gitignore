@@ -26,6 +26,8 @@ assets/printnest.ico
 tools/license_private_key.pem
 *.private.pem
 licenses_emitidas/
+# credenciais da conta de e-mail do robo de ativacao
+tools/robot_config.json
 
 # Site (app Node/Vite): dependencias nunca vao para o Git
 node_modules/

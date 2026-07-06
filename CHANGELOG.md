@@ -10,6 +10,13 @@ sessão fica em [`docs/historico/`](docs/historico/).
 - **Fluxo de venda validado de ponta a ponta** (06/07): exe bloqueou num 2º PC
   real, ID enviado, chave emitida com `gen_license.py`, ativação ok e
   persistente após reiniciar. Emissão com interface: `tools/license_studio.py`.
+- **Ativação AUTOMÁTICA (robô)**: cliente clica "Pedir minha chave por e-mail"
+  no app, envia o código de compra (`PNC-XXXX-XXXX`, uso único) e o robô no PC
+  do dono (`tools/license_robot.py`) valida, assina e responde com a chave —
+  sem ninguém na frente do computador. Testado com e-mail real no mesmo dia.
+  Guia: `docs/produto/ROBO-ATIVACAO.md`.
+- **Desativar no exe fecha o app na hora** (a sessão aberta continuava usável
+  após desativar — brecha fechada).
 
 ### Faca
 - **Ferramenta Pontos (F10)**, estilo Corel: mover nó (arrastar), adicionar
