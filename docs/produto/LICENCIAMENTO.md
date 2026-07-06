@@ -13,13 +13,18 @@ código). Sem chave válida, o **executável não abre** (dev/fonte não trava).
   aceita se o ID bater. Passar o `.exe` para outro PC não funciona.
 - **100% offline.** Nada de servidor nem mensalidade. Validação local.
 
+> ✅ **Validado de ponta a ponta em 06/07/2026** num 2º PC real: exe bloqueou,
+> ID enviado, chave emitida, ativou e persistiu após reiniciar.
+
 ## Arquivos
 
 | Arquivo | O que é |
 |---|---|
 | `tools/license_private_key.pem` | **SEU SEGREDO** — chave privada. Fora do Git. Faça backup em lugar seguro. Se vazar, qualquer um forja licença. |
 | `app/licensing/signing.py` → `PUBLIC_KEY_HEX` | chave pública embutida no app (par da privada). |
-| `tools/gen_license.py` | emite uma licença para um cliente. |
+| `tools/license_studio.py` | **License Studio (GUI)** — o jeito do dia a dia: cola o ID do cliente → Gerar → Copiar (~30 s por venda). |
+| `tools/gen_license.py` | emite uma licença pela linha de comando (mesmo resultado do Studio). |
+| `tools/issuer.py` | lógica de emissão compartilhada (Studio e CLI usam; base para automação futura via site). |
 | `tools/gen_keypair.py` | gera um novo par (só se quiser trocar o segredo — invalida licenças já emitidas). |
 
 ## Fluxo de venda (passo a passo)

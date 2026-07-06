@@ -4,6 +4,26 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [v1.3.0] — branch `v1.3-redesign` (sessões 04–06/07)
+
+### Comercialização
+- **Fluxo de venda validado de ponta a ponta** (06/07): exe bloqueou num 2º PC
+  real, ID enviado, chave emitida com `gen_license.py`, ativação ok e
+  persistente após reiniciar. Emissão com interface: `tools/license_studio.py`.
+
+### Faca
+- **Ferramenta Pontos (F10)**, estilo Corel: mover nó (arrastar), adicionar
+  (duplo-clique no segmento), remover (duplo-clique no nó); escopo por arquivo
+  (cópias herdam); faca manual sobrevive a rotação/redimensionamento e entra no
+  undo. "Voltar ao automático" no card da peça.
+- **Menos nós na faca** (melhor para a máquina de corte): pós-simplificação
+  Douglas-Peucker + seletor **"Nós da faca" Fino/Médio/Leve** (Médio padrão).
+  Com suavizado ativo usa tolerâncias menores para **não** desfazer a curva
+  (256 → 32 nós mantendo a suavização).
+- **Multi-desenho refinado**: marcas de registro enquadram a peça inteira
+  (todas as facas); elementos pequenos reais entram (filtro por área absoluta
+  em mm², não % da imagem) sem virar ruído.
+
 ## [v1.3.0] — branch `v1.3-redesign` (sessão 03/07)
 
 ### Comercialização — licenciamento

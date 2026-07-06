@@ -3,6 +3,8 @@
 > Tudo o que falta para **vender o PrintNest na internet de forma legal e profissional**: licenciamento/ativação (estilo eCut), segurança e confiabilidade, desempenho, qualidade, jurídico/fiscal e distribuição.
 >
 > Status: o **produto técnico** (preparação de produção: faca, nesting, export PDF/DXF) já existe e está testado. Este plano cobre o que envolve **transformar o software em um produto comercial**.
+>
+> ✅ **ATUALIZAÇÃO (06/07/2026):** o item 1 (licenciamento) foi **IMPLEMENTADO e VALIDADO** — mas com um modelo mais simples que o descrito na seção 1: **ativação offline por assinatura Ed25519, node-locked, SEM trial e SEM servidor** (decisão do Philipe: vender sem teste + 7 dias de devolução). A seção 1 abaixo fica como referência do modelo com servidor, para quando/se automatizar. O que vale hoje está em **`LICENCIAMENTO.md`**. Emissão: License Studio (`tools/license_studio.py`). Teste de ponta a ponta em 2º PC real: OK.
 
 ---
 
@@ -186,7 +188,7 @@ Todos os testes verdes · benchmark dentro das metas · instalador assinado test
 
 **Bloqueadores (sem isto não dá para vender legal/seguro):**
 - [ ] Resolver licença do **PyMuPDF** (comprar comercial ou trocar a dependência)
-- [ ] **Licenciamento/ativação** (servidor + cliente + chave única + ativar/desativar)
+- [x] **Licenciamento/ativação** — ✅ feito offline (Ed25519 node-locked, sem trial); validado em 2º PC em 06/07. Ver `LICENCIAMENTO.md`.
 - [ ] **Code signing** do instalador
 - [ ] **EULA + Política de Privacidade (LGPD)**
 - [ ] Figura jurídica + emissão de **nota fiscal**
