@@ -23,6 +23,10 @@ sessão fica em [`docs/historico/`](docs/historico/).
   canvas, Bézier nativo na Faca PDF e **SPLINE no DXF** — mesma contagem de
   nós, ≥4× mais fiel que as cordas retas. Cantos vivos e retas preservados
   exatos (retângulo continua retângulo).
+- **Solda de contornos (estilo Contorno do Corel)**: facas de desenhos
+  vizinhos que se INVADEM (sangria de um entra no outro) são unidas numa
+  linha externa única — a lâmina não atravessa mais o adesivo do lado.
+  Automático; quem não se toca continua com a própria faca.
 - **Fusão automática de cortes rentes**: quadrados com espaçamento 0 viram
   grade de linhas contínuas (1 passada por linha, sem cortar 2× a mesma
   borda); com espaçamento, corte individual — sem botão, é automático.

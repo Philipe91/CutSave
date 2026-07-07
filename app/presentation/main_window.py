@@ -121,6 +121,7 @@ from app.domain.cut.contour_ops import (
     offset_contour,
     simplify_contour,
     smooth_contour,
+    weld_contours,
 )
 from app.domain.cut.vector import VectorContourGenerator
 from app.domain.geometry import Point2D, Size
@@ -4476,6 +4477,13 @@ class MainWindow(QMainWindow):
                 raw, crop, rotation, base.size.width, base.size.height
             )
             extras.append(self._finish_contour(c, params, sangria, mode))
+        # SOLDA (estilo Contorno do Corel): facas vizinhas que se INVADEM (a
+        # sangria de um desenho entra no outro) viram UMA linha externa unica —
+        # senao a lamina atravessaria o adesivo do lado. Quem nao se toca
+        # continua com a propria faca, intacta.
+        if extras:
+            welded = weld_contours([contour, *extras])
+            contour, extras = welded[0], list(welded[1:])
         return replace(
             base, size=Size(w, h), cut_contour=contour, extra_cuts=tuple(extras)
         )

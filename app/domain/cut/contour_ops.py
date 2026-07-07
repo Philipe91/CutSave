@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from shapely.geometry import Polygon as ShapelyPolygon
+from shapely.ops import unary_union
 
 from app.domain.geometry import Point2D
 from app.domain.model.cut_contour import CutContour
@@ -18,6 +21,48 @@ def _largest_polygon(geometry):
     if not polygons:
         return None
     return max(polygons, key=lambda g: g.area)
+
+
+def weld_contours(contours: Sequence[CutContour]) -> list[CutContour]:
+    """SOLDA facas que se invadem (uniao booleana, estilo Contorno do Corel).
+
+    Quando as facas de desenhos vizinhos (com sangria) se chocam, cortar cada
+    uma inteira faz a lamina atravessar o adesivo do lado (corte feio/errado).
+    Aqui os contornos que se sobrepoem viram UMA forma unica — a maquina corta
+    so a linha externa da uniao. Quem nao se toca continua separado, intacto
+    (mesmos nos). Devolve maior primeiro; em erro, devolve a entrada como esta.
+    """
+    if len(contours) < 2:
+        return list(contours)
+    try:
+        polys = []
+        for c in contours:
+            if len(c.points) < 3:
+                return list(contours)
+            p = ShapelyPolygon([(pt.x, pt.y) for pt in c.points])
+            if not p.is_valid:
+                p = p.buffer(0)
+            polys.append(p)
+        overlap = any(
+            polys[i].intersects(polys[j]) and not polys[i].touches(polys[j])
+            for i in range(len(polys))
+            for j in range(i + 1, len(polys))
+        )
+        if not overlap:
+            return list(contours)  # ninguem se invade: preserva os nos originais
+        union = unary_union(polys)
+    except Exception:
+        return list(contours)
+    pieces = [
+        g for g in getattr(union, "geoms", [union])
+        if g.geom_type == "Polygon" and g.area > 0
+    ]
+    out: list[CutContour] = []
+    for g in sorted(pieces, key=lambda g: g.area, reverse=True):
+        coords = list(g.exterior.coords)[:-1]  # tira o fechamento repetido
+        if len(coords) >= 3:
+            out.append(CutContour([Point2D(float(x), float(y)) for x, y in coords]))
+    return out if out else list(contours)
 
 
 def simplify_contour(contour: CutContour, tolerance_mm: float) -> CutContour:
