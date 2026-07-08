@@ -1,0 +1,632 @@
+/* ==========================================================================
+   PRINTNEST PRO — GEMINI / FIGMA EDITION
+   Arquitetura de Interface B2B · Precisão Industrial · Zero Emojis
+   ========================================================================== */
+
+:root {
+  --bg-canvas: #0D0E11;
+  --bg-surface: #14161B;
+  --bg-panel: #1A1D24;
+  --bg-subtle: #22262F;
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --border-active: rgba(255, 255, 255, 0.22);
+  --border-accent: #3B82F6;
+
+  --text-primary: #F8FAFC;
+  --text-secondary: #94A3B8;
+  --text-tertiary: #64748B;
+  --accent-blue: #2563EB;
+  --accent-blue-hover: #1D4ED8;
+  --accent-cyan: #06B6D4;
+  --status-green: #10B981;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
+
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Container de 1200px com grade estruturada */
+.layout-container {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 32px;
+  width: 100%;
+}
+
+/* ==========================================================================
+   SYSTEM STATUS TOPBAR
+   ========================================================================== */
+.sys-topbar {
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-hairline);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  padding: 8px 0;
+}
+.sys-topbar-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sys-meta {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+.sys-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.sys-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-green);
+}
+.sys-specs {
+  color: var(--text-tertiary);
+}
+
+/* ==========================================================================
+   NAVIGATION BAR
+   ========================================================================== */
+.figma-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(13, 14, 17, 0.88);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-hairline);
+  height: 64px;
+  display: flex;
+  align-items: center;
+}
+.figma-nav-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand-group img {
+  height: 28px;
+  width: auto;
+}
+.brand-tag {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  text-transform: uppercase;
+}
+
+.nav-menu {
+  display: flex;
+  gap: 28px;
+}
+.nav-link {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color 0.15s ease;
+}
+.nav-link:hover {
+  color: var(--text-primary);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ==========================================================================
+   BUTTONS (Precisão Técnica 44px-48px)
+   ========================================================================== */
+.btn-tech {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 20px;
+  border-radius: var(--r-md);
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn-tech-primary {
+  background: var(--accent-blue);
+  color: #FFFFFF;
+  border-color: var(--accent-blue);
+}
+.btn-tech-primary:hover {
+  background: var(--accent-blue-hover);
+}
+.btn-tech-outline {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border-active);
+}
+.btn-tech-outline:hover {
+  background: var(--bg-panel);
+  border-color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   HERO CANVAS SECTION
+   ========================================================================== */
+.hero-canvas {
+  padding: 72px 0 80px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 56px;
+  align-items: center;
+}
+
+.hero-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.hero-title {
+  font-size: clamp(38px, 3.8vw, 52px);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+.hero-description {
+  font-size: 16.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.hero-cta-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+.hero-note {
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+/* Painel do Canvas do Software (Estilo Figma Workspace) */
+.workspace-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+}
+.workspace-topbar {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-hairline);
+  padding: 10px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+.workspace-tabs {
+  display: flex;
+  gap: 4px;
+}
+.ws-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ws-tab.active {
+  background: var(--bg-subtle);
+  border-color: var(--border-active);
+  color: var(--text-primary);
+}
+.ws-tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+.workspace-viewport {
+  position: relative;
+  background: #090A0C;
+  padding: 24px;
+}
+.viewport-frame {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  position: relative;
+}
+.viewport-img {
+  width: 100%;
+  display: block;
+}
+
+/* Telemetria inferior do viewport */
+.workspace-telemetry {
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border-hairline);
+  padding: 16px 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.telemetry-node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.node-label {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+.node-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   TECHNICAL SPECS & BENCHMARK GRID
+   ========================================================================== */
+.specs-section {
+  padding: 96px 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.section-header {
+  margin-bottom: 56px;
+}
+.section-eyebrow {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+  display: block;
+}
+.section-title {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.section-subtitle {
+  font-size: 16px;
+  color: var(--text-secondary);
+  max-width: 640px;
+}
+
+/* Grid Arquitetônico Bento */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+.bento-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-lg);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 24px;
+}
+.bento-panel.span-2 {
+  grid-column: span 2;
+}
+.panel-badge {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  background: rgba(6, 182, 212, 0.1);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  width: fit-content;
+}
+.bento-panel h3 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 8px;
+}
+.bento-panel p {
+  font-size: 14.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   INTERACTIVE COMPARISON TABLE (MANUAL vs INDUSTRIAL)
+   ========================================================================== */
+.comp-grid-section {
+  padding: 96px 0;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--bg-surface);
+}
+.matrix-container {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.matrix-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.matrix-row:last-child {
+  border-bottom: none;
+}
+.matrix-head {
+  background: var(--bg-panel);
+}
+.matrix-cell {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.matrix-manual {
+  border-left: 1px solid var(--border-hairline);
+  border-right: 1px solid var(--border-hairline);
+  background: rgba(20, 22, 27, 0.6);
+}
+.matrix-pro {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.matrix-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.matrix-sub {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+.matrix-value {
+  font-size: 15px;
+  font-weight: 700;
+}
+.matrix-value.neg {
+  color: #F87171;
+}
+.matrix-value.pos {
+  color: #60A5FA;
+}
+
+/* ==========================================================================
+   INTERACTIVE CALCULATOR PANEL
+   ========================================================================== */
+.calculator-section {
+  padding: 96px 0;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.calculator-frame {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-xl);
+  padding: 48px;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.calc-controls {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-lg);
+  padding: 32px;
+}
+.input-row {
+  margin-bottom: 28px;
+}
+.input-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.input-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.input-value {
+  font-size: 15px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+.calc-slider {
+  width: 100%;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+  height: 4px;
+}
+
+.calc-output {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.payback-tag {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--status-green);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: var(--r-md);
+  width: fit-content;
+}
+.output-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.output-box {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--r-md);
+  padding: 20px;
+}
+.output-box.featured {
+  border-color: var(--accent-blue);
+  grid-column: span 2;
+}
+.output-title {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+.output-num {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 6px 0 4px;
+}
+.output-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   FOOTER STRUCTURE
+   ========================================================================== */
+.figma-footer {
+  padding: 64px 0 48px;
+  background: var(--bg-canvas);
+  border-top: 1px solid var(--border-hairline);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr;
+  gap: 32px;
+  margin-bottom: 48px;
+}
+.footer-col h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--font-mono);
+}
+.footer-col ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.footer-col ul li a:hover {
+  color: var(--text-primary);
+}
+.footer-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border-hairline);
+  padding-top: 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 1024px) {
+  .hero-grid, .calculator-frame {
+    grid-template-columns: 1fr;
+  }
+  .bento-grid {
+    grid-template-columns: 1fr;
+  }
+  .bento-panel.span-2 {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .matrix-row {
+    grid-template-columns: 1fr;
+  }
+  .workspace-telemetry {
+    grid-template-columns: 1fr;
+  }
+  .footer-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

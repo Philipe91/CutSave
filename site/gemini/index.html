@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PrintNest Pro — Automação Algorítmica de Nesting e Faca DXF</title>
+  <meta name="description" content="Software profissional de nesting algorítmico e geração de corte DXF para gráficas industriais e empresas de comunicação visual." />
+
+  <!-- Fontes Institucionais e Mono de Precisão -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ==========================================================================
+       SYSTEM STATUS TOPBAR
+       ========================================================================== -->
+  <header class="sys-topbar">
+    <div class="layout-container sys-topbar-inner">
+      <div class="sys-meta">
+        <span class="sys-badge">
+          <span class="sys-indicator"></span>
+          SYS_STATUS: PRODUCTION READY
+        </span>
+        <span class="sys-specs">BUILD: 2026.07.08 // ARCH: WIN_X64_NATIVE</span>
+      </div>
+      <div class="sys-specs">
+        COMPATIBILITY: CORELDRAW | ILLUSTRATOR | IECHO | MIMAKI
+      </div>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       NAVIGATION BAR (FIGMA / LINEAR STYLE)
+       ========================================================================== -->
+  <nav class="figma-nav">
+    <div class="layout-container figma-nav-inner">
+      <div class="brand-group">
+        <img src="../assets/logo-printnest.svg" alt="PrintNest Pro" />
+        <span class="brand-tag">ENTERPRISE v2026</span>
+      </div>
+
+      <div class="nav-menu">
+        <a href="#arquitetura" class="nav-link">Arquitetura de Fluxo</a>
+        <a href="#especificacoes" class="nav-link">Especificações Técnicas</a>
+        <a href="#comparativo" class="nav-link">Matriz Comparativa</a>
+        <a href="#telemetria" class="nav-link">Simulador de Telemetria</a>
+      </div>
+
+      <div class="nav-actions">
+        <a href="#telemetria" class="btn-tech btn-tech-outline">Calcular Economia</a>
+        <a href="[LINK_PAGAMENTO]" class="btn-tech btn-tech-primary">Licença Vitalícia</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ==========================================================================
+       HERO CANVAS SECTION
+       ========================================================================== -->
+  <section class="hero-canvas">
+    <div class="layout-container hero-grid">
+      
+      <!-- Coluna Esquerda: Especificação de Valor -->
+      <div class="hero-content">
+        <span class="hero-eyebrow">[CORE_ALGORITHM // NESTING_ENGINE_V2]</span>
+        <h1 class="hero-title">
+          Automação de Nesting e Faca de Corte para Comunicação Visual
+        </h1>
+        <p class="hero-description">
+          Elimine até 85% de perda de chapa e transforme a preparação manual de 45 minutos no CorelDRAW em um processamento algorítmico de 18 segundos com precisão milimétrica para routers CNC, IECHO e plotters.
+        </p>
+
+        <div class="hero-cta-row">
+          <a href="[LINK_PAGAMENTO]" class="btn-tech btn-tech-primary">
+            Adquirir Licença Perpétua — R$ 397
+          </a>
+          <a href="#telemetria" class="btn-tech btn-tech-outline">
+            Inspecionar Retorno
+          </a>
+        </div>
+        <span class="hero-note">SEM MENSALIDADES · INSTALAÇÃO NATIVA WINDOWS · GARANTIA DE 7 DIAS</span>
+      </div>
+
+      <!-- Coluna Direita: Painel Interativo de Inspecção (Estilo Figma Workspace) -->
+      <div class="workspace-panel">
+        <div class="workspace-topbar">
+          <span>CANVAS_INSPECTOR // APP-PRODUCAO.JPG</span>
+          <div class="workspace-tabs">
+            <button class="ws-tab active" data-layer="nesting">LAYER 01: NESTING</button>
+            <button class="ws-tab" data-layer="faca">LAYER 02: DXF OUT</button>
+            <button class="ws-tab" data-layer="marcas">LAYER 03: REGISTRO</button>
+          </div>
+        </div>
+
+        <div class="workspace-viewport">
+          <div class="viewport-frame">
+            <img src="../assets/app-producao.jpg" alt="Tela Principal do PrintNest Pro em Produção" class="viewport-img" />
+          </div>
+        </div>
+
+        <div class="workspace-telemetry" id="ws-telemetry">
+          <div class="telemetry-node">
+            <span class="node-label">EFICIÊNCIA DE ÁREA</span>
+            <span class="node-value" id="ws-val-1">77.4% A 85.1%</span>
+          </div>
+          <div class="telemetry-node">
+            <span class="node-label">TEMPO DE CÁLCULO</span>
+            <span class="node-value" id="ws-val-2">18 Segundos</span>
+          </div>
+          <div class="telemetry-node">
+            <span class="node-label">PEÇAS PROCESSADAS</span>
+            <span class="node-value" id="ws-val-3">435 Vetores</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       TECHNICAL SPECS SECTION (BENTO GRID ARCHITECTURE)
+       ========================================================================== -->
+  <section class="specs-section" id="especificacoes">
+    <div class="layout-container">
+      <div class="section-header">
+        <span class="section-eyebrow">[SYSTEM_CAPABILITIES // INDUSTRIAL_STANDARD]</span>
+        <h2 class="section-title">Especificações e Módulos do Software</h2>
+        <p class="section-subtitle">
+          Arquitetura projetada para eliminar gargalos manuais de pré-impressão e acabamento em mesas industriais.
+        </p>
+      </div>
+
+      <div class="bento-grid">
+        <div class="bento-panel span-2">
+          <div>
+            <span class="panel-badge">ENGINE_01 // TRUE_SHAPE_NESTING</span>
+            <h3>Encaixe True-Shape Inteligente de Perímetros Complexos</h3>
+            <p>
+              Diferente de encaixes retangulares simples, o algoritmo analisa contornos orgânicos e angulações de cada arte, rotacionando e aproveitando cavidades internas para atingir o máximo rendimento por chapa de ACM, PS, acrílico, MDF ou vinil adesivo.
+            </p>
+          </div>
+          <span class="hero-note">PROCESSAMENTO MUTITHREAD NATÍVO</span>
+        </div>
+
+        <div class="bento-panel">
+          <div>
+            <span class="panel-badge">ENGINE_02 // AUTO_DXF</span>
+            <h3>Linha de Faca Automática com Sangria</h3>
+            <p>
+              Gera contornos de corte configuráveis com compensação milimétrica de offset externo ou interno, prontos para exportação DXF industrial e PDF vetorial em camadas separadas.
+            </p>
+          </div>
+          <span class="hero-note">TOLERÂNCIA 0.01 MM</span>
+        </div>
+
+        <div class="bento-panel">
+          <div>
+            <span class="panel-badge">ENGINE_03 // OPTICAL_MARKS</span>
+            <h3>Marcas de Registro Óptico IECHO e Mimaki</h3>
+            <p>
+              Inclusão nativa de marcações ópticas em L, bolinhas de leitura IECHO e padrões híbridos para sincronização milimétrica perfeita entre a plotter impressora e a mesa de corte.
+            </p>
+          </div>
+          <span class="hero-note">DESVIO ZERO DE CORTE</span>
+        </div>
+
+        <div class="bento-panel span-2">
+          <div>
+            <span class="panel-badge">ENGINE_04 // LICENÇA_PERPÉTUA</span>
+            <h3>Modelo de Software Desktop sem Dependência de Nuvem</h3>
+            <p>
+              O processamento ocorre integralmente no hardware do seu computador local. Seus arquivos de produção não trafegam na internet, garantindo velocidade de processamento instantânea e independência operacional mesmo sem conexão.
+            </p>
+          </div>
+          <span class="hero-note">CHAVE DE ATIVAÇÃO PERMANENTE POR MÁQUINA</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       INTERACTIVE COMPARISON MATRIX
+       ========================================================================== -->
+  <section class="comp-grid-section" id="comparativo">
+    <div class="layout-container">
+      <div class="section-header">
+        <span class="section-eyebrow">[BENCHMARK_MATRIX // MANUAL_VS_AUTOMATED]</span>
+        <h2 class="section-title">Matriz de Rendimento Operacional</h2>
+        <p class="section-subtitle">
+          Análise comparativa direta entre o fluxo convencional manual e o pipeline algorítmico do PrintNest Pro.
+        </p>
+      </div>
+
+      <div class="matrix-container">
+        <div class="matrix-row matrix-head">
+          <div class="matrix-cell">
+            <span class="matrix-label">Métrica de Produção</span>
+          </div>
+          <div class="matrix-cell matrix-manual">
+            <span class="matrix-label">CorelDRAW / Illustrator Manual</span>
+          </div>
+          <div class="matrix-cell matrix-pro">
+            <span class="matrix-label">PrintNest Pro v2026</span>
+          </div>
+        </div>
+
+        <div class="matrix-row">
+          <div class="matrix-cell">
+            <span class="matrix-label">Tempo de Encaixe por Trabalho</span>
+            <span class="matrix-sub">Para montagens entre 100 e 500 peças</span>
+          </div>
+          <div class="matrix-cell matrix-manual">
+            <span class="matrix-value neg">30 a 60 Minutos</span>
+          </div>
+          <div class="matrix-cell matrix-pro">
+            <span class="matrix-value pos">15 a 30 Segundos</span>
+          </div>
+        </div>
+
+        <div class="matrix-row">
+          <div class="matrix-cell">
+            <span class="matrix-label">Aproveitamento Médio da Chapa</span>
+            <span class="matrix-sub">Mensurado em chapas de 200x300cm</span>
+          </div>
+          <div class="matrix-cell matrix-manual">
+            <span class="matrix-value neg">60% a 68% (Retangular)</span>
+          </div>
+          <div class="matrix-cell matrix-pro">
+            <span class="matrix-value pos">77% a 85% (True-Shape)</span>
+          </div>
+        </div>
+
+        <div class="matrix-row">
+          <div class="matrix-cell">
+            <span class="matrix-label">Geração de Faca com Sangria</span>
+            <span class="matrix-sub">Contorno para envio ao corte</span>
+          </div>
+          <div class="matrix-cell matrix-manual">
+            <span class="matrix-value neg">Contorno Manual / Nó por Nó</span>
+          </div>
+          <div class="matrix-cell matrix-pro">
+            <span class="matrix-value pos">Automático Vetorial (DXF/PDF)</span>
+          </div>
+        </div>
+
+        <div class="matrix-row">
+          <div class="matrix-cell">
+            <span class="matrix-label">Custo Operacional de Licença</span>
+            <span class="matrix-sub">Investimento de software</span>
+          </div>
+          <div class="matrix-cell matrix-manual">
+            <span class="matrix-value neg">Mensalidades Contínuas</span>
+          </div>
+          <div class="matrix-cell matrix-pro">
+            <span class="matrix-value pos">R$ 397 Único / Vitalício</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       INTERACTIVE TELEMETRY & ROI CALCULATOR
+       ========================================================================== -->
+  <section class="calculator-section" id="telemetria">
+    <div class="layout-container">
+      <div class="section-header">
+        <span class="section-eyebrow">[FINANCIAL_TELEMETRY // ROI_SIMULATOR]</span>
+        <h2 class="section-title">Simulador Operacional de Retorno Financeiro</h2>
+        <p class="section-subtitle">
+          Calcule a economia financeira real da sua gráfica com base na redução de sobras de material e ganho de horas de pré-impressão.
+        </p>
+      </div>
+
+      <div class="calculator-frame">
+        <div class="calc-controls">
+          <div class="input-row">
+            <div class="input-header">
+              <span class="input-label">Consumo Mensal de Chapas/Rolos</span>
+              <span class="input-value" id="val-chapas">40 unidades/mês</span>
+            </div>
+            <input type="range" min="10" max="200" step="5" value="40" class="calc-slider" id="sld-chapas" />
+          </div>
+
+          <div class="input-row">
+            <div class="input-header">
+              <span class="input-label">Custo Médio por Chapa/Rolo</span>
+              <span class="input-value" id="val-custo">R$ 180,00</span>
+            </div>
+            <input type="range" min="80" max="600" step="10" value="180" class="calc-slider" id="sld-custo" />
+          </div>
+
+          <div class="input-row">
+            <div class="input-header">
+              <span class="input-label">Trabalhos Diários de Corte</span>
+              <span class="input-value" id="val-jobs">6 jobs/dia</span>
+            </div>
+            <input type="range" min="1" max="30" step="1" value="6" class="calc-slider" id="sld-jobs" />
+          </div>
+
+          <span class="hero-note">BASE DE CÁLCULO: GANHO CONSERVADOR DE 12% DE MATERIAL + 35 MINUTOS POR JOB</span>
+        </div>
+
+        <div class="calc-output">
+          <span class="payback-tag" id="tag-payback">RETORNO DO INVESTIMENTO EM 8 DIAS DE PRODUÇÃO</span>
+
+          <div class="output-metrics">
+            <div class="output-box featured">
+              <span class="output-title">ECONOMIA FINANCEIRA ANUAL ESTIMADA</span>
+              <div class="output-num" id="out-anual">R$ 10.368,00</div>
+              <span class="output-desc">Redução direta no desperdício de material de impressão e corte</span>
+            </div>
+
+            <div class="output-box">
+              <span class="output-title">ECONOMIA MENSAL</span>
+              <div class="output-num" id="out-mensal">R$ 864,00</div>
+              <span class="output-desc">Material salved por mês</span>
+            </div>
+
+            <div class="output-box">
+              <span class="output-title">TEMPO RECUPERADO</span>
+              <div class="output-num" id="out-horas">77 Horas</div>
+              <span class="output-desc">Horas/mês livres na pré-impressão</span>
+            </div>
+          </div>
+
+          <a href="[LINK_PAGAMENTO]" class="btn-tech btn-tech-primary" style="width: 100%; height: 50px;">
+            Ativar Licença Vitalícia PrintNest Pro — R$ 397
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==========================================================================
+       TECHNICAL FOOTER
+       ========================================================================== -->
+  <footer class="figma-footer">
+    <div class="layout-container">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <h4>PrintNest Pro Enterprise</h4>
+          <p style="line-height: 1.6; max-width: 320px;">
+            Desenvolvido por engenharia de software brasileira focada no setor gráfico industrial, comunicação visual e corte CNC.
+          </p>
+        </div>
+
+        <div class="footer-col">
+          <h4>Arquitetura</h4>
+          <ul>
+            <li><a href="#especificacoes">True-Shape Nesting</a></li>
+            <li><a href="#especificacoes">Faca com Sangria</a></li>
+            <li><a href="#especificacoes">Marcas IECHO/Mimaki</a></li>
+            <li><a href="#especificacoes">Motor Windows x64</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Conformidade</h4>
+          <ul>
+            <li><a href="[LINK_SUPORTE]">Suporte Técnico</a></li>
+            <li><a href="#comparativo">Licença Perpétua</a></li>
+            <li><a href="#telemetria">Garantia de 7 Dias</a></li>
+            <li><a href="#telemetria">Requisitos de Hardware</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Segurança Legal</h4>
+          <ul>
+            <li><a href="#termos">Termos de Uso</a></li>
+            <li><a href="#privacidade">Política de Privacidade</a></li>
+            <li><a href="#reembolso">Política de Reembolso</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>© 2026 PRINTNEST PRO SOFTWARE INDUSTRIAL — TODOS OS DIREITOS RESERVADOS</span>
+        <span>LICENÇA COMERCIAL B2B // R$ 397 VITALÍCIO</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- SCRIPT DE TELEMETRIA E CONTROLE DO CANVAS -->
+  <script>
+    // Controle das abas do painel de inspeção (Estilo Figma)
+    const wsTabs = document.querySelectorAll('.ws-tab');
+    const wsData = {
+      nesting: ["77.4% A 85.1%", "18 Segundos", "435 Vetores"],
+      faca: ["0.01 mm Precisão", "Automático (0 min)", "Exportação DXF/PDF"],
+      marcas: ["IECHO / Mimaki", "Alinhamento Óptico", "Desvio Zero"]
+    };
+
+    wsTabs.forEach(t => {
+      t.addEventListener('click', () => {
+        wsTabs.forEach(btn => btn.classList.remove('active'));
+        t.classList.add('active');
+        const layer = t.dataset.layer;
+        if (wsData[layer]) {
+          document.getElementById('ws-val-1').textContent = wsData[layer][0];
+          document.getElementById('ws-val-2').textContent = wsData[layer][1];
+          document.getElementById('ws-val-3').textContent = wsData[layer][2];
+        }
+      });
+    });
+
+    // Simulador Operacional
+    const sldChapas = document.getElementById('sld-chapas');
+    const sldCusto = document.getElementById('sld-custo');
+    const sldJobs = document.getElementById('sld-jobs');
+
+    function recalcularROI() {
+      const chapas = parseInt(sldChapas.value, 10);
+      const custo = parseInt(sldCusto.value, 10);
+      const jobs = parseInt(sldJobs.value, 10);
+
+      document.getElementById('val-chapas').textContent = chapas + " unidades/mês";
+      document.getElementById('val-custo').textContent = "R$ " + custo.toLocaleString('pt-BR');
+      document.getElementById('val-jobs').textContent = jobs + " jobs/dia";
+
+      // Cálculo conservador (12% economia de material + horas de operador)
+      const gastoMensal = chapas * custo;
+      const ecMensal = Math.round(gastoMensal * 0.12);
+      const ecAnual = ecMensal * 12;
+      const diasPayback = Math.max(3, Math.ceil(397 / (ecMensal / 22)));
+      const horasMes = Math.round((jobs * 22 * 35) / 60);
+
+      document.getElementById('out-mensal').textContent = "R$ " + ecMensal.toLocaleString('pt-BR') + ",00";
+      document.getElementById('out-anual').textContent = "R$ " + ecAnual.toLocaleString('pt-BR') + ",00";
+      document.getElementById('out-horas').textContent = horasMes + " Horas";
+      document.getElementById('tag-payback').textContent = "RETORNO DO INVESTIMENTO EM " + diasPayback + " DIAS DE PRODUÇÃO";
+    }
+
+    sldChapas.addEventListener('input', recalcularROI);
+    sldCusto.addEventListener('input', recalcularROI);
+    sldJobs.addEventListener('input', recalcularROI);
+    recalcularROI();
+  </script>
+
+</body>
+</html>
