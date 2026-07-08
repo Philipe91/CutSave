@@ -1480,8 +1480,11 @@ class MainWindow(QMainWindow):
                                "Troca o arquivo da linha selecionada (ex.: arquivo não encontrado)")
         gerar = self._act("Gerar Produção", self.generate, "F5",
                           "Importa, gera a faca e organiza o nesting")
+        # o botão visivel mora na barra Faca (propBar); a QAction fica na janela
+        # para o atalho Shift+F5 continuar funcionando
         gerar_faca = self._act("Gerar Faca", self._regenerate_faca, "Shift+F5",
                                "Recria a faca das peças (refaz a detecção da faca do cliente)")
+        self.addAction(gerar_faca)
         fit = self._act("Ajustar a tela", self._fit_view, "F4",
                         "Enquadra todo o trabalho na tela (F4 ou Ctrl+0)")
         fit.setShortcuts([QKeySequence("F4"), QKeySequence("Ctrl+0")])
@@ -1751,8 +1754,9 @@ class MainWindow(QMainWindow):
                 tb.tool_button(snap_act, "magnet", show_text=False),
             ]),
             ("Produção", [
-                self._faca_mode_ribbon_widget(),  # Tipo de faca ao lado do botão
-                tb.tool_button(gerar_faca, "scissors", accent=True),  # botão azul principal
+                # "Tipo de faca" e "Gerar Faca" MORAM na barra Faca (propBar),
+                # junto das demais funções de faca — pedido do beta. O atalho
+                # Shift+F5 continua valendo (gerar_faca vive como QAction).
                 tb.tool_button(exp_center, "download"),
                 tb.menu_button("Mais...", "download",
                                [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img],
@@ -1802,24 +1806,6 @@ class MainWindow(QMainWindow):
         act = self._view_mode_actions.get(self._view_mode.currentData())
         if act is not None:
             act.setChecked(True)
-
-    def _faca_mode_ribbon_widget(self) -> QWidget:
-        """Widget da barra: rotulo discreto + combo "Tipo de faca", colado ao
-        botão Gerar Faca (decidir o tipo e gerar viram um gesto só). E o MESMO
-        combo de sempre (self._faca_mode): estado, sessao e testes intactos."""
-        box = QWidget()
-        lay = QHBoxLayout(box)
-        lay.setContentsMargins(theme.SPACE_XS, 0, theme.SPACE_XS, 0)
-        lay.setSpacing(theme.SPACE_SM)
-        cap = QLabel("Tipo de faca")
-        cap.setProperty("role", "caption")
-        lay.addWidget(cap)
-        # largura folgada: a opção mais longa ("Faca do cliente (vetor do PDF)")
-        # precisa caber SEM reticências também fechada (auditoria QA #1)
-        self._faca_mode.setMinimumWidth(200)
-        self._faca_mode.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        lay.addWidget(self._faca_mode)
-        return box
 
     def _show_license(self) -> None:
         """Ajuda -> Licenca: ativar/ver/transferir (nao bloqueia o uso aqui)."""
@@ -2138,6 +2124,14 @@ class MainWindow(QMainWindow):
         tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
         cl.addWidget(tag)
 
+        # botão principal AZUL: gerar a faca (o atalho Shift+F5 vive na QAction)
+        gerar = QPushButton("  Gerar Faca")
+        gerar.setIcon(icons.icon("scissors", "#FFFFFF"))
+        gerar.setProperty("accent", "true")
+        gerar.setToolTip("Gera/recria a faca das peças (Shift+F5)")
+        gerar.clicked.connect(self._regenerate_faca)
+        cl.addWidget(gerar)
+
         # Tipo de faca (dropdown) — espelho do controle do Documento
         self._ct_mode = QComboBox()
         for label, data in self._FACA_MODES:
@@ -2245,6 +2239,16 @@ class MainWindow(QMainWindow):
         )
         self._ct_shared.currentIndexChanged.connect(lambda _: self._apply_contour_shared())
         cl.addWidget(self._ct_shared)
+
+        # ajustar a chapa ao conteúdo (mesma ação do card Produção / Ctrl+Shift+F)
+        fit_btn = QPushButton("  Ajustar chapa")
+        fit_btn.setIcon(icons.icon("arrows-in", theme.ICON))
+        fit_btn.setToolTip(
+            "Ajustar chapa ao conteúdo (Ctrl+Shift+F): encolhe a chapa para o\n"
+            "tamanho exato do arranjo — exportação sem branco em volta."
+        )
+        fit_btn.clicked.connect(self._fit_sheets_to_content)
+        cl.addWidget(fit_btn)
         return w
 
     def _apply_contour_smooth(self) -> None:
