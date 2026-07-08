@@ -23,6 +23,15 @@ sessão fica em [`docs/historico/`](docs/historico/).
   canvas, Bézier nativo na Faca PDF e **SPLINE no DXF** — mesma contagem de
   nós, ≥4× mais fiel que as cordas retas. Cantos vivos e retas preservados
   exatos (retângulo continua retângulo).
+- **Cantos arredondados da faca** (raio em mm, estilo Corel): vale até para
+  faca retangular; convexos e côncavos; global na barra Faca, com sobreposição
+  por arquivo no card "Faca deste arquivo". Versão do app: **3.0.0**.
+- **Ajustar chapa ao conteúdo** (Ctrl+Shift+F, card Produção e menu
+  Organizar): a chapa encolhe para o tamanho exato do arranjo — exportação
+  sem branco em volta (marcas de registro entram na folga própria). Desfazível.
+- **Barra Faca** no topo (no lugar de Alinhar/Distribuir/Agrupar, que seguem
+  na ribbon/menu/atalhos): Tipo de faca, Offset + direção, cantos, Raio,
+  Suavizar, Nós e Por peça/Grade — sincronizada com o painel Documento.
 - **Solda de contornos (estilo Contorno do Corel)**: facas de desenhos
   vizinhos que se INVADEM (sangria de um entra no outro) são unidas numa
   linha externa única — a lâmina não atravessa mais o adesivo do lado.

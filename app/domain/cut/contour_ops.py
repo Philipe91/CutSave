@@ -137,6 +137,36 @@ def crop_and_rotate_contour(
     return CutContour([Point2D(x, y) for x, y in pts]), w, h
 
 
+def round_corners(contour: CutContour, radius_mm: float) -> CutContour:
+    """Arredonda TODOS os cantos da faca com o raio dado (fillet, estilo
+    Contorno do Corel) — vale ate para retangulo puro.
+
+    Abertura + fechamento morfologicos (buffer -r, +2r, -r com juncao
+    redonda): cantos convexos E concavos ficam com raio ~r; retas e curvas
+    ja suaves nao mudam. Raio grande demais (a peca sumiria no encolhimento)
+    ou erro -> devolve o contorno original, sem quebrar a geracao.
+    """
+    if radius_mm <= 0 or len(contour.points) < 3:
+        return contour
+    try:
+        poly = ShapelyPolygon([(p.x, p.y) for p in contour.points])
+        if not poly.is_valid:
+            poly = poly.buffer(0)
+        r = float(radius_mm)
+        rounded = poly.buffer(-r, join_style=1).buffer(2 * r, join_style=1).buffer(
+            -r, join_style=1
+        )
+        ring = _largest_polygon(rounded)
+        if ring is None or ring.is_empty:
+            return contour  # raio maior que a peca: ignora com seguranca
+        coords = list(ring.exterior.coords)[:-1]
+    except Exception:
+        return contour
+    if len(coords) < 3:
+        return contour
+    return CutContour([Point2D(float(x), float(y)) for x, y in coords])
+
+
 # Estilo de canto do offset (igual ao "Corners" da ferramenta Contorno do Corel).
 _JOIN_STYLE = {"round": 1, "miter": 2, "bevel": 3}
 

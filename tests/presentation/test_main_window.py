@@ -812,6 +812,31 @@ def test_clipboard_e_por_aba(qapp, tmp_path):
     assert window._piece_clipboard == []  # clipboard nao atravessa abas
 
 
+def test_ajustar_chapa_ao_conteudo(qapp, tmp_path):
+    # "Ajustar chapa ao conteúdo": a chapa encolhe para o bbox do arranjo
+    # (sem branco em volta na exportação) e o conteúdo encosta na origem.
+    # Ctrl+Z desfaz (passa pelo _commit_arrangement).
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window._width.setValue(2000)  # chapa MUITO maior que o conteúdo
+    window.add_paths([src])
+    window.generate(blocking=True)
+    antes = window._effective_sheets()[0]
+    assert antes.material.width == 2000
+
+    window._fit_sheets_to_content()
+    depois = window._effective_sheets()[0]
+    assert depois.material.width < 2000  # encolheu para o conteúdo
+    # conteúdo rente à origem (sem margem morta)
+    min_x = min(i.position.x for i in depois.items)
+    min_y = min(i.position.y for i in depois.items)
+    assert abs(min_x) < 1e-6 and abs(min_y) < 1e-6
+    assert len(depois.items) == len(antes.items)  # nenhuma peça sumiu
+
+    window._undo.undo()  # desfazível
+    assert window._effective_sheets()[0].material.width == 2000
+
+
 def test_faca_do_canvas_usa_o_vermelho_do_tema(qapp, tmp_path):
     # QA-06: a linha de faca desenhada no canvas sai EXATAMENTE no token
     # theme.CUT (fim do drift de cores hardcoded).

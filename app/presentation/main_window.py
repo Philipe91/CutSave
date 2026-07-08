@@ -119,6 +119,7 @@ from app.application.use_cases.run_production_pipeline import (
 from app.domain.cut.contour_ops import (
     crop_and_rotate_contour,
     offset_contour,
+    round_corners,
     simplify_contour,
     smooth_contour,
     weld_contours,
@@ -1502,6 +1503,11 @@ class MainWindow(QMainWindow):
                             "Exclui as peças selecionadas do arranjo")
         organizar = self._act("Organizar (nesting)", self._organize, "Ctrl+L",
                               "Reorganiza as peças na chapa mantendo a quantidade atual")
+        fit_sheet = self._act(
+            "Ajustar chapa ao conteúdo", self._fit_sheets_to_content, "Ctrl+Shift+F",
+            "Encolhe a chapa para o tamanho exato do arranjo — a exportação sai "
+            "rente ao conteúdo (marcas de registro entram na folga), sem branco em volta",
+        )
         reset = self._act("Resetar arranjo", self._reset_arrangement, None,
                           "Refaz o nesting do zero (descarta ajustes manuais)")
         rem = self._act("Remover PDF selecionado", self.remove_selected, None,
@@ -1587,7 +1593,7 @@ class MainWindow(QMainWindow):
                        grp, ungrp, None, obj_props, None, excluir, reset, rem):
             m_edit.addSeparator() if action is None else m_edit.addAction(action)
         m_org = bar.addMenu("&Organizar")
-        for action in (organizar, center_act, None, grp, ungrp, None, to_front, to_back,
+        for action in (organizar, fit_sheet, center_act, None, grp, ungrp, None, to_front, to_back,
                        None, al_l, al_r, al_t, al_b, al_cx, al_cy,
                        None, dist_h, dist_v, None, snap_act):
             m_org.addSeparator() if action is None else m_org.addAction(action)
@@ -2104,36 +2110,17 @@ class MainWindow(QMainWindow):
         gl = QHBoxLayout(grp)
         gl.setContentsMargins(0, 0, 0, 0)
         gl.setSpacing(theme.SPACE_SM)
+        # Alinhar/Distribuir/Agrupar SAIRAM daqui (continuam na ribbon, no menu
+        # Organizar e nos atalhos T/B/L/R/C/E) — a barra prioriza as funções de
+        # FACA (pedido do beta), montadas em _build_contour_tool.
         self._pb_grp_count = QLabel("—")
         self._pb_grp_size = QLabel("—")
-        b_align = QPushButton("  Alinhar")
-        b_align.setIcon(icons.icon("align-horizontal-justify-start", theme.ICON))
-        m_align = QMenu(b_align)
-        for label, mode in (
-            ("À esquerda", "left"), ("Centralizar horizontal", "hcenter"),
-            ("À direita", "right"), ("Ao topo", "top"),
-            ("Centralizar vertical", "vcenter"), ("À base", "bottom"),
-        ):
-            m_align.addAction(label, lambda _=False, m=mode: self._align(m))
-        b_align.setMenu(m_align)
-        b_dist = QPushButton("  Distribuir")
-        b_dist.setIcon(icons.icon("align-horizontal-justify-center", theme.ICON))
-        m_dist = QMenu(b_dist)
-        m_dist.addAction("Na horizontal", lambda: self._distribute("h"))
-        m_dist.addAction("Na vertical", lambda: self._distribute("v"))
-        b_dist.setMenu(m_dist)
-        b_group = QPushButton("  Agrupar")
-        b_group.setIcon(icons.icon("group", theme.ICON))
-        b_group.clicked.connect(self._group_selected)
         gl.addWidget(_tag("▦ Grupo"))
         gl.addWidget(_sep())
         gl.addWidget(self._pb_grp_count)
         gl.addWidget(_sep())
         gl.addWidget(self._pb_grp_size)
         gl.addStretch()
-        gl.addWidget(b_align)
-        gl.addWidget(b_dist)
-        gl.addWidget(b_group)
         self._pbar_stack.addWidget(grp)
 
         return bar
@@ -2147,9 +2134,20 @@ class MainWindow(QMainWindow):
         cl = QHBoxLayout(w)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(theme.SPACE_XS)
-        tag = QLabel("✂ Contorno")
+        tag = QLabel("✂ Faca")
         tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
         cl.addWidget(tag)
+
+        # Tipo de faca (dropdown) — espelho do controle do Documento
+        self._ct_mode = QComboBox()
+        for label, data in self._FACA_MODES:
+            self._ct_mode.addItem(label, data)
+        self._ct_mode.setMinimumWidth(150)
+        self._ct_mode.setToolTip(
+            "Tipo de faca (mesmo controle do painel Documento / barra Gerar Faca)."
+        )
+        self._ct_mode.currentIndexChanged.connect(lambda _: self._apply_contour_mode())
+        cl.addWidget(self._ct_mode)
 
         self._ct_offset = LengthSpin(0, 100)
         self._ct_offset.setFixedWidth(90)
@@ -2198,6 +2196,18 @@ class MainWindow(QMainWindow):
             cl.addWidget(b)
         self._ct_corner.buttonClicked.connect(lambda _: self._apply_contour_corner())
 
+        # raio de arredondamento dos cantos (fillet, estilo Corel) — GLOBAL;
+        # o card "Faca deste arquivo" pode sobrepor por arquivo
+        self._ct_radius = LengthSpin(0, 50)
+        self._ct_radius.setMinimumWidth(74)
+        self._ct_radius.setToolTip(
+            "Cantos arredondados — raio (mm). Arredonda os cantos da faca,\n"
+            "até em faca retangular. 0 = canto vivo."
+        )
+        self._ct_radius.editingFinished.connect(self._apply_contour_radius)
+        cl.addWidget(QLabel("Raio"))
+        cl.addWidget(self._ct_radius)
+
         sep2 = QLabel("·")
         sep2.setStyleSheet(f"color:{theme.TEXT_MUTED};")
         cl.addWidget(sep2)
@@ -2209,6 +2219,32 @@ class MainWindow(QMainWindow):
         self._ct_smooth.valueChanged.connect(lambda _: self._apply_contour_smooth())
         cl.addWidget(QLabel("Suavizar"))
         cl.addWidget(self._ct_smooth)
+
+        sep3 = QLabel("·")
+        sep3.setStyleSheet(f"color:{theme.TEXT_MUTED};")
+        cl.addWidget(sep3)
+        # Nós da faca (dropdown curto) — espelho do seletor do Acabamento
+        self._ct_nodes = QComboBox()
+        self._ct_nodes.addItem("Nós: Fino", "fino")
+        self._ct_nodes.addItem("Nós: Médio", "medio")
+        self._ct_nodes.addItem("Nós: Leve", "leve")
+        self._ct_nodes.setCurrentIndex(1)
+        self._ct_nodes.setToolTip(
+            "Quantidade de nós da faca (máquina de corte):\n"
+            "Fino = máximo detalhe · Médio = recomendado · Leve = corte fluido."
+        )
+        self._ct_nodes.currentIndexChanged.connect(lambda _: self._apply_contour_nodes())
+        cl.addWidget(self._ct_nodes)
+        # Corte por peça ou grade compartilhada (dropdown) — espelho
+        self._ct_shared = QComboBox()
+        self._ct_shared.addItem("Corte por peça")
+        self._ct_shared.addItem("Grade (fora a fora)")
+        self._ct_shared.setToolTip(
+            "Faca por peça (cada uma com o próprio corte; rentes se fundem\n"
+            "sozinhas) ou faca compartilhada em grade fora a fora."
+        )
+        self._ct_shared.currentIndexChanged.connect(lambda _: self._apply_contour_shared())
+        cl.addWidget(self._ct_shared)
         return w
 
     def _apply_contour_smooth(self) -> None:
@@ -2241,6 +2277,36 @@ class MainWindow(QMainWindow):
         if self._loaded:
             self._relayout(renest=False)
 
+    def _apply_contour_mode(self) -> None:
+        """Tipo de faca (barra) -> combo do Documento (o handler dele re-gera)."""
+        if self._ct_loading:
+            return
+        idx = self._faca_mode.findData(self._ct_mode.currentData())
+        if idx >= 0 and idx != self._faca_mode.currentIndex():
+            self._faca_mode.setCurrentIndex(idx)
+
+    def _apply_contour_nodes(self) -> None:
+        """Nós da faca (barra) -> seletor do Acabamento (handler re-gera)."""
+        if self._ct_loading:
+            return
+        idx = self._faca_nodes.findData(self._ct_nodes.currentData())
+        if idx >= 0 and idx != self._faca_nodes.currentIndex():
+            self._faca_nodes.setCurrentIndex(idx)
+
+    def _apply_contour_shared(self) -> None:
+        """Por peça/grade (barra) -> combo do Documento (handler re-gera)."""
+        if self._ct_loading:
+            return
+        if self._shared.currentIndex() != self._ct_shared.currentIndex():
+            self._shared.setCurrentIndex(self._ct_shared.currentIndex())
+
+    def _apply_contour_radius(self) -> None:
+        """Raio dos cantos (barra, global) -> re-gera a faca."""
+        if self._ct_loading:
+            return
+        if self._loaded:
+            self._relayout(renest=False)
+
     def _sync_contour_tool(self) -> None:
         """Reflete a sangria/cantos atuais na toolbar (ex.: ao abrir projeto)."""
         if not hasattr(self, "_ct_offset"):
@@ -2258,6 +2324,13 @@ class MainWindow(QMainWindow):
                     if b is not None:
                         b.setChecked(True)
             self._ct_smooth.setValue(int(self._auto_smooth.value()))
+            i_mode = self._ct_mode.findData(self._faca_mode.currentData())
+            if i_mode >= 0:
+                self._ct_mode.setCurrentIndex(i_mode)
+            i_nodes = self._ct_nodes.findData(self._faca_nodes.currentData())
+            if i_nodes >= 0:
+                self._ct_nodes.setCurrentIndex(i_nodes)
+            self._ct_shared.setCurrentIndex(self._shared.currentIndex())
         finally:
             self._ct_loading = False
 
@@ -2610,6 +2683,7 @@ class MainWindow(QMainWindow):
         ("_faca_mode", "combo"), ("_faca_nodes", "combo"),
         ("_rotation", "combo"), ("_shared", "combo"),
         ("_auto_sensitivity", "spin"), ("_auto_smooth", "spin"),
+        ("_ct_radius", "spin"),  # raio dos cantos (barra Faca) e por sessão
         ("_auto_offset", "spin"), ("_auto_ignore_white", "check"),
         ("_reg_type", "combo"), ("_reg_margin", "spin"), ("_reg_diameter", "spin"),
         ("_mk_distance", "spin"), ("_mk_size", "spin"), ("_mk_thickness", "spin"),
@@ -3422,6 +3496,16 @@ class MainWindow(QMainWindow):
         self._pf_smooth = _spin(0, 5)
         self._pf_smooth.valueChanged.connect(lambda _: self._on_piece_faca_changed())
         faca.body.addWidget(self._pf_smooth)
+        faca.body.addWidget(QLabel("Cantos arredondados - raio (0 = vivo)"))
+        self._pf_corner_radius = LengthSpin(0, 50)
+        self._pf_corner_radius.setToolTip(
+            "Arredonda os cantos da faca com este raio (mm), estilo Contorno do\n"
+            "Corel — vale até para faca retangular. 0 = canto vivo."
+        )
+        self._pf_corner_radius.valueChanged.connect(
+            lambda _: self._on_piece_faca_changed()
+        )
+        faca.body.addWidget(self._pf_corner_radius)
         self._pf_reset = QPushButton("  Usar padrão do documento")
         self._pf_reset.setIcon(icons.icon("rotate-ccw", theme.ICON))
         self._pf_reset.setToolTip("Remove a faca personalizada e volta ao padrão do Documento")
@@ -3619,6 +3703,7 @@ class MainWindow(QMainWindow):
             self._pf_crop.setValue(p["crop"])
             self._pf_rotation.setCurrentText(str(p["rotation"]))
             self._pf_smooth.setValue(int(p["smooth"]))
+            self._pf_corner_radius.setValue(float(p.get("corner_radius", 0.0)))
             self._pf_mode.setCurrentIndex(max(0, self._pf_mode.findData(p.get("mode", "auto"))))
         finally:
             self._pf_loading = False
@@ -3669,6 +3754,7 @@ class MainWindow(QMainWindow):
         p["crop"] = float(self._pf_crop.value())
         p["rotation"] = int(self._pf_rotation.currentText())
         p["smooth"] = int(self._pf_smooth.value())
+        p["corner_radius"] = float(self._pf_corner_radius.value())
         p["mode"] = self._pf_mode.currentData()
         self._file_overrides[path] = p
         self._keep_tab = True
@@ -3945,6 +4031,15 @@ class MainWindow(QMainWindow):
         )
         self._center_check.toggled.connect(self._set_center_on_sheet)
         card.body.addWidget(self._center_check)
+        fit_btn = QPushButton("  Ajustar chapa ao conteúdo")
+        fit_btn.setIcon(icons.icon("arrows-in", theme.ICON))
+        fit_btn.setToolTip(
+            "Encolhe a chapa para o tamanho exato do arranjo atual (Ctrl+Shift+F).\n"
+            "A exportação sai rente ao conteúdo — as marcas de registro entram na\n"
+            "folga própria — sem branco em volta na impressão. Ctrl+Z desfaz."
+        )
+        fit_btn.clicked.connect(self._fit_sheets_to_content)
+        card.body.addWidget(fit_btn)
         self._offset = LengthSpin(-100, 100)
         self._offset.setToolTip(
             "Sangria da faca de PDF (vale nos 3 modos: retângulo, pelo contorno e\n"
@@ -4250,6 +4345,11 @@ class MainWindow(QMainWindow):
             "rotation": self._rotation_value(),
             "smooth": int(self._auto_smooth.value()),
             "corner": self._faca_corner,  # canto do contorno: round/miter/bevel
+            # raio de arredondamento dos cantos: global na barra Faca; o card
+            # "Faca deste arquivo" sobrepõe por arquivo
+            "corner_radius": (
+                float(self._ct_radius.value()) if hasattr(self, "_ct_radius") else 0.0
+            ),
             "mode": self._faca_mode.currentData(),  # ver _FACA_MODES (auto/rect/...)
         }
 
@@ -4301,7 +4401,14 @@ class MainWindow(QMainWindow):
         sangria = params["auto_offset"] if is_img else params["offset"]
         mode = self._resolve_faca_mode(params.get("mode", "auto"), base)
         if mode == "rect":  # corte reto por fora (vale p/ imagem e PDF)
-            return self._faca_uc.execute(self._transform(base, params), sangria)
+            art_r = self._faca_uc.execute(self._transform(base, params), sangria)
+            # cantos arredondados valem ATE para o retangulo puro
+            radius = float(params.get("corner_radius", 0.0))
+            if radius > 0 and art_r.cut_contour is not None:
+                art_r = replace(
+                    art_r, cut_contour=round_corners(art_r.cut_contour, radius)
+                )
+            return art_r
         if mode == "vector":  # faca do cliente (linha vetorial do PDF)
             raw = self._scaled_contour(self._pdf_vector_contour(base), sx, sy)
             return self._contour_faca(base, raw, params, params["offset"])
@@ -4510,6 +4617,11 @@ class MainWindow(QMainWindow):
             reduced = simplify_contour(contour, self._faca_nodes_tol(smooth))
             if len(reduced.points) >= 3:
                 contour = reduced
+        # cantos arredondados (raio em mm, estilo Contorno do Corel) — por
+        # ULTIMO, para a redução de nós não facetar os arcos recém-criados
+        radius = float(params.get("corner_radius", 0.0))
+        if radius > 0:
+            contour = round_corners(contour, radius)
         return contour
 
     def _faca_nodes_tol(self, smooth: int = 0) -> float:
@@ -6066,6 +6178,51 @@ class MainWindow(QMainWindow):
         total = sum(s.item_count for s in sheets)
         self._status.setText(f"{len(sheets)} chapa(s) | {total} peça(s)")
         self._status_ctl.set_production(total, len(sheets))
+
+    def _fit_sheets_to_content(self) -> None:
+        """Ajusta cada chapa ao tamanho EXATO do arranjo atual: sem branco em
+        volta na exportação/impressão. As marcas de registro não precisam
+        entrar aqui — os exportadores já somam a folga delas (_faca_pad) ao
+        redor da página, então a folha final sai 'conteúdo + marcas', justa.
+        Desfazível com Ctrl+Z; o arranjo das peças não muda (só translada)."""
+        if self._result is None or not self._result.sheets:
+            return
+        before = self._snapshot_sheets()
+        by_id = {a.id: a for a in self._result.artworks}
+        after = []
+        changed = False
+        for layout in before:
+            xs, ys, xe, ye = [], [], [], []
+            for item in layout.items:
+                art = by_id.get(item.artwork_id)
+                if art is None:
+                    continue
+                fp = artwork_footprint(art)
+                xs.append(item.position.x)
+                ys.append(item.position.y)
+                xe.append(item.position.x + (fp.max_x - fp.min_x))
+                ye.append(item.position.y + (fp.max_y - fp.min_y))
+            if not xs:
+                after.append(layout)
+                continue
+            minx, miny = min(xs), min(ys)
+            width = max(1.0, max(xe) - minx)
+            height = max(1.0, max(ye) - miny)
+            items = [
+                PlacedItem(
+                    i.artwork_id,
+                    Point2D(i.position.x - minx, i.position.y - miny),
+                )
+                for i in layout.items
+            ]
+            material = replace(layout.material, width=width, margin=0.0)
+            after.append(Layout(material, items, height))
+            changed = True
+        if not changed:
+            return
+        self._commit_arrangement(before, after, "Ajustar chapa ao conteúdo")
+        self._fit_view()
+        self._toasts.success("Chapa ajustada ao conteúdo — exportação sem branco em volta")
 
     def _commit_arrangement(self, before, after, text: str) -> None:
         """Aplica 'after' e registra o passo no histórico (Ctrl+Z desfaz).
