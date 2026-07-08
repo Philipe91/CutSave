@@ -812,6 +812,29 @@ def test_clipboard_e_por_aba(qapp, tmp_path):
     assert window._piece_clipboard == []  # clipboard nao atravessa abas
 
 
+def test_tipo_de_faca_na_barra_respeita_a_selecao(qapp, tmp_path):
+    # Estilo Corel: com peça SELECIONADA, mudar o Tipo na barra Faca vale só
+    # para o arquivo dela (override); o global do documento não muda — misturar
+    # corte reto com contorno justo não atropela os outros arquivos.
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    global_antes = window._faca_mode.currentData()
+    window._selected_path = src  # peça deste arquivo selecionada
+    window._ct_mode.setCurrentIndex(window._ct_mode.findData("contour"))
+
+    assert window._file_overrides[src]["mode"] == "contour"  # só o arquivo
+    assert window._faca_mode.currentData() == global_antes   # global intacto
+
+    # sem seleção: a barra volta a controlar o documento inteiro
+    window._selected_path = None
+    window._ct_loading = False
+    window._ct_mode.setCurrentIndex(window._ct_mode.findData("rect"))
+    assert window._faca_mode.currentData() == "rect"
+
+
 def test_ajustar_chapa_ao_conteudo(qapp, tmp_path):
     # "Ajustar chapa ao conteúdo": a chapa encolhe para o bbox do arranjo
     # (sem branco em volta na exportação) e o conteúdo encosta na origem.

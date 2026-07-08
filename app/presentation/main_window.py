@@ -2219,9 +2219,16 @@ class MainWindow(QMainWindow):
         cl = QHBoxLayout(w)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(theme.SPACE_XS)
-        tag = QLabel("✂ Faca")
-        tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
-        cl.addWidget(tag)
+        # a etiqueta mostra o ESCOPO (estilo Corel): sem seleção = documento
+        # inteiro; com peça selecionada = só o arquivo dela (override).
+        self._ct_tag = QLabel("✂ Faca · documento")
+        self._ct_tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
+        self._ct_tag.setToolTip(
+            "Sem seleção: os ajustes valem para o documento inteiro.\n"
+            "Com uma peça selecionada: o Tipo de faca vale SÓ para o\n"
+            "arquivo dela (os demais arquivos não mudam)."
+        )
+        cl.addWidget(self._ct_tag)
 
         # botão principal AZUL: gerar a faca (o atalho Shift+F5 vive na QAction)
         gerar = QPushButton("  Gerar Faca")
@@ -2402,10 +2409,31 @@ class MainWindow(QMainWindow):
             self._relayout(renest=False)
 
     def _apply_contour_mode(self) -> None:
-        """Tipo de faca (barra) -> combo do Documento (o handler dele re-gera)."""
+        """Tipo de faca (barra), sensível ao CONTEXTO (estilo Corel):
+
+        - COM peça selecionada: muda o tipo SÓ do arquivo dela (override) —
+          misturar corte reto com contorno justo na mesma chapa deixava o
+          global atropelar os outros arquivos (pedido do Philipe 08/07).
+        - SEM seleção: vale para o documento (combo global re-gera).
+        """
         if self._ct_loading:
             return
-        idx = self._faca_mode.findData(self._ct_mode.currentData())
+        data = self._ct_mode.currentData()
+        path = getattr(self, "_selected_path", None)
+        if path:
+            p = dict(self._params_for(path))
+            if p.get("mode") == data:
+                return
+            p["mode"] = data
+            self._file_overrides[path] = p
+            self._keep_tab = True
+            try:
+                self._relayout(renest=False)
+                self._reselect_path(path)
+            finally:
+                self._keep_tab = False
+            return
+        idx = self._faca_mode.findData(data)
         if idx >= 0 and idx != self._faca_mode.currentIndex():
             self._faca_mode.setCurrentIndex(idx)
 
@@ -2448,7 +2476,18 @@ class MainWindow(QMainWindow):
                     if b is not None:
                         b.setChecked(True)
             self._ct_smooth.setValue(int(self._auto_smooth.value()))
-            i_mode = self._ct_mode.findData(self._faca_mode.currentData())
+            # tipo exibido segue o ESCOPO: arquivo selecionado (efetivo, com
+            # override) ou o global do documento
+            sel = getattr(self, "_selected_path", None)
+            mode_data = (
+                self._params_for(sel).get("mode", self._faca_mode.currentData())
+                if sel else self._faca_mode.currentData()
+            )
+            if hasattr(self, "_ct_tag"):
+                self._ct_tag.setText(
+                    "✂ Faca · este arquivo" if sel else "✂ Faca · documento"
+                )
+            i_mode = self._ct_mode.findData(mode_data)
             if i_mode >= 0:
                 self._ct_mode.setCurrentIndex(i_mode)
             i_nodes = self._ct_nodes.findData(self._faca_nodes.currentData())
