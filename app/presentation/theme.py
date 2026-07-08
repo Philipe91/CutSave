@@ -106,6 +106,19 @@ FONT_XL = 18        # título de painel
 FONT_2XL = 22       # título de janela
 
 
+def apply(app) -> None:
+    """Aplica o design system inteiro a um QApplication (tema claro + QSS).
+
+    USAR EM TODO entrypoint com GUI (app principal, License Studio, futuros
+    utilitários) — QA 2.0: o License Studio nascia "pelado" porque só o
+    __main__ injetava o QSS.
+    """
+    from PySide6.QtCore import Qt
+
+    app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    app.setStyleSheet(build_app_qss())
+
+
 def build_app_qss() -> str:
     """Folha de estilo global (aplicada no QApplication).
 

@@ -45,20 +45,20 @@ class LicenseManager:
         """Valida a chave para ESTE PC e, se ok, salva. Retorna (ok, mensagem)."""
         parsed = lic_mod.parse(key)
         if parsed is None:
-            return False, "Chave de licenca invalida (formato nao reconhecido)."
+            return False, "Chave de licença inválida (formato não reconhecido)."
         lic, _sig = parsed
         result = lic_mod.verify_key(key, self.machine_id, self._today)
         if result is None:
             if lic.machine_id != self.machine_id:
-                return False, "Esta licenca e de outro computador (ID nao confere)."
+                return False, "Esta licença é de outro computador (ID não confere)."
             if lic.is_expired(self._today):
-                return False, "Esta licenca esta expirada."
-            return False, "Assinatura invalida (licenca adulterada ou falsa)."
+                return False, "Esta licença está expirada."
+            return False, "Assinatura inválida (licença adulterada ou falsa)."
         with contextlib.suppress(OSError):
             self._paths.home.mkdir(parents=True, exist_ok=True)
             self._paths.license_file.write_text(key.strip(), encoding="utf-8")
         self._license = result
-        return True, f"Licenca ativada para {result.customer}."
+        return True, f"Licença ativada para {result.customer}."
 
     def deactivate(self) -> None:
         """Remove a licenca deste PC (para transferir para outro)."""
@@ -79,6 +79,6 @@ class LicenseManager:
     def status_text(self) -> str:
         if self._license is not None:
             exp = self._license.expires
-            validade = f" · valida ate {exp}" if exp else " · perpetua"
+            validade = f" · válida até {exp}" if exp else " · perpétua"
             return f"Licenciado — {self.customer}{validade}"
-        return "Nao licenciado — ative para usar"
+        return "Não licenciado — ative para usar"

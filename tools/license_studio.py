@@ -32,14 +32,14 @@ from tools.issuer import issue_license, load_private_key  # noqa: E402
 class LicenseStudio(QWidget):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PrintNest — Emissor de Licencas")
+        self.setWindowTitle("PrintNest — Emissor de Licenças")
         self.setMinimumWidth(560)
         root = QVBoxLayout(self)
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
 
-        title = QLabel("Emissor de Licencas (uso interno)")
-        title.setStyleSheet("font-size:16px; font-weight:600;")
+        title = QLabel("Emissor de Licenças (uso interno)")
+        title.setProperty("role", "panelTitle")
         root.addWidget(title)
 
         form = QFormLayout()
@@ -49,13 +49,14 @@ class LicenseStudio(QWidget):
         self._customer = QLineEdit()
         self._customer.setPlaceholderText("Nome da grafica <email>")
         self._expires = QLineEdit()
-        self._expires.setPlaceholderText("vazio = perpetua · ou AAAA-MM-DD")
-        form.addRow("ID da Maquina:", self._mid)
+        self._expires.setPlaceholderText("vazio = perpétua · ou AAAA-MM-DD")
+        form.addRow("ID da Máquina:", self._mid)
         form.addRow("Cliente:", self._customer)
         form.addRow("Validade:", self._expires)
         root.addLayout(form)
 
-        gen = QPushButton("Gerar licenca")
+        gen = QPushButton("Gerar licença")
+        gen.setProperty("accent", "true")
         gen.clicked.connect(self._generate)
         root.addWidget(gen)
 
@@ -99,6 +100,10 @@ class LicenseStudio(QWidget):
 
 def main() -> None:
     app = QApplication(sys.argv)
+    # mesmo design system do PrintNest (QA 2.0: o Studio nascia sem estilo,
+    # parecia outro aplicativo)
+    from app.presentation import theme
+    theme.apply(app)
     w = LicenseStudio()
     w.show()
     sys.exit(app.exec())

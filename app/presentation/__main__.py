@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -48,10 +47,9 @@ def main() -> int:
     file_args = _file_args(sys.argv)
     if forward_to_running(file_args):
         return 0
-    # Trava o tema em Claro: a interface fica igual em qualquer PC,
-    # independente do modo Claro/Escuro do Windows (Qt 6 segue o sistema).
-    app.styleHints().setColorScheme(Qt.ColorScheme.Light)
-    app.setStyleSheet(theme.build_app_qss())  # folha de estilo global (design system)
+    # Design system inteiro (tema Claro travado + QSS global) num helper só —
+    # o mesmo usado por qualquer outro entrypoint com GUI (ex.: License Studio).
+    theme.apply(app)
     # icone da janela: .ico multi-tamanho (só o simbolo, nitido em 16/32px);
     # cai para a PNG se o .ico não existir
     icon_file = resource_path("assets/printnest.ico")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+from contextlib import contextmanager
 import functools
 import tempfile
 from dataclasses import replace
@@ -38,6 +39,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -218,6 +220,26 @@ class ZoomableGraphicsView(QGraphicsView):
         self._left_drag = False
         self._press_view_pos = None  # posição do clique (zona morta de arraste)
         self._drag_armed = False  # vira True só após passar a zona morta
+        # texto-guia do estado VAZIO ("" = sem guia). A MainWindow define
+        # conforme a etapa: sem arquivos / com arquivos mas sem produção.
+        self.empty_hint = ""
+
+    def drawForeground(self, painter, rect) -> None:  # noqa: N802
+        super().drawForeground(painter, rect)
+        # estado vazio orientando (QA 2.0/C7): sem isto o primeiro contato era
+        # uma tela cinza morta — o operador não sabia que dava para arrastar.
+        if not self.empty_hint:
+            return
+        painter.save()
+        painter.resetTransform()  # desenha em coordenadas do viewport
+        painter.setPen(QColor(theme.TEXT_MUTED))
+        f = painter.font()
+        f.setPointSizeF(f.pointSizeF() + 3)
+        painter.setFont(f)
+        painter.drawText(
+            self.viewport().rect(), Qt.AlignCenter, self.empty_hint
+        )
+        painter.restore()
 
     # ---- arrastar da biblioteca para a área de trabalho ----
     @staticmethod
@@ -1317,6 +1339,23 @@ class ExportCenterDialog(QDialog):
                 self._w.export_dxf(pages=idxs)
 
 
+@contextmanager
+def _wait_cursor():
+    """Cursor de espera em operações longas na thread da UI (QA 2.0/C6:
+    exportações travavam a janela sem NENHUM feedback — parecia crash)."""
+    QApplication.setOverrideCursor(Qt.WaitCursor)
+    try:
+        yield
+    finally:
+        QApplication.restoreOverrideCursor()
+
+
+# referência ao critical REAL do Qt: se um teste monkeypatchar (QA-02), a
+# identidade muda e o guard usa o dublê; se NÃO patchou, abrir modal em teste
+# offscreen = suite travada -> re-levanta (falha alto, visível no CI).
+_REAL_CRITICAL = QMessageBox.critical
+
+
 def _guard_export(method):
     """Decorator das ações de exportar: QUALQUER falha vira dialogo amigavel.
 
@@ -1330,6 +1369,12 @@ def _guard_export(method):
         try:
             return method(self, *args, **kwargs)
         except Exception as exc:  # última defesa: mostrar, nunca silenciar
+            import os
+            if (
+                os.environ.get("PYTEST_CURRENT_TEST")
+                and QMessageBox.critical is _REAL_CRITICAL
+            ):
+                raise  # em teste SEM dublê, modal = suite travada; falhar ALTO
             QMessageBox.critical(self, "PrintNest", f"Falha ao exportar:\n{exc}")
             return None
     return wrapper
@@ -1753,10 +1798,9 @@ class MainWindow(QMainWindow):
                                [dist_h, dist_v], tip="Distribuir igualmente"),
                 tb.tool_button(snap_act, "magnet", show_text=False),
             ]),
-            ("Produção", [
-                # "Tipo de faca" e "Gerar Faca" MORAM na barra Faca (propBar),
-                # junto das demais funções de faca — pedido do beta. O atalho
-                # Shift+F5 continua valendo (gerar_faca vive como QAction).
+            ("Exportar", [
+                # QA 2.0: o grupo só tem exportações — o nome dizia "Produção"
+                # e mentia. Faca inteira mora na barra Faca (propBar).
                 tb.tool_button(exp_center, "download"),
                 tb.menu_button("Mais...", "download",
                                [exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img],
@@ -1843,6 +1887,7 @@ class MainWindow(QMainWindow):
 
     def _apply_project(self, doc: ProjectDocument) -> None:
         """Restaura o estado do projeto SEM gerar produção (regra do projeto)."""
+        self._dirty = False  # recem-aberto do disco: estado limpo
         for key, value in doc.settings.items():
             if key in PROJECT_SETTING_KEYS and hasattr(self._settings, key):
                 setattr(self._settings, key, value)
@@ -1902,7 +1947,43 @@ class MainWindow(QMainWindow):
         if self._loaded:
             self._relayout()
 
+    # ---- protecao contra perda de trabalho (QA 2.0/C5) ----
+    def _mark_dirty(self) -> None:
+        self._dirty = True
+
+    def _confirm_discard(self, acao: str) -> bool:
+        """Pergunta antes de descartar trabalho não salvo. True = prosseguir.
+
+        Só pergunta quando ha algo a perder E a janela esta em uso real
+        (suites offscreen/pytest nunca podem abrir modal — travaria o CI).
+        """
+        import os
+        if not getattr(self, "_dirty", False):
+            return True
+        if not (self._paths or (self._result is not None and self._result.sheets)):
+            return True
+        if os.environ.get("PYTEST_CURRENT_TEST") or not self.isVisible():
+            return True
+        box = QMessageBox(self)
+        box.setWindowTitle("PrintNest")
+        box.setIcon(QMessageBox.Warning)
+        box.setText("Há alterações não salvas neste trabalho.")
+        box.setInformativeText(acao)
+        b_save = box.addButton("Salvar", QMessageBox.AcceptRole)
+        box.addButton("Descartar", QMessageBox.DestructiveRole)
+        b_canc = box.addButton("Cancelar", QMessageBox.RejectRole)
+        box.setDefaultButton(b_save)
+        box.exec()
+        if box.clickedButton() is b_canc:
+            return False
+        if box.clickedButton() is b_save:
+            return self.save_project()
+        return True
+
     def new_project(self) -> None:
+        if not self._confirm_discard("Criar um novo projeto substitui o trabalho atual."):
+            return
+        self._dirty = False
         self._project_path = None
         self._reset_project_state()
         self._faca_on = False      # volta ao modo "soltar sem faca"
@@ -1921,6 +2002,10 @@ class MainWindow(QMainWindow):
 
     def open_project(self, path: str | None = None) -> bool:
         interactive = not isinstance(path, str) or not path
+        if interactive and not self._confirm_discard(
+            "Abrir outro projeto substitui o trabalho atual."
+        ):
+            return False
         if interactive:
             path, _ = QFileDialog.getOpenFileName(
                 self, "Abrir projeto", self._settings.last_dir,
@@ -1963,6 +2048,7 @@ class MainWindow(QMainWindow):
         self._project_path = path
         self._settings.last_project = path
         self._store.save(self._settings)
+        self._dirty = False  # salvo: nada a perder
         self._update_title()
         self._toasts.success("Projeto salvo")
         return True
@@ -2000,7 +2086,9 @@ class MainWindow(QMainWindow):
         """
         bar = QFrame()
         bar.setObjectName("propBar")
-        bar.setFixedHeight(40)
+        # altura MINIMA derivada da fonte (QA 2.0/C2: 40px fixos cortavam a
+        # borda dos botões, que precisam de ~38px + margens — pior em 125/150%)
+        bar.setMinimumHeight(max(44, self.fontMetrics().height() * 2 + 16))
         bar.setStyleSheet(
             f"#propBar{{background:{theme.SURFACE_ALT}; border:1px solid {theme.BORDER};"
             f" border-radius:8px;}}"
@@ -2009,7 +2097,10 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(theme.SPACE_MD, 2, theme.SPACE_MD, 2)
         self._pbar_stack = QStackedWidget()
         outer.addWidget(self._pbar_stack, 1)
-        outer.addWidget(self._build_contour_tool())  # ferramenta Contorno (faca)
+        # barra Faca: aparece SO com arquivo carregado (QA 2.0 — 11 controles
+        # ativos antes de existir faca era carga cognitiva pura)
+        self._ct_tool = self._build_contour_tool()
+        outer.addWidget(self._ct_tool)
 
         def _tag(text: str) -> QLabel:
             lb = QLabel(text)
@@ -2051,7 +2142,8 @@ class MainWindow(QMainWindow):
         self._pb_w = LengthSpin(1, 20000)
         self._pb_h = LengthSpin(1, 20000)
         for sp in (self._pb_w, self._pb_h):
-            sp.setFixedWidth(90)
+            # mínimo derivado da fonte: "20000.00 mm" precisa caber em 125-200%
+            sp.setMinimumWidth(self.fontMetrics().horizontalAdvance("20000.00 mm") + 34)
         self._pb_w.editingFinished.connect(lambda: self._pbar_resize("w"))
         self._pb_h.editingFinished.connect(lambda: self._pbar_resize("h"))
         # cadeado: mantem a proporção ao mudar L/A ou arrastar as alças.
@@ -2112,10 +2204,17 @@ class MainWindow(QMainWindow):
         return bar
 
     def _build_contour_tool(self) -> QWidget:
-        """Ferramenta 'Contorno' (faca), estilo CorelDRAW, fixa a direita da barra:
-        Offset (mm) + Direção (externo/interno) + Cantos (redondo/ponta/chanfro).
-        O offset controla a sangria da faca ao vivo; os cantos usam o join_style
-        do offset. Não mexe em nesting/exportação."""
+        """Barra Faca (fixa à direita da propBar), RESPONSIVA por projeto:
+
+        - Inline ficam só os PRIMÁRIOS (Gerar Faca, Tipo, Offset + direção):
+          ~520px lógicos, cabe de notebook 1366px a 4K em qualquer escala.
+        - O resto (cantos, raio, suavizar, nós, grade, ajustar chapa) mora no
+          popup "Ajustes ▾" — QA 2.0/C1: os 18 widgets numa linha somavam
+          ~1500px e estouravam telas comuns. Também reduz a carga cognitiva.
+        - Nenhuma largura/altura fixa em px para conteúdo que depende da
+          fonte (QA 2.0 causa raiz nº 1): mínimos derivam de fontMetrics.
+        """
+        fm = self.fontMetrics()
         w = QFrame()
         cl = QHBoxLayout(w)
         cl.setContentsMargins(0, 0, 0, 0)
@@ -2126,7 +2225,7 @@ class MainWindow(QMainWindow):
 
         # botão principal AZUL: gerar a faca (o atalho Shift+F5 vive na QAction)
         gerar = QPushButton("  Gerar Faca")
-        gerar.setIcon(icons.icon("scissors", "#FFFFFF"))
+        gerar.setIcon(icons.icon("scissors", theme.ICON_ON_ACCENT))
         gerar.setProperty("accent", "true")
         gerar.setToolTip("Gera/recria a faca das peças (Shift+F5)")
         gerar.clicked.connect(self._regenerate_faca)
@@ -2136,19 +2235,22 @@ class MainWindow(QMainWindow):
         self._ct_mode = QComboBox()
         for label, data in self._FACA_MODES:
             self._ct_mode.addItem(label, data)
-        self._ct_mode.setMinimumWidth(150)
-        self._ct_mode.setToolTip(
-            "Tipo de faca (mesmo controle do painel Documento / barra Gerar Faca)."
-        )
+        self._ct_mode.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self._ct_mode.setToolTip("Tipo de faca (vale para o documento inteiro).")
         self._ct_mode.currentIndexChanged.connect(lambda _: self._apply_contour_mode())
         cl.addWidget(self._ct_mode)
 
         self._ct_offset = LengthSpin(0, 100)
-        self._ct_offset.setFixedWidth(90)
+        # largura MINIMA derivada da fonte (nunca fixa): "100.00 mm" + setas
+        self._ct_offset.setMinimumWidth(fm.horizontalAdvance("100.00 mm") + 34)
         self._ct_offset.setToolTip("Offset da faca: distância da linha de corte até a arte.")
         self._ct_offset.editingFinished.connect(self._apply_contour_offset)
         cl.addWidget(QLabel("Offset"))
         cl.addWidget(self._ct_offset)
+
+        # botões só-icone com dimensão derivada da fonte (escala 125-200% ok)
+        btn_h = max(28, fm.height() + 12)
+        btn_w = max(30, fm.height() + 14)
 
         def _icon_btn(icon_name: str, tip: str, checked: bool = False) -> QPushButton:
             """Botão só-icone (estilo Corel): nome no tooltip, sem texto."""
@@ -2157,7 +2259,7 @@ class MainWindow(QMainWindow):
             b.setIconSize(QSize(18, 18))
             b.setCheckable(True)
             b.setChecked(checked)
-            b.setFixedSize(30, 28)
+            b.setFixedSize(btn_w, btn_h)
             b.setToolTip(tip)
             return b
 
@@ -2170,9 +2272,13 @@ class MainWindow(QMainWindow):
         cl.addWidget(b_out)
         cl.addWidget(b_in)
 
-        sep = QLabel("·")
-        sep.setStyleSheet(f"color:{theme.TEXT_MUTED};")
-        cl.addWidget(sep)
+        # ---- popup "Ajustes ▾": secundários organizados em grade ----
+        panel = QWidget()
+        grid = QGridLayout(panel)
+        grid.setContentsMargins(theme.SPACE_MD, theme.SPACE_SM, theme.SPACE_MD, theme.SPACE_SM)
+        grid.setHorizontalSpacing(theme.SPACE_SM)
+        grid.setVerticalSpacing(theme.SPACE_SM)
+
         self._ct_corner = QButtonGroup(self)
         self._ct_corner_val = {}
         corners = (
@@ -2183,72 +2289,86 @@ class MainWindow(QMainWindow):
             ("bevel", "corner-bevel",
              "Chanfrar cantos\nCanto chanfrado (reto)."),
         )
+        corner_row = QHBoxLayout()
+        corner_row.setSpacing(theme.SPACE_XS)
         for i, (val, icon_name, tip) in enumerate(corners):
             b = _icon_btn(icon_name, tip, checked=(val == "round"))
             self._ct_corner.addButton(b, i)
             self._ct_corner_val[i] = val
-            cl.addWidget(b)
+            corner_row.addWidget(b)
+        corner_row.addStretch()
         self._ct_corner.buttonClicked.connect(lambda _: self._apply_contour_corner())
+        grid.addWidget(QLabel("Cantos"), 0, 0)
+        grid.addLayout(corner_row, 0, 1)
 
         # raio de arredondamento dos cantos (fillet, estilo Corel) — GLOBAL;
         # o card "Faca deste arquivo" pode sobrepor por arquivo
         self._ct_radius = LengthSpin(0, 50)
-        self._ct_radius.setMinimumWidth(74)
+        self._ct_radius.setMinimumWidth(fm.horizontalAdvance("50.00 mm") + 34)
         self._ct_radius.setToolTip(
             "Cantos arredondados — raio (mm). Arredonda os cantos da faca,\n"
             "até em faca retangular. 0 = canto vivo."
         )
         self._ct_radius.editingFinished.connect(self._apply_contour_radius)
-        cl.addWidget(QLabel("Raio"))
-        cl.addWidget(self._ct_radius)
+        grid.addWidget(QLabel("Raio dos cantos"), 1, 0)
+        grid.addWidget(self._ct_radius, 1, 1)
 
-        sep2 = QLabel("·")
-        sep2.setStyleSheet(f"color:{theme.TEXT_MUTED};")
-        cl.addWidget(sep2)
         self._ct_smooth = _spin(0, 5)
-        # largura MINIMA (nao fixa): 52px fixos cortavam o numero em monitores
-        # com escala 125/150% (fonte maior nao cabia) — bug visto no beta.
-        self._ct_smooth.setMinimumWidth(64)
+        self._ct_smooth.setMinimumWidth(fm.horizontalAdvance("55") + 40)
         self._ct_smooth.setToolTip("Suavizar curvas da faca: 0 = reto, 5 = macio.")
         self._ct_smooth.valueChanged.connect(lambda _: self._apply_contour_smooth())
-        cl.addWidget(QLabel("Suavizar"))
-        cl.addWidget(self._ct_smooth)
+        grid.addWidget(QLabel("Suavizar curvas"), 2, 0)
+        grid.addWidget(self._ct_smooth, 2, 1)
 
-        sep3 = QLabel("·")
-        sep3.setStyleSheet(f"color:{theme.TEXT_MUTED};")
-        cl.addWidget(sep3)
         # Nós da faca (dropdown curto) — espelho do seletor do Acabamento
         self._ct_nodes = QComboBox()
-        self._ct_nodes.addItem("Nós: Fino", "fino")
-        self._ct_nodes.addItem("Nós: Médio", "medio")
-        self._ct_nodes.addItem("Nós: Leve", "leve")
+        self._ct_nodes.addItem("Fino (máximo detalhe)", "fino")
+        self._ct_nodes.addItem("Médio (recomendado)", "medio")
+        self._ct_nodes.addItem("Leve (corte fluido)", "leve")
         self._ct_nodes.setCurrentIndex(1)
+        self._ct_nodes.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._ct_nodes.setToolTip(
-            "Quantidade de nós da faca (máquina de corte):\n"
-            "Fino = máximo detalhe · Médio = recomendado · Leve = corte fluido."
+            "Quantidade de nós da faca enviados à máquina de corte."
         )
         self._ct_nodes.currentIndexChanged.connect(lambda _: self._apply_contour_nodes())
-        cl.addWidget(self._ct_nodes)
+        grid.addWidget(QLabel("Nós da faca"), 3, 0)
+        grid.addWidget(self._ct_nodes, 3, 1)
+
         # Corte por peça ou grade compartilhada (dropdown) — espelho
         self._ct_shared = QComboBox()
         self._ct_shared.addItem("Corte por peça")
         self._ct_shared.addItem("Grade (fora a fora)")
+        self._ct_shared.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._ct_shared.setToolTip(
             "Faca por peça (cada uma com o próprio corte; rentes se fundem\n"
             "sozinhas) ou faca compartilhada em grade fora a fora."
         )
         self._ct_shared.currentIndexChanged.connect(lambda _: self._apply_contour_shared())
-        cl.addWidget(self._ct_shared)
+        grid.addWidget(QLabel("Modo do corte"), 4, 0)
+        grid.addWidget(self._ct_shared, 4, 1)
 
-        # ajustar a chapa ao conteúdo (mesma ação do card Produção / Ctrl+Shift+F)
-        fit_btn = QPushButton("  Ajustar chapa")
+        # ajustar a chapa ao conteúdo (mesma ação do menu Organizar / Ctrl+Shift+F)
+        fit_btn = QPushButton("  Ajustar chapa ao conteúdo")
         fit_btn.setIcon(icons.icon("arrows-in", theme.ICON))
         fit_btn.setToolTip(
             "Ajustar chapa ao conteúdo (Ctrl+Shift+F): encolhe a chapa para o\n"
             "tamanho exato do arranjo — exportação sem branco em volta."
         )
         fit_btn.clicked.connect(self._fit_sheets_to_content)
-        cl.addWidget(fit_btn)
+        grid.addWidget(fit_btn, 5, 0, 1, 2)
+
+        ajustes = QToolButton()
+        ajustes.setText("Ajustes ▾")
+        ajustes.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        ajustes.setPopupMode(QToolButton.InstantPopup)
+        ajustes.setCursor(Qt.PointingHandCursor)
+        ajustes.setToolTip("Acabamento da faca: cantos, raio, suavizar, nós, modo do corte")
+        menu = QMenu(ajustes)
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(panel)
+        menu.addAction(wa)
+        ajustes.setMenu(menu)
+        cl.addWidget(ajustes)
         return w
 
     def _apply_contour_smooth(self) -> None:
@@ -2342,6 +2462,23 @@ class MainWindow(QMainWindow):
         """Repinta a barra conforme a seleção atual (Projeto / Objeto / Grupo)."""
         if not hasattr(self, "_pbar_stack"):
             return
+        # barra Faca só com arquivo carregado (revelação progressiva)
+        if hasattr(self, "_ct_tool"):
+            self._ct_tool.setVisible(bool(self._paths))
+        # texto-guia do canvas vazio, conforme a etapa do fluxo
+        if hasattr(self, "_view"):
+            if not self._paths:
+                hint = (
+                    "Arraste seus arquivos para cá\n"
+                    "ou clique em  +  Adicionar arquivos"
+                )
+            elif self._result is None:
+                hint = "Arquivos prontos — clique em  Gerar Faca  (Shift+F5)"
+            else:
+                hint = ""
+            if self._view.empty_hint != hint:
+                self._view.empty_hint = hint
+                self._view.viewport().update()
         self._sync_contour_tool()  # reflete offset/cantos atuais na toolbar
         try:
             pieces = self._selected_pieces()
@@ -2881,6 +3018,21 @@ class MainWindow(QMainWindow):
     def _close_tab(self, index: int) -> None:
         if self._tabbar.count() <= 1:
             return  # sempre resta uma aba
+        # QA 2.0/C5: fechar aba descartava o trabalho SEM aviso e sem volta
+        if index == self._active_tab:
+            if not self._confirm_discard(
+                "Fechar esta aba descarta o trabalho não salvo dela."
+            ):
+                return
+        elif self._sessions[index] is not None:
+            import os
+            if not os.environ.get("PYTEST_CURRENT_TEST") and self.isVisible():
+                r = QMessageBox.question(
+                    self, "Fechar aba",
+                    "Esta aba tem um trabalho aberto. Fechar e descartar?",
+                )
+                if r != QMessageBox.Yes:
+                    return
         going_active = index == self._active_tab
         if going_active:
             target = index - 1 if index > 0 else index + 1
@@ -4035,23 +4187,11 @@ class MainWindow(QMainWindow):
         )
         self._center_check.toggled.connect(self._set_center_on_sheet)
         card.body.addWidget(self._center_check)
-        fit_btn = QPushButton("  Ajustar chapa ao conteúdo")
-        fit_btn.setIcon(icons.icon("arrows-in", theme.ICON))
-        fit_btn.setToolTip(
-            "Encolhe a chapa para o tamanho exato do arranjo atual (Ctrl+Shift+F).\n"
-            "A exportação sai rente ao conteúdo — as marcas de registro entram na\n"
-            "folga própria — sem branco em volta na impressão. Ctrl+Z desfaz."
-        )
-        fit_btn.clicked.connect(self._fit_sheets_to_content)
-        card.body.addWidget(fit_btn)
+        # QA 2.0 (fonte única): "Ajustar chapa" e a sangria saíram DESTE card —
+        # o controle visível mora na barra Faca; _offset segue vivo como estado
+        # (sessão/projeto/testes) sincronizado pela barra.
         self._offset = LengthSpin(-100, 100)
-        self._offset.setToolTip(
-            "Sangria da faca de PDF (vale nos 3 modos: retângulo, pelo contorno e\n"
-            "faca do cliente). Positivo afasta a faca para FORA da arte (sangria);\n"
-            "negativo recolhe para DENTRO (recuo). Para imagens, use o campo próprio."
-        )
         self._offset.valueChanged.connect(lambda _: self._relayout(renest=False))
-        card.body.addWidget(labeled("Sangria da faca (PDF)  ( + fora  /  − dentro )", self._offset))
         return card
 
     def _build_acabamento_card(self) -> CollapsibleCard:
@@ -4092,38 +4232,30 @@ class MainWindow(QMainWindow):
         self._faca_nodes.currentIndexChanged.connect(
             lambda _: self._relayout(renest=False)
         )
-        card.body.addWidget(labeled("Nós da faca", self._faca_nodes))
-        # o combo "Tipo de faca" NAO fica neste card: ele mora na barra de cima,
-        # colado ao botão "Gerar Faca" (escolher o tipo -> gerar, um gesto só).
+        # QA 2.0 (fonte única): "Nós da faca" e "Modo da faca" saíram do card —
+        # os controles visíveis moram no popup "Ajustes" da barra Faca; os
+        # widgets seguem vivos como estado (sessão/projeto/testes).
         self._shared = NoWheelComboBox()
         self._shared.addItems(["Faca por peça (quadrados)", "Faca compartilhada (grade)"])
-        self._shared.setToolTip(
-            "Faca por peça: cada peça tem seu retângulo de corte.\n"
-            "Faca compartilhada: bordas coladas viram uma só linha (grade)."
-        )
         self._shared.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
-        card.body.addWidget(labeled("Modo da faca", self._shared))
         return card
 
     def _build_imagens_card(self) -> CollapsibleCard:
         """Secao 3 - Imagens (recolhida): faca automática de PNG/JPG/WEBP."""
         card = self._doc_card("Imagens", "imagens", collapsed=True)
         self._auto_sensitivity = _spin(0, 100)
-        self._auto_smooth = _spin(0, 5)
-        self._auto_smooth.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._grid_fields(card.body, [
             ("Sensibilidade (0-100)", self._auto_sensitivity,
              "Sensibilidade da detecção do contorno em imagens (0-100)."),
-            ("Suavizar curvas (0-5)", self._auto_smooth,
-             "Suaviza o contorno da faca: 0 = reto, 5 = macio."),
         ])
+        # QA 2.0 (fonte única): "Suavizar" e a sangria da imagem saíram do
+        # card — os controles visíveis moram na barra Faca (Offset vale para
+        # PDF e imagem juntos; Suavizar no popup Ajustes). Widgets vivos como
+        # estado (sessão/projeto/testes), sincronizados pela barra.
+        self._auto_smooth = _spin(0, 5)
+        self._auto_smooth.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._auto_offset = LengthSpin(-100, 100)
-        self._auto_offset.setToolTip(
-            "Sangria da faca da imagem: positivo afasta para FORA do desenho;\n"
-            "negativo recolhe para DENTRO (recuo)."
-        )
         self._auto_offset.valueChanged.connect(lambda _: self._relayout(renest=False))
-        card.body.addWidget(labeled("Sangria da faca (imagem)", self._auto_offset))
         self._auto_ignore_white = QCheckBox("Remover fundo automático (imagens opacas)")
         self._auto_ignore_white.setToolTip(
             "Detecta a cor do fundo pela borda e a remove (branco, escuro ou colorido).\n"
@@ -4527,14 +4659,16 @@ class MainWindow(QMainWindow):
         sempre funciona, ex.: depois de remover tudo e soltar outro arquivo)."""
         if not self._loaded:
             if self._paths:
-                self.generate(blocking=True, faca=True)
+                with _wait_cursor():
+                    self.generate(blocking=True, faca=True)
             else:
-                self._toasts.info("Adicione arquivos na biblioteca primeiro.")
+                self._toasts.warning("Adicione arquivos na biblioteca primeiro.")
             return
         self._pdf_contours = {}
         self._vector_contours = {}
         self._faca_on = True  # liga a faca (modo "soltar sem faca" -> gera agora)
-        self._relayout(renest=False)  # gera a faca; mantem o arranjo manual
+        with _wait_cursor():
+            self._relayout(renest=False)  # gera a faca; mantem o arranjo manual
         self._toasts.success("Faca gerada")
 
     def _pdf_raster_contour(self, base):
@@ -4730,6 +4864,7 @@ class MainWindow(QMainWindow):
             self._store.save(self._settings)
 
     def add_paths(self, paths: list[str]) -> None:
+        self._mark_dirty()
         for path in paths:
             # arquivo JA na biblioteca: NAO cria linha duplicada — soma +1 na
             # quantidade da linha existente. Duas linhas do mesmo caminho
@@ -5145,6 +5280,9 @@ class MainWindow(QMainWindow):
         de destruir a janela (QA-08). Sem isso o Qt aborta o processo com
         "QThread: Destroyed while thread is still running" — visto como
         "o programa fechou sozinho" na máquina do usuário."""
+        if not self._confirm_discard("Fechar o PrintNest descarta o que não foi salvo."):
+            event.ignore()
+            return
         thread = self._thread
         if thread is not None and thread.isRunning():
             thread.quit()
@@ -5169,6 +5307,7 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "PrintNest", f"Falha ao gerar produção:\n{message}")
 
     def _load_production(self, result: ProductionResult, png_map: dict) -> None:
+        self._mark_dirty()
         self._base_artworks = result.artworks
         self._pdf_contours = {}  # recomputa contornos de PDF na nova produção
         self._vector_contours = {}  # recomputa facas vetoriais (cliente)
@@ -6178,6 +6317,7 @@ class MainWindow(QMainWindow):
         self._result = ProductionResult(
             sheets=sheets, artworks=artworks, sources=self._sources
         )
+        self._mark_dirty()
         self._draw_preview()
         total = sum(s.item_count for s in sheets)
         self._status.setText(f"{len(sheets)} chapa(s) | {total} peça(s)")
@@ -6546,9 +6686,11 @@ class MainWindow(QMainWindow):
             )
             if not path:
                 return
-        self._print_export.execute(
-            sheets, self._result.artworks, self._result.sources, path, **self._print_kwargs()
-        )
+        with _wait_cursor():
+            self._print_export.execute(
+                sheets, self._result.artworks, self._result.sources, path,
+                **self._print_kwargs(),
+            )
         if interactive:
             self._toasts.success("PDF de impressao exportado")
 
@@ -6591,10 +6733,11 @@ class MainWindow(QMainWindow):
             image_format = "jpeg" if Path(path).suffix.lower() in (".jpg", ".jpeg") else "png"
         self._settings.export_dpi = int(dpi)
         self._store.save(self._settings)
-        gerados = self._print_export.execute_image(
-            sheets, self._result.artworks, self._result.sources, path,
-            dpi=int(dpi), image_format=image_format, **self._print_kwargs(),
-        )
+        with _wait_cursor():
+            gerados = self._print_export.execute_image(
+                sheets, self._result.artworks, self._result.sources, path,
+                dpi=int(dpi), image_format=image_format, **self._print_kwargs(),
+            )
         if interactive:
             self._toasts.success(f"{len(gerados)} imagem(ns) exportada(s) a {int(dpi)} DPI")
 
@@ -6698,10 +6841,11 @@ class MainWindow(QMainWindow):
             )
             if not path:
                 return
-        contours, segments, marks, mark_segments = self._dxf_payload(sheets)
-        self._dxf_export.execute(
-            contours, path, segments=segments, marks=marks, mark_segments=mark_segments
-        )
+        with _wait_cursor():
+            contours, segments, marks, mark_segments = self._dxf_payload(sheets)
+            self._dxf_export.execute(
+                contours, path, segments=segments, marks=marks, mark_segments=mark_segments
+            )
         if interactive:
             self._toasts.success("DXF de corte exportado")
 
@@ -6722,13 +6866,15 @@ class MainWindow(QMainWindow):
         stem = str(Path(base_path).with_suffix(""))
         ext = Path(base_path).suffix or ".dxf"
         gerados = []
-        for i, sheet in enumerate(sheets, start=1):
-            contours, segments, marks, mark_segments = self._dxf_payload([sheet])
-            out = f"{stem}_{i:02d}{ext}"
-            self._dxf_export.execute(
-                contours, out, segments=segments, marks=marks, mark_segments=mark_segments
-            )
-            gerados.append(out)
+        with _wait_cursor():
+            for i, sheet in enumerate(sheets, start=1):
+                contours, segments, marks, mark_segments = self._dxf_payload([sheet])
+                out = f"{stem}_{i:02d}{ext}"
+                self._dxf_export.execute(
+                    contours, out, segments=segments, marks=marks,
+                    mark_segments=mark_segments,
+                )
+                gerados.append(out)
         if interactive:
             self._toasts.success(f"{len(gerados)} DXF de corte exportado(s)")
 
@@ -6781,6 +6927,7 @@ class MainWindow(QMainWindow):
 
         mm2pt = 72.0 / 25.4
         pad = self._faca_pad()  # folga para as marcas caberem na página
+        QApplication.setOverrideCursor(Qt.WaitCursor)  # ver _wait_cursor
         doc = fitz.open()
         try:
             for sheet in sheets:
@@ -6824,6 +6971,7 @@ class MainWindow(QMainWindow):
                     )
             doc.save(path)
         finally:
+            QApplication.restoreOverrideCursor()
             doc.close()
         if interactive:
             self._toasts.success("Faca exportada em PDF")

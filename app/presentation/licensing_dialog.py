@@ -36,7 +36,7 @@ class ActivationDialog(QDialog):
         super().__init__(parent)
         self._m = manager
         self._blocking = blocking  # True no startup (sem licenca -> nao usa)
-        self.setWindowTitle("Ativacao do PrintNest")
+        self.setWindowTitle("Ativação do PrintNest")
         self.setMinimumWidth(520)
 
         lay = QVBoxLayout(self)
@@ -48,7 +48,7 @@ class ActivationDialog(QDialog):
         lay.addWidget(self._status)
 
         # ID da maquina + copiar
-        lay.addWidget(self._caption("1. Envie este ID da Maquina para comprar/ativar:"))
+        lay.addWidget(self._caption("1. Envie este ID da Máquina para comprar/ativar:"))
         id_row = QHBoxLayout()
         self._id_field = QLineEdit(self._m.machine_id)
         self._id_field.setReadOnly(True)
@@ -82,7 +82,7 @@ class ActivationDialog(QDialog):
         lay.addLayout(req_row)
 
         # colar a chave
-        lay.addWidget(self._caption("2. Cole aqui a chave de licenca que voce recebeu:"))
+        lay.addWidget(self._caption("2. Cole aqui a chave de licença que você recebeu:"))
         self._key_field = QPlainTextEdit()
         self._key_field.setPlaceholderText("PNEST1. ...")
         self._key_field.setFixedHeight(84)
@@ -147,7 +147,7 @@ class ActivationDialog(QDialog):
     def _activate(self) -> None:
         key = self._key_field.toPlainText().strip()
         if not key:
-            QMessageBox.information(self, "PrintNest", "Cole a chave de licenca primeiro.")
+            QMessageBox.information(self, "PrintNest", "Cole a chave de licença primeiro.")
             return
         ok, msg = self._m.activate(key)
         if ok:
@@ -162,9 +162,9 @@ class ActivationDialog(QDialog):
             return
         r = QMessageBox.question(
             self, "Desativar",
-            "Isto libera a licenca deste PC para ativar em outro.\n"
-            "O PrintNest sera fechado agora (a proxima abertura pede a "
-            "ativacao). Continuar?",
+            "Isto libera a licença deste PC para ativar em outro.\n"
+            "O PrintNest será fechado agora (a próxima abertura pede a "
+            "ativação). Continuar?",
         )
         if r == QMessageBox.Yes:
             self._m.deactivate()
