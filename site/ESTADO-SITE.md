@@ -1,7 +1,67 @@
 # Estado do Site de Vendas — PrintNest Pro
 
 > Ponto de retomada. Se a sessão/energia acabar, comece por aqui.
-> Última atualização: sessão de 03/07/2026 (migração para React).
+> Última atualização: sessão de 09/07/2026 (hero scrollytelling).
+
+> **🎬 HERO SCROLLYTELLING (09/07, tarde):** o hero agora é uma **sequência de 51
+> frames controlada pelo scroll** (caos → nesting → interface final), estilo Apple
+> keynote, sobre o design "Appline/UIdeck" que o GPT gerou (azul já trocado pelo azul
+> da logo `#095DF9`).
+> - Código: `app/src/components/editorial/HeroSequence.tsx` + `HeroText.tsx` e hooks
+>   `app/src/hooks/useImageSequence.ts` (glob automático, nada hardcoded) +
+>   `useCanvasRenderer.ts` (canvas contain-fit, DPR, fundo amostrado do frame).
+> - Seção de 450vh com canvas sticky; preload com loader circular (scroll travado até
+>   carregar); texto em **5 atos** com fade/blur/rise sincronizados ao progresso;
+>   lerp para suavidade 60fps.
+> - Frames em **duas camadas**: `app/src/assets/hero-frames-hd/` (1920×1080, desktop)
+>   e `app/src/assets/hero-frames/` (1152×648, mobile) — 60 frames cada, extraídos
+>   **direto do MP4 original** (`Downloads/Continue_seamlessly_from_the_p-ezgif...mp4`,
+>   720p/240 frames) com Lanczos + unsharp; o hook escolhe a camada por
+>   `innerWidth × devicePixelRatio`. A pasta `site/frame_to_video_hero/` (ezgif 51
+>   frames recomprimidos) virou só backup.
+> - Nitidez máxima real exigiria upscale por IA (Real-ESRGAN — download foi bloqueado
+>   por permissão; Philipe precisa autorizar) **ou** regerar o vídeo em 1080p/4K na
+>   ferramenta de IA que o criou (melhor opção).
+> - **Sistema de VARIANTES (09/07, tarde):** cada vídeo candidato vira uma pasta em
+>   `app/src/assets/hero-variants/<nome>/{hd,sd}/` (detecção automática por glob).
+>   Seletor flutuante no canto inferior direito compara as versões ao vivo
+>   (`?hero=<nome>` na URL). Para processar um vídeo novo:
+>   `cd site/app && python scripts/extract-hero-frames.py "<video.mp4>" v3-nome 3 && npm run build`.
+>   Variantes atuais: `v1-caos-monitor` (720p original, **favorita do Philipe**) e
+>   `v2-otimizacao` (1080p nativo, 80 frames, estúdio claro — **manter salva**, pedido
+>   do Philipe). Vídeos-fonte ficam em **`site/videos-fonte/`** (backup obrigatório —
+>   o MP4 da v1 foi perdido de Downloads; o da v2 já está copiado lá).
+> - **v1 refeita do 4K (09/07, fim de tarde):** o Philipe exportou o mesmo vídeo em
+>   **4096×2304** (`videos-fonte/Continue_seamlessly_from_the_p 4K.mp4`, veio dentro do
+>   zip "Untitled session-all-assets"). v1 regenerada: 80 frames downscalados de 4K
+>   (nitidez máxima, sem upscale) + **cauda de 13 frames em crossfade para o
+>   `app-producao.jpg` real** — o scroll termina na UI verdadeira, sem textos borrados
+>   de IA. Total: 93 frames (HD ~19 MB / SD ~7 MB). Real-ESRGAN não é mais necessário.
+> - **2º LAYOUT de hero — "vídeo ao lado" (09/07):** sem scrollytelling; o vídeo roda
+>   em loop na metade direita (`public/assets/hero-loop.mp4`, H.264 720p 2,2 MB,
+>   encodado com o ffmpeg do `imageio-ffmpeg` que já estava no Python) e se dissolve
+>   em **degradê branco para a esquerda**, onde ficam headline/CTAs.
+>   Componente `HeroVideoSplit.tsx`; alternância pelo seletor (agora em
+>   `HeroSwitcher.tsx`, renderizado no Landing) ou `?layout=video` / `?layout=scroll`.
+>   O vídeo NÃO pausa com prefers-reduced-motion (decisão: é o propósito do layout).
+> - ⚠️ Este PC está com animações do Windows **desativadas** (prefers-reduced-motion);
+>   o scrub por scroll continua funcionando nesse modo (só perde a inércia/blur).
+> - Versões anteriores do Landing: `app/src/archive/` (dribbble-editorial e
+>   appline-pre-scrollhero).
+
+> **⚠️ REDESIGN nesta sessão (09/07):** a landing foi refeita no estilo editorial da
+> referência do Dribbble (shot 27261147 — TwelveMei): fundo "papel" com slabs
+> arredondados, tipografia serif **Instrument Serif** nos títulos, nav em pílula
+> centralizada, cards glass (backdrop-blur), abas de recursos com sublinhado animado,
+> reveal on scroll (fade+blur+translate) e hero com **blur/fade do texto ao rolar**.
+> - Código novo: `app/src/components/editorial/` (Landing, Hero, FeatureTabs) +
+>   `app/src/styles/editorial.css` (design system completo).
+> - A landing anterior segue no git (App.tsx antigo) e os componentes
+>   `components/site/*` continuam no repo, apenas não são mais renderizados.
+> - **Hero preparado para o scroll-video:** os 51 frames do vídeo cinematográfico
+>   estão em `app/public/assets/hero-frames/` (frame 001 já é o fundo do hero).
+>   O Philipe vai enviar um esquema do que acontece junto com o scroll — próximo passo.
+> - Validado: `npm run build` ok, desktop e mobile (390px) sem overflow, screenshots ok.
 
 > **⚠️ MUDANÇA GRANDE nesta sessão:** o site foi **migrado de HTML+CSS puro para
 > React + Vite + TypeScript + Tailwind v4 + shadcn/ui**. O novo projeto vive em
