@@ -37,6 +37,11 @@
 >   (nitidez máxima, sem upscale) + **cauda de 13 frames em crossfade para o
 >   `app-producao.jpg` real** — o scroll termina na UI verdadeira, sem textos borrados
 >   de IA. Total: 93 frames (HD ~19 MB / SD ~7 MB). Real-ESRGAN não é mais necessário.
+> - **Prints REAIS no site (09/07, fim do dia):** seções "Sobre" e "Demonstração"
+>   agora usam capturas reais do app (`app/public/assets/prints/`): P1 tela dividida,
+>   P2 nesting 479 peças/94%, P3 faca por contorno, P5 Centro de Exportação.
+>   Falta o **P4** (chapa com barra Gerar Faca) — terceira miniatura usa
+>   `app-producao.jpg` até chegar. Galeria do "o que falta" está praticamente resolvida.
 > - **2º LAYOUT de hero — "vídeo ao lado" (09/07):** sem scrollytelling; o vídeo roda
 >   em loop na metade direita (`public/assets/hero-loop.mp4`, H.264 720p 2,2 MB,
 >   encodado com o ffmpeg do `imageio-ffmpeg` que já estava no Python) e se dissolve
