@@ -17,11 +17,7 @@ import {
 import { HeroSequence } from "./HeroSequence"
 import { HeroVideoSplit } from "./HeroVideoSplit"
 import { HeroSwitcher } from "./HeroSwitcher"
-import { ACTIVE_LAYOUT, FRAME_URLS_HD } from "@/hooks/useImageSequence"
-
-/** frame na fração `f` (0..1) da história, em alta qualidade */
-const frameAt = (f: number) =>
-  FRAME_URLS_HD[Math.round(f * (FRAME_URLS_HD.length - 1))]
+import { ACTIVE_LAYOUT } from "@/hooks/useImageSequence"
 
 const PAY_LINK = "[LINK_PAGAMENTO]"
 const SUPPORT = "[SUPORTE]"
@@ -223,7 +219,7 @@ export function Landing() {
           <div className="ap-container ap-split-grid">
             <div className="ap-image-stack ap-reveal">
               <div className="ap-media-frame">
-                <img src={frameAt(1 / 3)} alt="Prévia visual do fluxo de produção do PrintNest" />
+                <img src="/assets/prints/p1-tela-dividida.jpg" alt="PrintNest em tela dividida: adesivos impressos em cima e a faca de corte correspondente embaixo" />
               </div>
               <div className="ap-mini-panel">
                 <strong>PDF + DXF</strong>
@@ -365,22 +361,22 @@ export function Landing() {
         <section className="ap-section ap-screens" id="demo">
           <div className="ap-container">
             <div className="ap-section-head ap-reveal">
-              <span className="ap-eyebrow">Demonstração e screenshots</span>
-              <h2>Espaço pronto para seus vídeos e imagens reais.</h2>
+              <span className="ap-eyebrow">O software na prática</span>
+              <h2>Capturas reais, direto da produção.</h2>
               <p>
-                Os blocos abaixo já estão preparados para receber capturas do fluxo real:
-                importar, gerar faca, nesting e exportar.
+                Sem mockup e sem montagem: nesting de 479 peças em 5 chapas com 94% de
+                aproveitamento, faca gerada por contorno e exportação em PDF + DXF.
               </p>
             </div>
 
             <div className="ap-screen-showcase ap-reveal">
               <div className="ap-screen-frame">
-                <img src={frameAt(2 / 3)} alt="Frame de demonstração do PrintNest" />
+                <img src="/assets/prints/p2-nesting-geral.jpg" alt="Nesting real no PrintNest: 479 peças em 5 chapas com 94% de área utilizada" />
               </div>
               <div className="ap-screen-strip">
-                <img src={frameAt(0)} alt="Início do fluxo no PrintNest" />
-                <img src={frameAt(1 / 3)} alt="Meio do fluxo no PrintNest" />
-                <img src={frameAt(1)} alt="Final do fluxo no PrintNest" />
+                <img src="/assets/prints/p3-faca-stickers.jpg" alt="Faca de corte gerada automaticamente ao redor de cada adesivo" />
+                <img src="/assets/prints/p5-exportacao.jpg" alt="Centro de Exportação: PDF de impressão, DXF de corte e faca em PDF" />
+                <img src="/assets/app-producao.jpg" alt="Visão geral da produção no PrintNest" />
               </div>
             </div>
           </div>
