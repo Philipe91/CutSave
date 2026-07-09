@@ -43,6 +43,22 @@ def _circle_contour(n=24, r=15.0, cx=20.0, cy=20.0):
     ])
 
 
+def test_dxf_sai_com_y_para_cima_sem_espelhar(tmp_path):
+    # Modelo usa Y-para-baixo (tela/PDF); CAD le Y-para-cima. O exportador
+    # reflete a geometria (y' = H - y): o que esta no TOPO do modelo (y=0)
+    # precisa sair com o MAIOR y no DXF — senao o Corel abre espelhado
+    # (bug real do beta, 09/07).
+    tri = CutContour([Point2D(5, 0), Point2D(0, 10), Point2D(10, 10)])  # bico no TOPO
+    out = tmp_path / "faca.dxf"
+    DxfExporter().export([tri], str(out))
+    doc = ezdxf.readfile(str(out))
+    pts = {(round(x, 6), round(y, 6)) for x, y, *_ in
+           doc.modelspace().query("LWPOLYLINE")[0].get_points()}
+    # bico (y=0 no modelo) vira y=10 no DXF; base (y=10) vira y=0
+    assert (5.0, 10.0) in pts
+    assert (0.0, 0.0) in pts and (10.0, 0.0) in pts
+
+
 def test_contorno_curvo_sai_como_spline(tmp_path):
     # curva de verdade no DXF (corte liso na maquina); o retangulo continua
     # como polilinha (retas exatas)
@@ -67,12 +83,14 @@ def test_polilinha_fechada_na_layer_cut(tmp_path):
 
 
 def test_coordenadas_preservadas(tmp_path):
+    # medidas/posicoes preservadas; o eixo Y sai REFLETIDO (y' = H - y) para o
+    # CAD ler sem espelhar — num retangulo o conjunto de vertices e o mesmo
     out = tmp_path / "faca.dxf"
     DxfExporter().export([_rect_contour(0, 0, 320, 92)], str(out))
     doc = ezdxf.readfile(str(out))
     pl = doc.modelspace().query("LWPOLYLINE")[0]
-    pts = [(round(p[0], 3), round(p[1], 3)) for p in pl.get_points()]
-    assert pts == [(0, 0), (320, 0), (320, 92), (0, 92)]
+    pts = {(round(p[0], 3), round(p[1], 3)) for p in pl.get_points()}
+    assert pts == {(0, 0), (320, 0), (320, 92), (0, 92)}
 
 
 def test_caminho_invalido_levanta_erro(tmp_path):
