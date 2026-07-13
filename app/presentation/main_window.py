@@ -137,7 +137,7 @@ from app.domain.model.placement import PlacedItem
 from app.domain.nesting.max_rects import MaxRectsPacker
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.infrastructure.importers.pymupdf_vector_extractor import PyMuPdfVectorExtractor
-from app.presentation import icons, measurements, messages, theme, units
+from app.presentation import faca_icons, icons, measurements, messages, theme, units
 from app.presentation.panels import ribbon as ribbon_panel
 from app.presentation.panels.status_bar import StatusBarController
 from app.presentation.widgets import (
@@ -1972,6 +1972,12 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_view"):
             self._view.setBackgroundBrush(QColor(theme.CANVAS_BG))
             self._view.viewport().update()
+        # miniaturas dos tipos de faca carregam cores do tema: redesenha
+        for name in ("_ct_mode", "_faca_mode", "_pf_mode"):
+            combo = getattr(self, name, None)
+            if combo is not None:
+                for i in range(combo.count()):
+                    combo.setItemIcon(i, faca_icons.mode_icon(combo.itemData(i)))
 
     def _show_license(self) -> None:
         """Ajuda -> Licenca: ativar/ver/transferir (nao bloqueia o uso aqui)."""
@@ -2409,8 +2415,7 @@ class MainWindow(QMainWindow):
 
         # Tipo de faca (dropdown) — espelho do controle do Documento
         self._ct_mode = QComboBox()
-        for label, data in self._FACA_MODES:
-            self._ct_mode.addItem(label, data)
+        self._fill_faca_combo(self._ct_mode)
         self._ct_mode.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._ct_mode.setToolTip("Tipo de faca (vale para o documento inteiro).")
         self._ct_mode.currentIndexChanged.connect(lambda _: self._apply_contour_mode())
@@ -3073,6 +3078,14 @@ class MainWindow(QMainWindow):
         ("Faca do cliente (vetor do PDF)", "vector"),
     )
     _CONTOUR_MODES = ("contour", "contour_smooth", "contour_simplify")
+
+    def _fill_faca_combo(self, combo: QComboBox) -> None:
+        """Popula um combo de Tipo de faca com miniatura ilustrativa por item
+        (arte cinza + linha de faca tracejada) e dica ao pairar em cada opção."""
+        combo.setIconSize(QSize(26, 26))
+        for i, (label, data) in enumerate(self._FACA_MODES):
+            combo.addItem(faca_icons.mode_icon(data), label, data)
+            combo.setItemData(i, faca_icons.MODE_HINTS.get(data, ""), Qt.ToolTipRole)
 
     _SESSION_WIDGETS = (
         ("_width", "spin"), ("_height", "spin"), ("_spacing", "spin"),
@@ -3883,8 +3896,7 @@ class MainWindow(QMainWindow):
         self._pf_mode_label = QLabel("Tipo de faca")
         faca.body.addWidget(self._pf_mode_label)
         self._pf_mode = QComboBox()
-        for label, data in self._FACA_MODES:
-            self._pf_mode.addItem(label, data)
+        self._fill_faca_combo(self._pf_mode)
         self._pf_mode.currentIndexChanged.connect(lambda _: self._on_piece_faca_changed())
         faca.body.addWidget(self._pf_mode)
         faca.body.addWidget(QLabel("Sangria  ( + fora  /  − dentro )"))
@@ -4467,8 +4479,7 @@ class MainWindow(QMainWindow):
             "Corta as bordas da arte (mm em cada lado) antes de gerar a faca."
         ))
         self._faca_mode = NoWheelComboBox()
-        for label, data in self._FACA_MODES:
-            self._faca_mode.addItem(label, data)
+        self._fill_faca_combo(self._faca_mode)
         self._faca_mode.setToolTip(
             "Automático: escolhe sozinho - JPG/fundo solido vira retângulo,\n"
             "imagem com transparência (PNG) corta no formato (recorte).\n"

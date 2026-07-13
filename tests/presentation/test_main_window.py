@@ -2044,6 +2044,18 @@ def test_qax03_encaixe_tolera_ruido_de_float(qapp, tmp_path):
     assert len(w._result.sheets) == 1  # UMA chapa (antes: 2, dobro de material)
 
 
+def test_combos_tipo_de_faca_tem_miniaturas(qapp, tmp_path):
+    # Ilustração dos tipos de faca (13/07): cada opção dos 3 combos ganha
+    # miniatura (arte + linha de faca tracejada) e dica própria ao pairar.
+    from PySide6.QtCore import Qt
+    w = _window(tmp_path)
+    for combo in (w._ct_mode, w._faca_mode, w._pf_mode):
+        assert combo.count() == len(w._FACA_MODES)
+        for i in range(combo.count()):
+            assert not combo.itemIcon(i).isNull()
+            assert combo.itemData(i, Qt.ToolTipRole)
+
+
 def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
     # QA EXTREMO QAX-04 (🟠): cada setSelected disparava o handler O(n) →
     # O(n²): 2048 peças = travamento. Em lote, o handler roda 1x.
