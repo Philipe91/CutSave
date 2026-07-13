@@ -1490,6 +1490,11 @@ class MainWindow(QMainWindow):
         self._suppress_ghost = False  # não redesenhar fantasmas durante o "aplicar"
         self._undo = QUndoStack(self)
         self._undo.setUndoLimit(0)  # ilimitado (CorelDRAW): só zera ao gerar/abrir/novo
+        # QAX-01: QUALQUER mexida na pilha (mover, duplicar, excluir, ajustar,
+        # undo/redo) marca o trabalho como alterado — editar depois de salvar
+        # deixava _dirty=False e o fechamento descartava trabalho em silêncio.
+        # (Abrir/gerar zeram a pilha e o fluxo re-seta _dirty=False no final.)
+        self._undo.indexChanged.connect(lambda _i: self._mark_dirty())
         self._fit_next = True  # ajusta o zoom só após gerar; preserva no relayout
         self._snap = SnapConfig()
         self._project_store = ProjectStore()
@@ -1741,7 +1746,11 @@ class MainWindow(QMainWindow):
 
         licenca = self._act("Licença...", self._show_license, None,
                              "Ativar / ver / transferir a licenca do PrintNest")
+        tour = self._act("Tour de boas-vindas", lambda: self._start_tour(force=True),
+                         None, "Reapresenta o guia passo a passo do programa")
         m_ajuda = bar.addMenu("A&juda")
+        m_ajuda.addAction(tour)
+        m_ajuda.addSeparator()
         m_ajuda.addAction(licenca)
         m_ajuda.addAction(sobre)
 
@@ -1844,6 +1853,7 @@ class MainWindow(QMainWindow):
                 tb.tool_button(reguas, "ruler", show_text=False),
             ]),
         ])
+        self._ribbon = rb  # referência p/ o tour de boas-vindas
         self.addToolBar(rb)
 
     def _view_mode_menu_button(self) -> QToolButton:
@@ -1881,6 +1891,59 @@ class MainWindow(QMainWindow):
         act = self._view_mode_actions.get(self._view_mode.currentData())
         if act is not None:
             act.setChecked(True)
+
+    # ---- tour de boas-vindas (o "tutor" dentro do software) ----
+    def _start_tour(self, force: bool = False) -> None:
+        """Guia passo a passo na primeira abertura (Ajuda → Tour repete)."""
+        import os
+        from app.presentation.onboarding import TourOverlay, TourStep, tour_done
+        if not force and (tour_done() or os.environ.get("PYTEST_CURRENT_TEST")):
+            return
+        steps = [
+            TourStep(
+                getattr(self, "_btn_add", None), "1. Adicione seus arquivos",
+                "Tudo começa aqui: clique em Adicionar arquivos (ou arraste "
+                "PDF, PNG e JPG direto para a área de trabalho).",
+            ),
+            TourStep(
+                getattr(self, "_view", None), "2. Sua mesa de trabalho",
+                "As chapas ficam aqui. Zoom com a roda do mouse (vai onde o "
+                "cursor aponta), arraste com o botão do meio ou a tecla H, e "
+                "F4 enquadra tudo de volta.",
+            ),
+            TourStep(
+                getattr(self, "_prop_bar", None), "3. A barra da Faca",
+                "Quando houver arquivos, a barra ✂ Faca aparece aqui: escolha "
+                "o Tipo, ajuste Offset e Suavizar e clique no botão azul "
+                "GERAR FACA. Com uma peça selecionada, os ajustes valem só "
+                "para o arquivo dela.",
+            ),
+            TourStep(
+                getattr(self, "_props_tabs", None), "4. Documento e Peça",
+                "À direita: a chapa (medidas, espaçamentos), o acabamento e "
+                "as marcas de registro. Selecionou uma peça? A aba Peça "
+                "mostra os ajustes só daquele arquivo.",
+            ),
+            TourStep(
+                getattr(self, "_ribbon", None), "5. Exportar",
+                "Terminou? O Centro de Exportação gera o PDF de impressão e "
+                "o DXF/PDF de corte para a sua máquina — com marcas de "
+                "registro e tudo.",
+            ),
+            TourStep(
+                None, "Pronto para produzir",
+                "É só isso: adicionar, gerar faca e exportar. Para rever "
+                "este guia a qualquer momento: menu Ajuda, Tour de "
+                "boas-vindas. Bom trabalho!",
+            ),
+        ]
+        TourOverlay(self, steps)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if not getattr(self, "_tour_checked", False):
+            self._tour_checked = True
+            QTimer.singleShot(800, self._start_tour)
 
     def _show_theme_dialog(self) -> None:
         """Opções → Personalizar Interface... (Theme Engine, live preview)."""
@@ -2194,6 +2257,7 @@ class MainWindow(QMainWindow):
         _distribute, _duplicate_selected, _delete_selected, _group_selected.
         """
         bar = QFrame()
+        self._prop_bar = bar  # referência p/ o tour de boas-vindas
         bar.setObjectName("propBar")  # estilo no QSS global (troca de tema ao vivo)
         # altura MINIMA derivada da fonte (QA 2.0/C2: 40px fixos cortavam a
         # borda dos botões, que precisam de ~38px + margens — pior em 125/150%)
@@ -2561,19 +2625,10 @@ class MainWindow(QMainWindow):
         if self._ct_loading:
             return
         data = self._ct_mode.currentData()
-        path = getattr(self, "_selected_path", None)
-        if path:
-            p = dict(self._params_for(path))
-            if p.get("mode") == data:
-                return
-            p["mode"] = data
-            self._file_overrides[path] = p
-            self._keep_tab = True
-            try:
-                self._relayout(renest=False)
-                self._reselect_path(path)
-            finally:
-                self._keep_tab = False
+        if getattr(self, "_selected_path", None):
+            # QAX-02: usar o override ESPARSO (só a chave "mode") — a cópia
+            # completa congelava recorte/giro/offset globais no arquivo
+            self._piece_override({"mode": data})
             return
         idx = self._faca_mode.findData(data)
         if idx >= 0 and idx != self._faca_mode.currentIndex():
@@ -5453,6 +5508,24 @@ class MainWindow(QMainWindow):
         if not target_paths:
             QMessageBox.warning(self, "PrintNest", "Adicione ao menos um arquivo.")
             return
+        # QAX-05: um arquivo AUSENTE no disco abortava a geração INTEIRA
+        # (nada saía, mesmo com os demais válidos). Agora as linhas ⚠ são
+        # puladas com aviso e o resto gera normalmente.
+        ausentes = [p for p in target_paths if not Path(p).exists()]
+        if ausentes:
+            target_paths = [p for p in target_paths if Path(p).exists()]
+            nomes = ", ".join(Path(p).name for p in ausentes[:3])
+            extra = "..." if len(ausentes) > 3 else ""
+            self._toasts.warning(
+                f"Ignorando {len(ausentes)} arquivo(s) ausente(s): {nomes}{extra}"
+            )
+            if not target_paths:
+                QMessageBox.warning(
+                    self, "PrintNest",
+                    "Nenhum dos arquivos foi encontrado no disco.\n"
+                    "Verifique se foram movidos ou renomeados.",
+                )
+                return
         self._faca_on = faca
         self._save_settings()
         material = self._material()
@@ -5583,6 +5656,10 @@ class MainWindow(QMainWindow):
         """
         if not self._loaded or self._suspend_relayout:
             return
+        # QAX-01: recálculo real = trabalho alterado (parâmetro, quantidade,
+        # giro, sangria...). Abrir projeto re-seta _dirty=False no FINAL do
+        # _apply_project, então marcar aqui nunca suja um projeto recém-aberto.
+        self._mark_dirty()
         before = None
         if self._result is not None and not self._suspend_undo:
             before = self._state_snapshot()
@@ -6258,6 +6335,25 @@ class MainWindow(QMainWindow):
         self._commit_arrangement(before, sheets, text)
         self._select_pieces_at(add_by_sheet)
 
+    def _batch_select(self, predicate) -> None:
+        """Seleciona em LOTE com os sinais da cena bloqueados (QAX-04).
+
+        Cada setSelected disparava _on_selection_changed inteiro (O(n)); em
+        loops de seleção isso virava O(n²): Ctrl+A + Ctrl+D com 256 peças
+        levava 6s e com 2048 TRAVAVA o programa. Agora o handler roda UMA vez
+        no final, custe 5 ou 5000 peças."""
+        from PySide6.QtCore import QSignalBlocker
+
+        try:
+            with QSignalBlocker(self._scene):
+                self._scene.clearSelection()
+                for piece in self._piece_items:
+                    if predicate(piece):
+                        piece.setSelected(True)
+        except RuntimeError:
+            return  # cena já destruída (fechando)
+        self._on_selection_changed()
+
     def _select_pieces_at(self, add_by_sheet: dict) -> None:
         """Seleciona as peças recem-adicionadas (a cópia vira a nova seleção)."""
         targets = {
@@ -6265,16 +6361,15 @@ class MainWindow(QMainWindow):
             for idx, placed in add_by_sheet.items()
             for p in placed
         }
-        try:
-            self._scene.clearSelection()
-        except RuntimeError:
-            return
-        for piece in self._piece_items:
-            key = (piece.sheet_index, piece.artwork_id,
-                   round(piece.scenePos().x() - piece.dx, 2),
-                   round(piece.scenePos().y() - piece.dy, 2))
-            if key in targets:
-                piece.setSelected(True)
+
+        def _alvo(piece) -> bool:
+            return (
+                piece.sheet_index, piece.artwork_id,
+                round(piece.scenePos().x() - piece.dx, 2),
+                round(piece.scenePos().y() - piece.dy, 2),
+            ) in targets
+
+        self._batch_select(_alvo)
 
     # ---- adicionar arquivo da biblioteca a produção já gerada (arrastar) ----
     def _on_library_drop(self, scene_pos) -> None:
@@ -6513,8 +6608,8 @@ class MainWindow(QMainWindow):
         return sheets
 
     def _select_all(self) -> None:
-        for piece in self._piece_items:
-            piece.setSelected(True)
+        # em lote: com centenas de peças o loop de setSelected era O(n²) (QAX-04)
+        self._batch_select(lambda _piece: True)
 
     # ---- histórico de arranjo (excluir/duplicar/repetir com Ctrl+Z) ----
     def _snapshot_sheets(self) -> list:

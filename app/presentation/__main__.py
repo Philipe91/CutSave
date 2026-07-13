@@ -104,7 +104,10 @@ def main() -> int:
     # guarda a referência no app para não ser coletado pelo GC.
     app._ipc_server = start_server(window.open_external_files)
 
-    window.show()
+    # abre MAXIMIZADO: na primeira execução a janela vinha num tamanho solto
+    # e o cliente "ficava perdido" (beta 13/07). Padrão de software gráfico:
+    # ocupa o monitor inteiro; o usuário restaura/redimensiona se quiser.
+    window.showMaximized()
     if file_args:  # arquivos passados na linha de comando -> abre já na sessao
         window.open_external_files(file_args)
     return app.exec()

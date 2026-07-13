@@ -1997,6 +1997,84 @@ def test_salvar_e_abrir_projeto_restaura_arquivos_e_parametros(qapp, tmp_path):
     assert w2._result is None
 
 
+def test_qax01_editar_apos_salvar_marca_dirty(qapp, tmp_path):
+    # QA EXTREMO QAX-01 (🔴): mudar parâmetro/quantidade depois de salvar
+    # deixava _dirty=False e fechar descartava o trabalho em silêncio.
+    src = _two_page_pdf(tmp_path)
+    w = _window(tmp_path)
+    w.add_paths([src])
+    w.generate(blocking=True)
+    assert w.save_project(str(tmp_path / "t.printnest")) is True
+    assert w._dirty is False
+    w._auto_offset.setValue(3.0)  # mudar parâmetro global (dispara relayout)
+    assert w._dirty is True
+
+
+def test_qax02_tipo_na_barra_cria_override_esparso(qapp, tmp_path):
+    # QA EXTREMO QAX-02 (🟠): Tipo com seleção gravava override COMPLETO e
+    # congelava recorte/giro/offset globais no arquivo.
+    src = _two_page_pdf(tmp_path)
+    w = _window(tmp_path)
+    w.add_paths([src])
+    w.generate(blocking=True)
+    w._selected_path = src
+    w._ct_mode.setCurrentIndex(w._ct_mode.findData("contour"))
+    assert set(w._file_overrides[src]) == {"mode"}  # ESPARSO: só a chave mexida
+    w._selected_path = None
+    w._crop.setValue(2.0)  # global posterior TEM de valer para o arquivo
+    assert w._params_for(src)["crop"] == 2.0
+
+
+def test_qax03_encaixe_tolera_ruido_de_float(qapp, tmp_path):
+    # QA EXTREMO QAX-03 (🟠): peça de PDF "100mm" media 100,0000046mm e o
+    # encaixe com EPS 1e-6 jogava metade das peças para OUTRA chapa.
+    import fitz
+    pdf = tmp_path / "cem.pdf"
+    doc = fitz.open()
+    mm2pt = 72.0 / 25.4
+    doc.new_page(width=100 * mm2pt, height=100 * mm2pt)
+    doc.save(str(pdf))
+    doc.close()
+    w = _window(tmp_path)
+    w._width.setValue(200)  # 2 peças de 100 cabem LADO A LADO
+    w._spacing.setValue(0)
+    w.add_paths([str(pdf)])
+    w._table.cellWidget(0, 1).setValue(2)
+    w.generate(blocking=True)
+    assert len(w._result.sheets) == 1  # UMA chapa (antes: 2, dobro de material)
+
+
+def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
+    # QA EXTREMO QAX-04 (🟠): cada setSelected disparava o handler O(n) →
+    # O(n²): 2048 peças = travamento. Em lote, o handler roda 1x.
+    src = _two_page_pdf(tmp_path)
+    w = _window(tmp_path)
+    w.add_paths([src])
+    w._table.cellWidget(0, 1).setValue(30)  # 60 peças
+    w.generate(blocking=True)
+    chamadas = []
+    original = w._on_selection_changed
+    w._on_selection_changed = lambda: (chamadas.append(1), original())[1]
+    w._select_all()
+    assert len(w._scene.selectedItems()) >= 60
+    assert len(chamadas) <= 2  # antes: 1 por peça (60+)
+
+
+def test_qax05_arquivo_ausente_nao_aborta_a_geracao(qapp, tmp_path, monkeypatch):
+    # QA EXTREMO QAX-05 (🟠): um arquivo ausente abortava a geração INTEIRA.
+    # Agora as linhas ⚠ são puladas e o resto gera.
+    import pathlib
+    src = _two_page_pdf(tmp_path)
+    sumido = tmp_path / "sumido.pdf"
+    sumido.write_bytes(pathlib.Path(src).read_bytes())
+    w = _window(tmp_path)
+    w.add_paths([src, str(sumido)])
+    sumido.unlink()  # some do disco DEPOIS de importado
+    w.generate(blocking=True)
+    assert w._result is not None
+    assert sum(s.item_count for s in w._result.sheets) == 2  # as páginas do válido
+
+
 def test_undo_de_ajustes_nao_funde_gestos_separados(qapp):
     # Bug 13/07: TODOS os ajustes da sessão fundiam num único comando e um
     # Ctrl+Z "voltava pro início". Agora só funde o MESMO gesto (janela curta).

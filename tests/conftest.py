@@ -50,6 +50,11 @@ def pytest_sessionfinish(session, exitstatus) -> None:
     _EXIT_STATUS = int(exitstatus)
     for widget in QApplication.topLevelWidgets():
         with contextlib.suppress(RuntimeError):
+            # PYTEST_CURRENT_TEST ja foi removida neste ponto; uma janela
+            # "suja" (dirty) abriria o modal de descarte e penduraria a
+            # suite para sempre no offscreen. Aqui nao ha trabalho a salvar.
+            if hasattr(widget, "_dirty"):
+                widget._dirty = False
             widget.close()
     app.processEvents()
 

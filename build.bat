@@ -28,6 +28,9 @@ mkdir PrintNest_Build
 copy /y dist\PrintNest.exe PrintNest_Build\PrintNest.exe
 if exist "docs\build\BUILD.md" copy /y "docs\build\BUILD.md" PrintNest_Build\README.txt
 if exist "docs\build\VERSAO.txt" copy /y "docs\build\VERSAO.txt" PrintNest_Build\VERSAO.txt
+REM manual "Tutor IA": o cliente joga este PDF na IA preferida (ChatGPT,
+REM Claude, Gemini...) e ela vira um tutor do PrintNest que tira duvidas
+".venv\Scripts\python.exe" tools\make_tutor_pdf.py "PrintNest_Build\Tutor IA - PrintNest.pdf"
 REM pacote do plugin CorelDRAW (instalador + macro + guia + icone do botao)
 mkdir "PrintNest_Build\Plugin CorelDRAW"
 copy /y corel\instalar_plugin_corel.bat "PrintNest_Build\Plugin CorelDRAW\" >nul

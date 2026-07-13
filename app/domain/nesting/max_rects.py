@@ -23,7 +23,11 @@ from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
 from app.domain.nesting.grid import NestingPiece
 
-_EPS = 1e-6
+# Tolerancia de ENCAIXE em mm. Era 1e-6: residuos de float da importacao
+# (pt->mm) faziam uma peca "100mm" nao caber 2x numa chapa de 200mm e o job
+# consumia o DOBRO de material em silencio (QAX-03). 0,01mm e invisivel
+# fisicamente (10x menor que a lamina) e engole qualquer ruido numerico.
+_EPS = 0.01
 
 
 @dataclass

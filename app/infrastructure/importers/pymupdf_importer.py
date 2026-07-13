@@ -60,9 +60,13 @@ class PyMuPdfImporter(IPdfImporter):
         if page.rotation in _ROTATIONS_THAT_SWAP:
             width_pt, height_pt = height_pt, width_pt
 
+        # QAX-03: a conversao pt->mm traz ruido de float (uma pagina "100mm"
+        # media 100,0000046mm) e 9 MILIONESIMOS de mm faziam o encaixe exato
+        # descartar uma coluna inteira da chapa. Arredonda a 0,001mm (1 um) —
+        # muito abaixo de qualquer tolerancia fisica de impressao/corte.
         size = Size(
-            Measurement.points(width_pt).millimeters,
-            Measurement.points(height_pt).millimeters,
+            round(Measurement.points(width_pt).millimeters, 3),
+            round(Measurement.points(height_pt).millimeters, 3),
         )
         kind = classify_kind(
             drawings=len(page.get_drawings()),
