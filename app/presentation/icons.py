@@ -39,12 +39,19 @@ def _pixmap(name: str, color: str, size: int) -> QPixmap:
     return pixmap
 
 
-@lru_cache(maxsize=512)
-def icon(name: str, color: str = theme.ICON, size: int = 18) -> QIcon:
-    """QIcon do icone 'name' (sem extensao), recolorido para 'color'."""
-    return QIcon(_pixmap(name, color, size))
+def icon(name: str, color: str | None = None, size: int = 18) -> QIcon:
+    """QIcon do icone 'name' (sem extensao), recolorido para 'color'.
+
+    'color=None' usa theme.ICON resolvido AGORA (varredura 09/07: o default
+    avaliado na importação congelava a cor do tema claro para sempre)."""
+    return QIcon(_pixmap(name, color or theme.ICON, size))
 
 
-def pixmap(name: str, color: str = theme.ICON, size: int = 18) -> QPixmap:
+def pixmap(name: str, color: str | None = None, size: int = 18) -> QPixmap:
     """QPixmap do icone (util para QLabel)."""
-    return _pixmap(name, color, size)
+    return _pixmap(name, color or theme.ICON, size)
+
+
+def clear_cache() -> None:
+    """Esvazia o cache de pixmaps (trocou o tema: cores novas)."""
+    _pixmap.cache_clear()

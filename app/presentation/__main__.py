@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sys
 from pathlib import Path
 
@@ -47,9 +48,18 @@ def main() -> int:
     file_args = _file_args(sys.argv)
     if forward_to_running(file_args):
         return 0
-    # Design system inteiro (tema Claro travado + QSS global) num helper só —
-    # o mesmo usado por qualquer outro entrypoint com GUI (ex.: License Studio).
-    theme.apply(app)
+    # "aqui estou": grava o caminho do executavel para integracoes externas
+    # (a macro do CorelDRAW le este arquivo — o cliente nunca configura nada)
+    if getattr(sys, "frozen", False):
+        with contextlib.suppress(OSError):
+            (paths.home / "printnest_path.txt").write_text(
+                sys.executable, encoding="utf-8"
+            )
+    # Theme Engine: restaura o tema salvo do usuário (claro/escuro/midnight/
+    # carbon/auto + acento + ajustes) e aplica o QSS global. Entrypoints sem
+    # preferências (ex.: License Studio) continuam usando theme.apply(app).
+    from app.presentation.themes import apply_startup
+    apply_startup(app)
     # icone da janela: .ico multi-tamanho (só o simbolo, nitido em 16/32px);
     # cai para a PNG se o .ico não existir
     icon_file = resource_path("assets/printnest.ico")

@@ -1,5 +1,25 @@
 # Integração CorelDRAW → PrintNest
 
+> **⚠️ TAREFA ÚNICA DO DONO (Philipe): gerar o `PrintNest.gms`.** O instalador
+> do cliente (`instalar_plugin_corel.bat`) copia um arquivo `PrintNest.gms`
+> para as pastas GMS do Corel — e o `.gms` só pode ser criado DENTRO do
+> CorelDRAW (é um projeto VBA compilado). Fazer UMA vez, na sua máquina:
+> 1. Abra o CorelDRAW → **Alt+F11**;
+> 2. Menu **File → Import File...** com o projeto **GlobalMacros** selecionado
+>    → escolha `corel/PrintNest.bas` → **Ctrl+S**;
+> 3. Feche o Corel. O arquivo do projeto fica em
+>    `%APPDATA%\Corel\CorelDRAW Graphics Suite <versão>\Draw\GMS\`
+>    (o `.gms` das GlobalMacros — normalmente `GlobalMacros.gms`). Copie-o
+>    para esta pasta `corel/` com o nome **`PrintNest.gms`**.
+> 4. Rode o `build.bat`: o pacote "Plugin CorelDRAW" do build passa a incluir
+>    o `.gms` e o instalador do cliente vira 2 cliques.
+> Sem o `.gms`, o instalador cai no modo manual (importar o `.bas`), que
+> também funciona — só é menos "2 cliques".
+>
+> **Novidade 09/07:** o cliente NÃO configura mais caminho nenhum — o
+> PrintNest grava onde está (`%APPDATA%\PrintNest\printnest_path.txt`) a cada
+> abertura e a macro lê de lá.
+
 Botão no CorelDRAW que envia o desenho direto para o PrintNest (estilo RDWorks).
 Você desenha no Corel, clica no botão e o arquivo cai no PrintNest já pronto. A
 **linha de corte desenhada como vetor** vai no PDF e o PrintNest a usa como

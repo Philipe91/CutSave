@@ -82,10 +82,20 @@ class ProjectFile:
 
 @dataclass
 class ProjectDocument:
-    """Estado persistido de um projeto .printnest (independente da UI)."""
+    """Estado persistido de um projeto .printnest (independente da UI).
+
+    Campos ADITIVOS (projetos antigos abrem normalmente; versões antigas do
+    app ignoram os campos novos):
+    - ``file_overrides``: ajustes de faca POR ARQUIVO (tipo, sangria, raio...),
+      caminho -> dict esparso de parametros.
+    - ``faca_manual``: facas editadas a mão (ferramenta Pontos),
+      caminho -> {"contours": [[[x, y], ...], ...], "w", "h", "rotation"}.
+    Sem eles, salvar/reabrir PERDIA esses ajustes (varredura 09/07)."""
 
     files: list[ProjectFile] = field(default_factory=list)
     settings: dict = field(default_factory=dict)
+    file_overrides: dict = field(default_factory=dict)
+    faca_manual: dict = field(default_factory=dict)
     version: int = PROJECT_VERSION
 
     def to_dict(self) -> dict:
@@ -93,6 +103,8 @@ class ProjectDocument:
             "version": self.version,
             "files": [f.to_dict() for f in self.files],
             "settings": dict(self.settings),
+            "file_overrides": dict(self.file_overrides),
+            "faca_manual": dict(self.faca_manual),
         }
 
     @classmethod
@@ -112,7 +124,18 @@ class ProjectDocument:
         settings = data.get("settings")
         if not isinstance(settings, dict):
             settings = {}
-        return cls(files=files, settings=settings, version=version)
+        overrides = data.get("file_overrides")
+        if not isinstance(overrides, dict):
+            overrides = {}
+        manual = data.get("faca_manual")
+        if not isinstance(manual, dict):
+            manual = {}
+        return cls(
+            files=files, settings=settings,
+            file_overrides={k: v for k, v in overrides.items() if isinstance(v, dict)},
+            faca_manual={k: v for k, v in manual.items() if isinstance(v, dict)},
+            version=version,
+        )
 
 
 class ProjectStore:

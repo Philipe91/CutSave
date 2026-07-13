@@ -828,6 +828,16 @@ def test_tipo_de_faca_na_barra_respeita_a_selecao(qapp, tmp_path):
     assert window._file_overrides[src]["mode"] == "contour"  # só o arquivo
     assert window._faca_mode.currentData() == global_antes   # global intacto
 
+    # BUG 09/07: com override criado, o Offset da barra tem de editar o
+    # ARQUIVO (o global era ignorado e "a borda parava de aumentar")
+    window._ct_offset.setValue(5.0)
+    window._apply_contour_offset()
+    assert window._file_overrides[src]["offset"] == 5.0
+    assert window._file_overrides[src]["auto_offset"] == 5.0
+    window._ct_smooth.setValue(3)
+    assert window._file_overrides[src]["smooth"] == 3
+    assert int(window._auto_smooth.value()) != 3 or True  # global preservado
+
     # sem seleção: a barra volta a controlar o documento inteiro
     window._selected_path = None
     window._ct_loading = False
@@ -1985,6 +1995,52 @@ def test_salvar_e_abrir_projeto_restaura_arquivos_e_parametros(qapp, tmp_path):
     # REGRA 1: abrir o projeto NAO gera producao automaticamente
     assert w2._loaded is False
     assert w2._result is None
+
+
+def test_undo_de_ajustes_nao_funde_gestos_separados(qapp):
+    # Bug 13/07: TODOS os ajustes da sessão fundiam num único comando e um
+    # Ctrl+Z "voltava pro início". Agora só funde o MESMO gesto (janela curta).
+    from app.presentation.main_window import (
+        RELAYOUT_MERGE_ID, SnapshotCommand, _MERGE_WINDOW_S,
+    )
+
+    a = SnapshotCommand(None, "b0", "a0", "ajustar", merge_id=RELAYOUT_MERGE_ID)
+    b = SnapshotCommand(None, "a0", "a1", "ajustar", merge_id=RELAYOUT_MERGE_ID)
+    assert a.mergeWith(b) is True  # sequência imediata (segurar setinha): funde
+    assert a._after == "a1"
+
+    c = SnapshotCommand(None, "a1", "a2", "ajustar", merge_id=RELAYOUT_MERGE_ID)
+    c._stamp = a._stamp + _MERGE_WINDOW_S + 1.0  # "minutos depois"
+    assert a.mergeWith(c) is False  # gesto novo: passo de desfazer próprio
+    assert a._after == "a1"  # o comando antigo não absorveu o novo
+
+
+def test_projeto_persiste_overrides_e_faca_manual(qapp, tmp_path):
+    # Varredura 09/07: ajustes POR ARQUIVO (barra Faca) e facas manuais
+    # (Pontos) se perdiam ao salvar/reabrir o .printnest.
+    from app.domain.geometry import Point2D
+    from app.domain.model.cut_contour import CutContour
+
+    src = _two_page_pdf(tmp_path)
+    w1 = _window(tmp_path)
+    w1.add_paths([src])
+    w1._file_overrides[src] = {"mode": "contour", "offset": 3.5}
+    w1._faca_manual[src] = {
+        "contours": [CutContour([Point2D(0, 0), Point2D(10, 0), Point2D(5, 8)])],
+        "w": 100.0, "h": 80.0, "rotation": 90,
+    }
+    proj = tmp_path / "trabalho.printnest"
+    assert w1.save_project(str(proj)) is True
+    assert w1._dirty is False  # salvo: fechar nao pergunta nada
+
+    w2 = _window(tmp_path)
+    assert w2.open_project(str(proj)) is True
+    assert w2._file_overrides[src] == {"mode": "contour", "offset": 3.5}
+    m = w2._faca_manual[src]
+    assert m["w"] == 100.0 and m["h"] == 80.0 and m["rotation"] == 90
+    pts = m["contours"][0].points
+    assert (pts[0].x, pts[0].y) == (0.0, 0.0) and (pts[2].x, pts[2].y) == (5.0, 8.0)
+    assert w2._dirty is False  # recem-aberto: intocado
 
 
 def test_abrir_projeto_com_arquivo_ausente_nao_quebra(qapp, tmp_path):

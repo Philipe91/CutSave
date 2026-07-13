@@ -94,6 +94,9 @@ EMPTY = "#e5e9ef"        # peça sem raster
 ICON = TEXT_SECONDARY
 ICON_ON_ACCENT = "#ffffff"
 
+# --- overlays translucidos (barrinha flutuante, medidor) ---
+SURFACE_OVERLAY = "rgba(255,255,255,235)"
+
 # ============================================================================
 #  TIPOGRAFIA — escala fixa, nunca abaixo de 12px
 # ============================================================================
@@ -106,16 +109,76 @@ FONT_XL = 18        # título de painel
 FONT_2XL = 22       # título de janela
 
 
+# ============================================================================
+#  THEME ENGINE — os tokens de COR acima são o estado ATUAL; o ThemeManager
+#  (app/presentation/themes) troca a paleta inteira em runtime. Os NOMES
+#  continuam contrato: todo o app segue lendo theme.ACCENT etc.
+# ============================================================================
+_DARK_UI = False  # esquema atual (informativo p/ Qt nativo: menus, tooltips)
+
+
+def set_palette(colors: dict, dark_ui: bool = False) -> None:
+    """Injeta uma paleta nos tokens de cor (mesmos nomes). Camada 100% visual:
+    nenhuma lógica muda — quem lê theme.X passa a ver a cor nova."""
+    from app.presentation.themes.palettes import COLOR_TOKENS
+
+    g = globals()
+    for key in COLOR_TOKENS:
+        if key in colors:
+            g[key] = colors[key]
+    g["_DARK_UI"] = bool(dark_ui)
+
+
+def current_palette() -> dict:
+    from app.presentation.themes.palettes import COLOR_TOKENS
+
+    return {key: globals()[key] for key in COLOR_TOKENS}
+
+
+def is_dark() -> bool:
+    return _DARK_UI
+
+
+def build_qpalette():
+    """QPalette derivada dos tokens ATUAIS: cobre o que o QSS não alcança
+    (viewport de tabelas/listas, textos nativos de checkbox, tooltips...).
+    Sem ela, esses miolos ficavam BRANCOS no tema escuro (bug do beta)."""
+    from PySide6.QtGui import QColor, QPalette
+
+    pal = QPalette()
+    pares = (
+        (QPalette.Window, BG), (QPalette.WindowText, TEXT),
+        (QPalette.Base, SURFACE), (QPalette.AlternateBase, SURFACE_ALT),
+        (QPalette.Text, TEXT), (QPalette.PlaceholderText, TEXT_MUTED),
+        (QPalette.Button, SURFACE_ALT), (QPalette.ButtonText, TEXT),
+        (QPalette.Highlight, ACCENT), (QPalette.HighlightedText, ICON_ON_ACCENT),
+        (QPalette.ToolTipBase, SURFACE), (QPalette.ToolTipText, TEXT),
+        (QPalette.Link, INFO),
+    )
+    for role, hexcolor in pares:
+        pal.setColor(role, QColor(hexcolor))
+    # grupo DISABLED explícito: setColor(role, cor) pinta Active/Inactive/
+    # Disabled iguais — sem isto, menu/botão desabilitado parecia clicável
+    # (varredura 09/07, regressão no tema claro)
+    apagado = QColor(TEXT_MUTED)
+    for role in (QPalette.WindowText, QPalette.ButtonText, QPalette.Text):
+        pal.setColor(QPalette.Disabled, role, apagado)
+    return pal
+
+
 def apply(app) -> None:
-    """Aplica o design system inteiro a um QApplication (tema claro + QSS).
+    """Aplica o design system inteiro a um QApplication (esquema + paleta
+    nativa + QSS).
 
     USAR EM TODO entrypoint com GUI (app principal, License Studio, futuros
     utilitários) — QA 2.0: o License Studio nascia "pelado" porque só o
-    __main__ injetava o QSS.
-    """
+    __main__ injetava o QSS. Respeita a paleta ATUAL (Theme Engine)."""
     from PySide6.QtCore import Qt
 
-    app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    app.styleHints().setColorScheme(
+        Qt.ColorScheme.Dark if _DARK_UI else Qt.ColorScheme.Light
+    )
+    app.setPalette(build_qpalette())
     app.setStyleSheet(build_app_qss())
 
 
@@ -404,4 +467,22 @@ def build_app_qss() -> str:
     QLabel[role="panelTitle"] {{ color: {TEXT}; font-size: {FONT_XL}px; font-weight: 600; }}
     QLabel[role="metricValue"] {{ color: {TEXT}; font-weight: 700; font-size: {FONT_LG}px; }}
     QLabel[role="metricLabel"] {{ color: {TEXT_MUTED}; font-size: {FONT_SM}px; }}
+    QLabel[role="accentTag"] {{ color: {ACCENT}; font-weight: 700; }}
+    QLabel[role="dot"] {{ color: {TEXT_MUTED}; }}
+    QLabel[role="cardTitle"] {{ color: {TEXT}; font-size: {FONT_MD}px; font-weight: 600; }}
+
+    /* ============ superfícies nomeadas (Theme Engine: troca ao vivo) ====== */
+    #propBar {{
+        background: {SURFACE_ALT}; border: 1px solid {BORDER};
+        border-radius: {RADIUS}px;
+    }}
+    #floatBar, #measureOverlay {{
+        background: {SURFACE_OVERLAY}; border: 1px solid {BORDER};
+        border-radius: {RADIUS_SM}px;
+    }}
+    QToolButton#tabPlus {{
+        color: {ACCENT}; border: none; background: transparent;
+        font-size: 26px; font-weight: 400; padding: 0 0 5px 0; margin-left: -8px;
+    }}
+    QToolButton#tabPlus:hover {{ color: {ACCENT_HOVER}; }}
     """

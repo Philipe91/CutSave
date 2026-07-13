@@ -28,6 +28,13 @@ mkdir PrintNest_Build
 copy /y dist\PrintNest.exe PrintNest_Build\PrintNest.exe
 if exist "docs\build\BUILD.md" copy /y "docs\build\BUILD.md" PrintNest_Build\README.txt
 if exist "docs\build\VERSAO.txt" copy /y "docs\build\VERSAO.txt" PrintNest_Build\VERSAO.txt
+REM pacote do plugin CorelDRAW (instalador + macro + guia + icone do botao)
+mkdir "PrintNest_Build\Plugin CorelDRAW"
+copy /y corel\instalar_plugin_corel.bat "PrintNest_Build\Plugin CorelDRAW\" >nul
+copy /y corel\PrintNest.bas "PrintNest_Build\Plugin CorelDRAW\" >nul
+if exist corel\PrintNest.gms copy /y corel\PrintNest.gms "PrintNest_Build\Plugin CorelDRAW\" >nul
+copy /y corel\GUIA-CLIENTE.md "PrintNest_Build\Plugin CorelDRAW\GUIA-CLIENTE.txt" >nul
+copy /y assets\printnest_symbol.png "PrintNest_Build\Plugin CorelDRAW\" >nul
 REM carimba a data/hora REAL desta build no VERSAO.txt (identifica cada exe)
 echo.>> PrintNest_Build\VERSAO.txt
 echo Build gerada em: %DATE% %TIME%>> PrintNest_Build\VERSAO.txt

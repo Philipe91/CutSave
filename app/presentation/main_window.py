@@ -25,6 +25,7 @@ from PySide6.QtGui import (
     QActionGroup,
     QBrush,
     QColor,
+    QFont,
     QIcon,
     QKeySequence,
     QPainter,
@@ -234,7 +235,8 @@ class ZoomableGraphicsView(QGraphicsView):
         painter.resetTransform()  # desenha em coordenadas do viewport
         painter.setPen(QColor(theme.TEXT_MUTED))
         f = painter.font()
-        f.setPointSizeF(f.pointSizeF() + 3)
+        f.setPointSizeF(f.pointSizeF() + 7)  # grande o bastante p/ parecer
+        f.setWeight(QFont.DemiBold)          # intencional, nao artefato
         painter.setFont(f)
         painter.drawText(
             self.viewport().rect(), Qt.AlignCenter, self.empty_hint
@@ -375,6 +377,11 @@ class ZoomableGraphicsView(QGraphicsView):
 # id de merge para que mudancas de parametro consecutivas (arrastar a setinha de
 # um campo, digitar) virem UM passo de desfazer, em vez de dezenas.
 RELAYOUT_MERGE_ID = 1
+# Janela (s) para considerar dois recalculos "o MESMO gesto" (segurar a
+# setinha). Fora dela, cada ajuste vira um passo próprio de desfazer — sem
+# isto, TODOS os ajustes da sessão fundiam num comando só e um Ctrl+Z
+# "voltava pro início" (bug do beta 13/07).
+_MERGE_WINDOW_S = 1.5
 
 
 class SnapshotCommand(QUndoCommand):
@@ -397,16 +404,22 @@ class SnapshotCommand(QUndoCommand):
         self._after = after
         self._applied = True
         self._merge_id = merge_id
+        import time
+        self._stamp = time.monotonic()
 
     def id(self) -> int:
         return self._merge_id
 
     def mergeWith(self, other) -> bool:
-        # funde recalculos consecutivos do mesmo tipo num passo só (mantem o
-        # 'before' original e adota o 'after' mais novo).
+        # funde SÓ recalculos do mesmo tipo feitos em sequência rápida (mesmo
+        # gesto: segurar a setinha/digitar). Passou a janela de tempo, o novo
+        # ajuste vira um passo próprio — Ctrl+Z desfaz UM ajuste por vez.
         if self._merge_id < 0 or other.id() != self._merge_id:
             return False
+        if other._stamp - self._stamp > _MERGE_WINDOW_S:
+            return False
         self._after = other._after
+        self._stamp = other._stamp  # gesto continua: janela desliza
         return True
 
     def undo(self) -> None:
@@ -628,12 +641,10 @@ class MeasureOverlay(QFrame):
         self._line2 = QLabel("")
         for w in (self._title, self._line1, self._line2):
             lay.addWidget(w)
-        self.setStyleSheet(
-            "#measureOverlay{background:rgba(255,255,255,235);"
-            f" border:1px solid {theme.BORDER_STRONG}; border-radius:{theme.RADIUS}px;}}"
-            f" QLabel{{color:{theme.TEXT_SECONDARY}; font-size:{theme.FONT_SM}px;}}"
-            f" QLabel#ovTitle{{font-weight:600; color:{theme.TEXT};}}"
-        )
+        # fundo/borda no QSS global (#measureOverlay) — tema troca ao vivo
+        for w in (self._line1, self._line2):
+            w.setProperty("role", "caption")
+        self._title.setProperty("role", "cardTitle")
         self.hide()
 
     def show_lines(self, title: str, line1: str, line2: str = "") -> None:
@@ -668,11 +679,10 @@ class FloatingDisplayBar(QFrame):
         self.combo = NoWheelComboBox()
         self.combo.setToolTip("Modo de visualizacao (impressao / corte / dividido)")
         lay.addWidget(self.combo)
+        # fundo/borda no QSS global (#floatBar) — tema troca ao vivo; o combo
+        # compacto mantém só o ajuste de densidade local (sem cores fixas)
         self.setStyleSheet(
-            "#floatBar{background:rgba(255,255,255,232);"
-            f" border:1px solid {theme.BORDER_STRONG}; border-radius:{theme.RADIUS}px;}}"
-            "#floatBar QComboBox{min-height:16px; padding:2px 8px;"
-            f" border:1px solid {theme.BORDER}; background:{theme.SURFACE};}}"
+            "#floatBar QComboBox{min-height:16px; padding:2px 8px;}"
         )
         self._press_global = None
         self._press_pos = None
@@ -1121,7 +1131,7 @@ class ExportCenterDialog(QDialog):
         left.setSpacing(theme.SPACE_SM)
         head = QHBoxLayout()
         title = QLabel("Chapas")
-        title.setStyleSheet(f"font-weight:600; color:{theme.TEXT};")
+        title.setProperty("role", "cardTitle")  # QSS: acompanha o tema ao vivo
         head.addWidget(title)
         head.addStretch()
         btn_all = QPushButton("Todas")
@@ -1693,6 +1703,27 @@ class MainWindow(QMainWindow):
 
         # Opções (ao lado de Ajuda): unidade de medida (cm/mm)
         m_opt = bar.addMenu("O&pções")  # Alt+P (Alt+O já e do menu Organizar; QA-09)
+        # ---- Theme Engine: Aparência (tema + personalizar) ----
+        from app.presentation.themes import manager as _theme_manager
+        from app.presentation.themes.palettes import THEMES as _THEMES
+        ap = m_opt.addMenu("Aparência")
+        tm = ap.addMenu("Tema")
+        tm_group = QActionGroup(self)
+        tm_group.setExclusive(True)
+        _tm = _theme_manager()
+        for key, label in (
+            *((k, lbl) for k, (lbl, _p, _d) in _THEMES.items()),
+            ("auto", "Automático (segue o Windows)"),
+        ):
+            act = QAction(label, self, checkable=True)
+            act.setChecked(_tm.theme_key == key)
+            act.triggered.connect(lambda _=False, k=key: _theme_manager().set_theme(k))
+            tm_group.addAction(act)
+            tm.addAction(act)
+        ap.addSeparator()
+        ap.addAction("Personalizar Interface...", self._show_theme_dialog)
+        _tm.theme_changed.connect(self._on_theme_changed)
+        m_opt.addSeparator()
         um = m_opt.addMenu("Unidade de medida")
         self._unit_group = QActionGroup(self)
         self._unit_group.setExclusive(True)
@@ -1851,6 +1882,34 @@ class MainWindow(QMainWindow):
         if act is not None:
             act.setChecked(True)
 
+    def _show_theme_dialog(self) -> None:
+        """Opções → Personalizar Interface... (Theme Engine, live preview)."""
+        from app.presentation.themes import manager as _theme_manager
+        from app.presentation.themes.settings_dialog import ThemeSettingsDialog
+        ThemeSettingsDialog(_theme_manager(), self).exec()
+
+    def _refresh_logo(self) -> None:
+        """Logo certa para o tema: original no claro, invertida no escuro."""
+        if getattr(self, "_logo_label", None) is None:
+            return
+        pm = self._logo_dark if (theme.is_dark() and not self._logo_dark.isNull()) \
+            else self._logo_light
+        self._logo_label.setPixmap(pm.scaledToWidth(200, Qt.SmoothTransformation))
+
+    def _on_theme_changed(self) -> None:
+        """Tema trocou ao vivo: redesenha o que pinta com tokens em runtime
+        (canvas, réguas, logo). O QSS global o ThemeManager já reaplicou."""
+        self._refresh_logo()
+        if self._result is not None:
+            self._draw_preview()
+        for name in ("_ruler_h", "_ruler_v"):
+            r = getattr(self, name, None)
+            if r is not None:
+                r.update()
+        if hasattr(self, "_view"):
+            self._view.setBackgroundBrush(QColor(theme.CANVAS_BG))
+            self._view.viewport().update()
+
     def _show_license(self) -> None:
         """Ajuda -> Licenca: ativar/ver/transferir (nao bloqueia o uso aqui)."""
         from app.licensing.manager import LicenseManager
@@ -1883,17 +1942,67 @@ class MainWindow(QMainWindow):
             for path in self._paths
         ]
         settings = {key: getattr(self._settings, key) for key in PROJECT_SETTING_KEYS}
-        return ProjectDocument(files=files, settings=settings)
+        return ProjectDocument(
+            files=files, settings=settings,
+            file_overrides={p: dict(ov) for p, ov in self._file_overrides.items()},
+            faca_manual=self._manual_faca_to_json(),
+        )
+
+    def _manual_faca_to_json(self) -> dict:
+        """Facas manuais (Pontos) em formato serializável (listas de pontos)."""
+        out: dict = {}
+        for path, m in self._faca_manual.items():
+            out[path] = {
+                "contours": [
+                    [[float(p.x), float(p.y)] for p in c.points]
+                    for c in m["contours"]
+                ],
+                "w": float(m["w"]),
+                "h": float(m["h"]),
+                "rotation": int(m.get("rotation", 0)),
+            }
+        return out
+
+    @staticmethod
+    def _manual_faca_from_json(data: dict) -> dict:
+        """Reconstrói as facas manuais do JSON; entrada corrompida é ignorada
+        item a item (nunca impede a abertura do projeto)."""
+        out: dict = {}
+        for path, m in (data or {}).items():
+            try:
+                contours = [
+                    CutContour([Point2D(float(x), float(y)) for x, y in c])
+                    for c in m["contours"]
+                ]
+                out[path] = {
+                    "contours": contours,
+                    "w": float(m["w"]),
+                    "h": float(m["h"]),
+                    "rotation": int(m.get("rotation", 0)),
+                }
+            except (KeyError, TypeError, ValueError):
+                continue
+        return out
 
     def _apply_project(self, doc: ProjectDocument) -> None:
         """Restaura o estado do projeto SEM gerar produção (regra do projeto)."""
-        self._dirty = False  # recem-aberto do disco: estado limpo
         for key, value in doc.settings.items():
             if key in PROJECT_SETTING_KEYS and hasattr(self._settings, key):
                 setattr(self._settings, key, value)
         self._load_settings()  # empurra os parametros para os widgets
         self._reset_project_state()
+        # ajustes POR ARQUIVO e facas manuais voltam com o projeto (antes se
+        # perdiam ao reabrir — varredura 09/07); antes de popular, para a
+        # próxima geração já usar os valores certos
+        self._file_overrides = {
+            p: dict(ov) for p, ov in doc.file_overrides.items()
+        }
+        self._faca_manual = self._manual_faca_from_json(doc.faca_manual)
         self._populate_files(doc.files)
+        # LIMPO só DEPOIS de repovoar: add_paths marca dirty e, sem isto, abrir
+        # um projeto intocado já disparava o modal "alterações não salvas"
+        # em Novo/Abrir/Fechar (varredura 09/07 — pior com o auto-reabrir)
+        self._dirty = False
 
     def _reset_project_state(self) -> None:
         """Descarta a produção carregada (mantem parametros e widgets)."""
@@ -2085,14 +2194,10 @@ class MainWindow(QMainWindow):
         _distribute, _duplicate_selected, _delete_selected, _group_selected.
         """
         bar = QFrame()
-        bar.setObjectName("propBar")
+        bar.setObjectName("propBar")  # estilo no QSS global (troca de tema ao vivo)
         # altura MINIMA derivada da fonte (QA 2.0/C2: 40px fixos cortavam a
         # borda dos botões, que precisam de ~38px + margens — pior em 125/150%)
         bar.setMinimumHeight(max(44, self.fontMetrics().height() * 2 + 16))
-        bar.setStyleSheet(
-            f"#propBar{{background:{theme.SURFACE_ALT}; border:1px solid {theme.BORDER};"
-            f" border-radius:8px;}}"
-        )
         outer = QHBoxLayout(bar)
         outer.setContentsMargins(theme.SPACE_MD, 2, theme.SPACE_MD, 2)
         self._pbar_stack = QStackedWidget()
@@ -2104,12 +2209,12 @@ class MainWindow(QMainWindow):
 
         def _tag(text: str) -> QLabel:
             lb = QLabel(text)
-            lb.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
+            lb.setProperty("role", "accentTag")  # estilo no QSS (tema ao vivo)
             return lb
 
         def _sep() -> QLabel:
             lb = QLabel("·")
-            lb.setStyleSheet(f"color:{theme.TEXT_MUTED};")
+            lb.setProperty("role", "dot")
             return lb
 
         # --- página 0: PROJETO (sem seleção) ---
@@ -2222,7 +2327,7 @@ class MainWindow(QMainWindow):
         # a etiqueta mostra o ESCOPO (estilo Corel): sem seleção = documento
         # inteiro; com peça selecionada = só o arquivo dela (override).
         self._ct_tag = QLabel("✂ Faca · documento")
-        self._ct_tag.setStyleSheet(f"font-weight:700; color:{theme.ACCENT};")
+        self._ct_tag.setProperty("role", "accentTag")
         self._ct_tag.setToolTip(
             "Sem seleção: os ajustes valem para o documento inteiro.\n"
             "Com uma peça selecionada: o Tipo de faca vale SÓ para o\n"
@@ -2279,6 +2384,15 @@ class MainWindow(QMainWindow):
         cl.addWidget(b_out)
         cl.addWidget(b_in)
 
+        # Suavizar SEMPRE visível ao lado do Offset (pedido do beta 09/07 —
+        # é ajuste de uso constante, não podia morar escondido no popup)
+        self._ct_smooth = _spin(0, 5)
+        self._ct_smooth.setMinimumWidth(fm.horizontalAdvance("55") + 40)
+        self._ct_smooth.setToolTip("Suavizar curvas da faca: 0 = reto, 5 = macio.")
+        self._ct_smooth.valueChanged.connect(lambda _: self._apply_contour_smooth())
+        cl.addWidget(QLabel("Suavizar"))
+        cl.addWidget(self._ct_smooth)
+
         # ---- popup "Ajustes ▾": secundários organizados em grade ----
         panel = QWidget()
         grid = QGridLayout(panel)
@@ -2319,13 +2433,6 @@ class MainWindow(QMainWindow):
         self._ct_radius.editingFinished.connect(self._apply_contour_radius)
         grid.addWidget(QLabel("Raio dos cantos"), 1, 0)
         grid.addWidget(self._ct_radius, 1, 1)
-
-        self._ct_smooth = _spin(0, 5)
-        self._ct_smooth.setMinimumWidth(fm.horizontalAdvance("55") + 40)
-        self._ct_smooth.setToolTip("Suavizar curvas da faca: 0 = reto, 5 = macio.")
-        self._ct_smooth.valueChanged.connect(lambda _: self._apply_contour_smooth())
-        grid.addWidget(QLabel("Suavizar curvas"), 2, 0)
-        grid.addWidget(self._ct_smooth, 2, 1)
 
         # Nós da faca (dropdown curto) — espelho do seletor do Acabamento
         self._ct_nodes = QComboBox()
@@ -2379,8 +2486,11 @@ class MainWindow(QMainWindow):
         return w
 
     def _apply_contour_smooth(self) -> None:
-        """Suavizar (barra) -> grava no campo global do Documento e re-gera a faca."""
+        """Suavizar (barra), sensível ao ESCOPO: arquivo selecionado ou global."""
         if self._ct_loading:
+            return
+        if getattr(self, "_selected_path", None):
+            self._piece_override({"smooth": int(self._ct_smooth.value())})
             return
         self._auto_smooth.blockSignals(True)
         self._auto_smooth.setValue(int(self._ct_smooth.value()))
@@ -2388,12 +2498,37 @@ class MainWindow(QMainWindow):
         if self._loaded:
             self._relayout(renest=False)
 
+    def _piece_override(self, updates: dict) -> None:
+        """Grava ajustes NO ARQUIVO selecionado (override) e re-gera.
+
+        BUG do beta (09/07): arquivo com override congelava os valores da
+        criação — mudar Offset na barra alterava só o global, que o override
+        ignora, e 'a borda parava de aumentar'. Com seleção, a barra edita o
+        override; sem seleção, o global (escopo igual ao Tipo de faca).
+        O override é ESPARSO: só as chaves editadas; o resto segue o global."""
+        path = self._selected_path
+        atual = self._params_for(path)
+        if all(atual.get(k) == v for k, v in updates.items()):
+            return
+        ov = dict(self._file_overrides.get(path, {}))
+        ov.update(updates)
+        self._file_overrides[path] = ov
+        self._keep_tab = True
+        try:
+            self._relayout(renest=False)
+            self._reselect_path(path)
+        finally:
+            self._keep_tab = False
+
     def _apply_contour_offset(self) -> None:
-        """Toolbar Contorno -> grava a sangria (PDF + imagem) e re-gera a faca."""
+        """Offset (barra), sensível ao ESCOPO: arquivo selecionado ou global."""
         if self._ct_loading:
             return
         sign = 1 if self._ct_dir.checkedId() == 1 else -1
         val = float(self._ct_offset.value()) * sign
+        if getattr(self, "_selected_path", None):
+            self._piece_override({"offset": val, "auto_offset": val})
+            return
         self._offset.blockSignals(True)
         self._auto_offset.blockSignals(True)
         self._offset.setValue(val)
@@ -2404,7 +2539,14 @@ class MainWindow(QMainWindow):
             self._relayout(renest=False)
 
     def _apply_contour_corner(self) -> None:
-        self._faca_corner = self._ct_corner_val.get(self._ct_corner.checkedId(), "round")
+        """Estilo do canto (barra), sensível ao ESCOPO como os demais."""
+        val = self._ct_corner_val.get(self._ct_corner.checkedId(), "round")
+        if self._ct_loading:
+            return
+        if getattr(self, "_selected_path", None):
+            self._piece_override({"corner": val})
+            return
+        self._faca_corner = val
         if self._loaded:
             self._relayout(renest=False)
 
@@ -2453,8 +2595,11 @@ class MainWindow(QMainWindow):
             self._shared.setCurrentIndex(self._ct_shared.currentIndex())
 
     def _apply_contour_radius(self) -> None:
-        """Raio dos cantos (barra, global) -> re-gera a faca."""
+        """Raio dos cantos (barra), sensível ao ESCOPO."""
         if self._ct_loading:
+            return
+        if getattr(self, "_selected_path", None):
+            self._piece_override({"corner_radius": float(self._ct_radius.value())})
             return
         if self._loaded:
             self._relayout(renest=False)
@@ -2465,17 +2610,29 @@ class MainWindow(QMainWindow):
             return
         self._ct_loading = True
         try:
-            signed = float(self._offset.value())
+            # valores exibidos seguem o ESCOPO: arquivo selecionado (efetivo,
+            # com override) ou o global do documento
+            sel = getattr(self, "_selected_path", None)
+            if sel:
+                p = self._params_for(sel)
+                signed = float(p.get("auto_offset") or p.get("offset") or 0.0)
+                smooth_val = int(p.get("smooth", self._auto_smooth.value()))
+                radius_val = float(p.get("corner_radius", self._ct_radius.value()))
+            else:
+                signed = float(self._offset.value())
+                smooth_val = int(self._auto_smooth.value())
+                radius_val = float(self._ct_radius.value())
             self._ct_offset.setValue(abs(signed))
             btn = self._ct_dir.button(1 if signed >= 0 else 2)
             if btn is not None:
                 btn.setChecked(True)
+            self._ct_radius.setValue(radius_val)
             for i, val in self._ct_corner_val.items():
                 if val == self._faca_corner:
                     b = self._ct_corner.button(i)
                     if b is not None:
                         b.setChecked(True)
-            self._ct_smooth.setValue(int(self._auto_smooth.value()))
+            self._ct_smooth.setValue(smooth_val)
             # tipo exibido segue o ESCOPO: arquivo selecionado (efetivo, com
             # override) ou o global do documento
             sel = getattr(self, "_selected_path", None)
@@ -2484,9 +2641,14 @@ class MainWindow(QMainWindow):
                 if sel else self._faca_mode.currentData()
             )
             if hasattr(self, "_ct_tag"):
-                self._ct_tag.setText(
-                    "✂ Faca · este arquivo" if sel else "✂ Faca · documento"
-                )
+                if sel and sel in self._faca_manual:
+                    # faca editada a mão vence os ajustes — avisa em vez de
+                    # deixar o usuário girar controles sem efeito (varredura)
+                    self._ct_tag.setText("✂ Faca · manual (Pontos)")
+                else:
+                    self._ct_tag.setText(
+                        "✂ Faca · este arquivo" if sel else "✂ Faca · documento"
+                    )
             i_mode = self._ct_mode.findData(mode_data)
             if i_mode >= 0:
                 self._ct_mode.setCurrentIndex(i_mode)
@@ -2887,16 +3049,10 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._tabbar)
         plus = QToolButton()
         plus.setText("+")
+        plus.setObjectName("tabPlus")  # estilo no QSS global (tema ao vivo)
         plus.setToolTip("Novo trabalho (aba)")
         plus.setFixedSize(34, 38)
         plus.setCursor(Qt.PointingHandCursor)
-        # tamanho da fonte NO stylesheet (setFont e ignorado quando ha QSS):
-        # glifo grande e azul do tema, puxado para a esquerda (colado na aba/X).
-        plus.setStyleSheet(
-            f"QToolButton{{color:{theme.ACCENT}; border:none; background:transparent;"
-            " font-size:26px; font-weight:400; padding:0 0 5px 0; margin-left:-8px;}"
-            f"QToolButton:hover{{color:{theme.ACCENT_HOVER};}}"
-        )
         plus.clicked.connect(self._new_tab)
         lay.addWidget(plus)
         lay.addStretch()
@@ -2990,6 +3146,9 @@ class MainWindow(QMainWindow):
         # de outra (ids homonimos) inseriria peça no lugar errado (QA-12).
         self._piece_clipboard = []
         self._paste_count = 0
+        # seleção não atravessa abas: um _selected_path da aba anterior faria
+        # a barra Faca criar override de arquivo de OUTRO trabalho (varredura)
+        self._selected_path = None
         self._suspend_relayout = True
         try:
             self._restore_widget_values(s["widgets"])
@@ -3703,7 +3862,10 @@ class MainWindow(QMainWindow):
         faca.body.addWidget(self._pf_corner_radius)
         self._pf_reset = QPushButton("  Usar padrão do documento")
         self._pf_reset.setIcon(icons.icon("rotate-ccw", theme.ICON))
-        self._pf_reset.setToolTip("Remove a faca personalizada e volta ao padrão do Documento")
+        self._pf_reset.setToolTip(
+            "Remove TODOS os ajustes de faca deste arquivo (tipo, sangria,\n"
+            "suavizar, raio, recorte, giro) e volta ao padrão do Documento."
+        )
         self._pf_reset.clicked.connect(self._reset_piece_faca)
         faca.body.addWidget(self._pf_reset)
         self._pf_manual_reset = QPushButton("  Voltar à faca automática")
@@ -3856,6 +4018,9 @@ class MainWindow(QMainWindow):
         cur = self._props_tabs.currentIndex()
         switch = not self._keep_tab  # durante reselecao não troca de aba
         if not pieces:
+            # varredura 09/07: sem limpar, a barra Faca continuava editando o
+            # "arquivo fantasma" da última seleção (escopo documento quebrado)
+            self._selected_path = None
             self._sel_stack.setCurrentIndex(0)
             self._props_tabs.setTabText(1, "Seleção")
             if switch and cur == 1:  # só volta para Documento se estiver na Seleção
@@ -3940,7 +4105,8 @@ class MainWindow(QMainWindow):
         if self._pf_loading or not self._selected_path:
             return
         path = self._selected_path
-        p = dict(self._params_for(path))
+        # override ESPARSO: só as chaves do card; o resto segue o global vivo
+        p = dict(self._file_overrides.get(path, {}))
         sangria = float(self._pf_offset.value())
         if self._selected_is_image:
             p["auto_offset"] = sangria
@@ -4079,19 +4245,22 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(0, 0, theme.SPACE_XS, 0)
         lay.setSpacing(theme.SPACE_SM)
 
-        # logo completa (simbolo + nome PRINTNEST PRO) no topo do painel
-        logo_path = resource_path("assets/printnest.png")
-        if logo_path.exists():
-            pm = QPixmap(str(logo_path))
-            if not pm.isNull():
-                logo = QLabel()
-                logo.setPixmap(pm.scaledToWidth(200, Qt.SmoothTransformation))
-                logo.setAlignment(Qt.AlignHCenter)  # centraliza sobre o botão "+ Adicionar"
-                logo.setContentsMargins(0, 2, 0, 4)
-                lay.addWidget(logo)
+        # logo completa (simbolo + nome PRINTNEST PRO) no topo do painel.
+        # Tem DUAS versões: a original (temas claros) e a invertida
+        # printnest_dark.png (temas escuros) — trocadas em _on_theme_changed.
+        self._logo_label = None
+        self._logo_light = QPixmap(str(resource_path("assets/printnest.png")))
+        dark_path = resource_path("assets/printnest_dark.png")
+        self._logo_dark = QPixmap(str(dark_path)) if dark_path.exists() else QPixmap()
+        if not self._logo_light.isNull():
+            self._logo_label = QLabel()
+            self._logo_label.setAlignment(Qt.AlignHCenter)
+            self._logo_label.setContentsMargins(0, 2, 0, 4)
+            self._refresh_logo()
+            lay.addWidget(self._logo_label)
 
         header = QLabel("Biblioteca")
-        header.setStyleSheet(f"font-weight:600; color:{theme.TEXT};")
+        header.setProperty("role", "cardTitle")  # QSS: acompanha o tema ao vivo
         lay.addWidget(header)
 
         self._btn_add = QPushButton("  Adicionar arquivos")
@@ -4529,9 +4698,16 @@ class MainWindow(QMainWindow):
         }
 
     def _params_for(self, path) -> dict:
-        """Params de faca efetivos do arquivo: override próprio ou o padrão."""
-        override = self._file_overrides.get(path)
-        return dict(override) if override else self._global_faca_params()
+        """Params de faca efetivos do arquivo: global + override ESPARSO.
+
+        O override guarda SÓ as chaves que o usuário sobrescreveu naquele
+        arquivo; todo o resto continua seguindo o global AO VIVO. (Varredura
+        09/07: a cópia completa congelava recorte/giro/canto globais nos
+        arquivos com override — mesma doença do bug do Offset.)"""
+        return {
+            **self._global_faca_params(),
+            **self._file_overrides.get(path, {}),
+        }
 
     def _art_params(self, art_id) -> dict:
         """Params efetivos de UMA peça: os do arquivo + o giro próprio da peça.
@@ -5010,6 +5186,9 @@ class MainWindow(QMainWindow):
             self._piece_items = []
             self._status_ctl.set_production(0, 0)
             self._alert.clear()
+            # varredura 09/07: sem isto a barra Faca ficava visível sem nenhum
+            # arquivo e o texto-guia do canvas não voltava ao "arraste aqui"
+            self._update_property_bar()
             return
         self._relayout()
 
@@ -5322,6 +5501,11 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard("Fechar o PrintNest descarta o que não foi salvo."):
             event.ignore()
             return
+        # solta o sinal do ThemeManager (singleton vive além da janela; sem
+        # isto uma troca de tema depois chamaria métodos de objeto destruído)
+        with contextlib.suppress(Exception):
+            from app.presentation.themes import manager as _tm
+            _tm().theme_changed.disconnect(self._on_theme_changed)
         thread = self._thread
         if thread is not None and thread.isRunning():
             thread.quit()
@@ -5801,6 +5985,15 @@ class MainWindow(QMainWindow):
                 self._draw_marks(
                     layout, result.artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen
                 )
+
+        # NAVEGAÇÃO LIVRE (pedido do beta 13/07, estilo Corel): a área rolável
+        # ganha uma folga GENEROSA ao redor do conteúdo. Sem isto o sceneRect
+        # colava no conteúdo e o Qt travava o pan e a âncora do zoom perto das
+        # bordas — "a página fica no canto e não vai pro centro nem a pau".
+        rect = self._scene.itemsBoundingRect()
+        if not rect.isEmpty():
+            folga = max(rect.width(), rect.height()) * 2.0 + 1000.0
+            self._scene.setSceneRect(rect.adjusted(-folga, -folga, folga, folga))
 
     def _fit_view(self) -> None:
         rect = self._scene.itemsBoundingRect()

@@ -10,19 +10,44 @@ Attribute VB_Name = "PrintNest"
 ' ==========================================================================
 Option Explicit
 
-' ---- AJUSTE AQUI o caminho do PrintNest instalado ----
-Private Const PRINTNEST_EXE As String = "C:\Program Files\PrintNest\PrintNest.exe"
+' O PrintNest "se anuncia": toda vez que abre, grava o proprio caminho em
+' %APPDATA%\PrintNest\printnest_path.txt. A macro le esse arquivo — o cliente
+' NUNCA precisa configurar caminho nenhum. (Basta abrir o PrintNest 1 vez
+' depois de instalar.)
+Private Function CaminhoAnunciado() As String
+    Dim arq As String
+    arq = Environ$("APPDATA") & "\PrintNest\printnest_path.txt"
+    If Dir(arq) = "" Then Exit Function
+    Dim f As Integer, linha As String
+    f = FreeFile
+    On Error GoTo fim
+    Open arq For Input As #f
+    If Not EOF(f) Then Line Input #f, linha
+    Close #f
+    linha = Trim$(linha)
+    If Len(linha) > 0 Then
+        If Dir(linha) <> "" Then CaminhoAnunciado = linha
+    End If
+    Exit Function
+fim:
+    On Error Resume Next
+    Close #f
+End Function
 
-' Localiza o executavel do PrintNest (tenta o caminho configurado e alguns
-' lugares comuns). Retorna "" se nao achar.
+' Localiza o executavel do PrintNest: 1) o caminho anunciado pelo proprio
+' programa; 2) lugares comuns de instalacao. Retorna "" se nao achar.
 Private Function PrintNestExe() As String
-    Dim candidatos(4) As String
-    candidatos(0) = PRINTNEST_EXE
+    Dim anunciado As String
+    anunciado = CaminhoAnunciado()
+    If anunciado <> "" Then
+        PrintNestExe = anunciado
+        Exit Function
+    End If
+    Dim candidatos(3) As String
+    candidatos(0) = Environ$("ProgramFiles") & "\PrintNest\PrintNest.exe"
     candidatos(1) = Environ$("LOCALAPPDATA") & "\Programs\PrintNest\PrintNest.exe"
-    candidatos(2) = Environ$("ProgramFiles") & "\PrintNest\PrintNest.exe"
-    candidatos(3) = Environ$("USERPROFILE") & "\Desktop\PrintNest\PrintNest.exe"
-    ' fallback de desenvolvimento (roda o PrintNest direto do codigo)
-    candidatos(4) = "c:\projetos\Cutph\corel\run_printnest_dev.bat"
+    candidatos(2) = Environ$("USERPROFILE") & "\Desktop\PrintNest\PrintNest.exe"
+    candidatos(3) = Environ$("USERPROFILE") & "\Desktop\PrintNest_Build\PrintNest.exe"
     Dim i As Integer
     For i = 0 To UBound(candidatos)
         If Len(candidatos(i)) > 0 Then
@@ -44,9 +69,10 @@ Private Sub Disparar(arquivoPdf As String)
     Dim exe As String
     exe = PrintNestExe()
     If exe = "" Then
-        MsgBox "PrintNest nao encontrado." & vbCrLf & _
-               "Abra esta macro (Alt+F11) e ajuste a constante PRINTNEST_EXE " & _
-               "com o caminho do PrintNest.exe.", vbExclamation, "PrintNest"
+        MsgBox "PrintNest nao encontrado." & vbCrLf & vbCrLf & _
+               "Abra o PrintNest UMA vez (dois cliques no PrintNest.exe) e " & _
+               "tente de novo — ele se registra sozinho.", _
+               vbExclamation, "PrintNest"
         Exit Sub
     End If
     ' aspas para suportar espacos nos caminhos. O PrintNest e instancia unica:
@@ -133,8 +159,9 @@ Public Sub AbrirPrintNest()
     Dim exe As String
     exe = PrintNestExe()
     If exe = "" Then
-        MsgBox "PrintNest nao encontrado." & vbCrLf & _
-               "Abra esta macro (Alt+F11) e ajuste a constante PRINTNEST_EXE.", _
+        MsgBox "PrintNest nao encontrado." & vbCrLf & vbCrLf & _
+               "Abra o PrintNest UMA vez (dois cliques no PrintNest.exe) e " & _
+               "tente de novo — ele se registra sozinho.", _
                vbExclamation, "PrintNest"
         Exit Sub
     End If
