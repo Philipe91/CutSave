@@ -224,6 +224,7 @@ class ZoomableGraphicsView(QGraphicsView):
         # texto-guia do estado VAZIO ("" = sem guia). A MainWindow define
         # conforme a etapa: sem arquivos / com arquivos mas sem produção.
         self.empty_hint = ""
+        self.empty_step = 0  # passo do fluxo na faixa ilustrada (0=Adicionar)
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802
         super().drawForeground(painter, rect)
@@ -238,8 +239,16 @@ class ZoomableGraphicsView(QGraphicsView):
         f.setPointSizeF(f.pointSizeF() + 7)  # grande o bastante p/ parecer
         f.setWeight(QFont.DemiBold)          # intencional, nao artefato
         painter.setFont(f)
-        painter.drawText(
-            self.viewport().rect(), Qt.AlignCenter, self.empty_hint
+        vr = self.viewport().rect()
+        painter.drawText(vr, Qt.AlignCenter, self.empty_hint)
+        # os 3 passos do fluxo ilustrados acima do texto, com o atual em
+        # destaque (Adicionar -> Gerar Faca -> Exportar)
+        strip = faca_icons.empty_steps_pixmap(self.empty_step)
+        tr = painter.fontMetrics().boundingRect(vr, Qt.AlignCenter, self.empty_hint)
+        painter.drawPixmap(
+            int(vr.center().x() - strip.width() / 2),
+            max(8, int(tr.top() - strip.height() - 28)),
+            strip,
         )
         painter.restore()
 
@@ -1506,6 +1515,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("PrintNest Premium")
         self._build_ui()
+        self._illustrate_all()  # miniaturas ilustrativas (nós, registro, caixas...)
         self._load_settings()
         self._update_property_bar()  # mostra o Projeto (material) já na abertura
         self._build_menu_toolbar()
@@ -1972,12 +1982,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_view"):
             self._view.setBackgroundBrush(QColor(theme.CANVAS_BG))
             self._view.viewport().update()
-        # miniaturas dos tipos de faca carregam cores do tema: redesenha
-        for name in ("_ct_mode", "_faca_mode", "_pf_mode"):
-            combo = getattr(self, name, None)
-            if combo is not None:
-                for i in range(combo.count()):
-                    combo.setItemIcon(i, faca_icons.mode_icon(combo.itemData(i)))
+        # miniaturas ilustrativas carregam cores do tema: redesenha todas
+        self._illustrate_all()
 
     def _show_license(self) -> None:
         """Ajuda -> Licenca: ativar/ver/transferir (nao bloqueia o uso aqui)."""
@@ -2447,6 +2453,11 @@ class MainWindow(QMainWindow):
         self._ct_dir = QButtonGroup(self)
         b_out = _icon_btn("arrows-out", "Contorno externo\nFaca para FORA da arte (sangria).", True)
         b_in = _icon_btn("arrows-in", "Contorno interno\nFaca para DENTRO (recuo/vinco).")
+        # ilustração no lugar das setas: arte cinza + faca tracejada fora/dentro
+        b_out.setIcon(faca_icons.offset_icon("out"))
+        b_in.setIcon(faca_icons.offset_icon("in"))
+        b_out.setIconSize(QSize(20, 20))
+        b_in.setIconSize(QSize(20, 20))
         self._ct_dir.addButton(b_out, 1)   # externo (id 1; evita -1, sentinela do Qt)
         self._ct_dir.addButton(b_in, 2)    # interno
         self._ct_dir.buttonClicked.connect(lambda _: self._apply_contour_offset())
@@ -2500,8 +2511,16 @@ class MainWindow(QMainWindow):
             "até em faca retangular. 0 = canto vivo."
         )
         self._ct_radius.editingFinished.connect(self._apply_contour_radius)
+        # ilustração ao lado do campo: canto vivo virando arredondado
+        self._ct_radius_icon = QLabel()
+        self._ct_radius_icon.setPixmap(faca_icons.corner_radius_pixmap())
+        self._ct_radius_icon.setToolTip(self._ct_radius.toolTip())
+        radius_row = QHBoxLayout()
+        radius_row.setSpacing(theme.SPACE_XS)
+        radius_row.addWidget(self._ct_radius_icon)
+        radius_row.addWidget(self._ct_radius)
         grid.addWidget(QLabel("Raio dos cantos"), 1, 0)
-        grid.addWidget(self._ct_radius, 1, 1)
+        grid.addLayout(radius_row, 1, 1)
 
         # Nós da faca (dropdown curto) — espelho do seletor do Acabamento
         self._ct_nodes = QComboBox()
@@ -2519,8 +2538,8 @@ class MainWindow(QMainWindow):
 
         # Corte por peça ou grade compartilhada (dropdown) — espelho
         self._ct_shared = QComboBox()
-        self._ct_shared.addItem("Corte por peça")
-        self._ct_shared.addItem("Grade (fora a fora)")
+        self._ct_shared.addItem("Corte por peça", "piece")
+        self._ct_shared.addItem("Grade (fora a fora)", "grid")
         self._ct_shared.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self._ct_shared.setToolTip(
             "Faca por peça (cada uma com o próprio corte; rentes se fundem\n"
@@ -2733,12 +2752,16 @@ class MainWindow(QMainWindow):
                     "Arraste seus arquivos para cá\n"
                     "ou clique em  +  Adicionar arquivos"
                 )
+                step = 0
             elif self._result is None:
                 hint = "Arquivos prontos — clique em  Gerar Faca  (Shift+F5)"
+                step = 1
             else:
                 hint = ""
-            if self._view.empty_hint != hint:
+                step = 2
+            if self._view.empty_hint != hint or self._view.empty_step != step:
                 self._view.empty_hint = hint
+                self._view.empty_step = step
                 self._view.viewport().update()
         self._sync_contour_tool()  # reflete offset/cantos atuais na toolbar
         try:
@@ -3086,6 +3109,51 @@ class MainWindow(QMainWindow):
         for i, (label, data) in enumerate(self._FACA_MODES):
             combo.addItem(faca_icons.mode_icon(data), label, data)
             combo.setItemData(i, faca_icons.MODE_HINTS.get(data, ""), Qt.ToolTipRole)
+
+    @staticmethod
+    def _illustrate_combo(combo: QComboBox, icon_fn, hints: dict | None = None) -> None:
+        """Aplica miniatura ilustrativa (e dica por item) a um combo já
+        populado, usando o itemData de cada opção como chave do desenho."""
+        combo.setIconSize(QSize(26, 26))
+        for i in range(combo.count()):
+            combo.setItemIcon(i, icon_fn(combo.itemData(i)))
+            if hints is not None:
+                combo.setItemData(i, hints.get(combo.itemData(i), ""), Qt.ToolTipRole)
+
+    # combos ilustrados além do Tipo de faca: (atributo, desenho, dicas) —
+    # usado na criação e no redesenho quando o tema troca.
+    _ILLUSTRATED_COMBOS = (
+        ("_ct_nodes", "nodes_icon", "NODE_HINTS"),
+        ("_faca_nodes", "nodes_icon", "NODE_HINTS"),
+        ("_ct_shared", "shared_icon", "SHARED_HINTS"),
+        ("_reg_type", "regmark_icon", "REG_HINTS"),
+        ("_import_box", "import_box_icon", "BOX_HINTS"),
+        ("_view_mode", "view_mode_icon", "VIEW_HINTS"),
+    )
+
+    def _illustrate_all(self) -> None:
+        """(Re)desenha TODAS as miniaturas ilustrativas da janela. Chamado ao
+        montar a UI e quando o tema troca (as cores entram nos desenhos)."""
+        for name in ("_ct_mode", "_faca_mode", "_pf_mode"):
+            combo = getattr(self, name, None)
+            if combo is not None:
+                for i in range(combo.count()):
+                    combo.setItemIcon(i, faca_icons.mode_icon(combo.itemData(i)))
+        for name, fn_name, hints_name in self._ILLUSTRATED_COMBOS:
+            combo = getattr(self, name, None)
+            if combo is not None:
+                self._illustrate_combo(
+                    combo,
+                    getattr(faca_icons, fn_name),
+                    getattr(faca_icons, hints_name),
+                )
+        if hasattr(self, "_ct_dir"):  # sangria para fora / para dentro
+            for bid, direction in ((1, "out"), (2, "in")):
+                b = self._ct_dir.button(bid)
+                if b is not None:
+                    b.setIcon(faca_icons.offset_icon(direction))
+        if hasattr(self, "_ct_radius_icon"):  # canto vivo -> arredondado
+            self._ct_radius_icon.setPixmap(faca_icons.corner_radius_pixmap())
 
     _SESSION_WIDGETS = (
         ("_width", "spin"), ("_height", "spin"), ("_spacing", "spin"),

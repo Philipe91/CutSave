@@ -2056,6 +2056,29 @@ def test_combos_tipo_de_faca_tem_miniaturas(qapp, tmp_path):
             assert combo.itemData(i, Qt.ToolTipRole)
 
 
+def test_ilustracoes_nos_demais_controles(qapp, tmp_path):
+    # Pacote de ilustrações (13/07): nós da faca, modo do corte, marcas de
+    # registro, caixa de importação, modo de visualização, sangria fora/
+    # dentro, raio dos cantos e a faixa de 3 passos do canvas vazio.
+    from PySide6.QtCore import Qt
+
+    from app.presentation import faca_icons
+    w = _window(tmp_path)
+    for name in ("_ct_nodes", "_faca_nodes", "_ct_shared", "_reg_type",
+                 "_import_box", "_view_mode"):
+        combo = getattr(w, name)
+        assert combo.count() > 0, name
+        for i in range(combo.count()):
+            assert not combo.itemIcon(i).isNull(), f"{name}[{i}] sem miniatura"
+            assert combo.itemData(i, Qt.ToolTipRole), f"{name}[{i}] sem dica"
+    assert not w._ct_dir.button(1).icon().isNull()   # sangria para fora
+    assert not w._ct_dir.button(2).icon().isNull()   # sangria para dentro
+    assert not w._ct_radius_icon.pixmap().isNull()   # canto -> arredondado
+    for step in (0, 1):                              # faixa do canvas vazio
+        assert not faca_icons.empty_steps_pixmap(step).isNull()
+    assert w._view.empty_step == 0  # janela recém-aberta: passo "Adicionar"
+
+
 def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
     # QA EXTREMO QAX-04 (🟠): cada setSelected disparava o handler O(n) →
     # O(n²): 2048 peças = travamento. Em lote, o handler roda 1x.
