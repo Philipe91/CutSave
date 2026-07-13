@@ -13,7 +13,6 @@ def _selftest() -> int:
     import os
     import tempfile
 
-    import fitz
     from app.application.positioning import positioned_cut_contours_sheets
     from app.application.use_cases.export_dxf import ExportDxfUseCase
     from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase
@@ -22,19 +21,21 @@ def _selftest() -> int:
     from app.application.use_cases.run_grid_nesting import RunGridNestingUseCase
     from app.domain.model.material import Material
     from app.infrastructure.exporters.dxf_exporter import DxfExporter
-    from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter
-    from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
+    from app.infrastructure.exporters.pdf_writer import PdfWriter
+    from app.infrastructure.exporters.pikepdf_print_exporter import PikePdfPrintExporter
+    from app.infrastructure.importers.pdfium_importer import PdfiumImporter
 
     tmp = tempfile.mkdtemp(prefix="printnest_selftest_")
     src = os.path.join(tmp, "amostra.pdf")
-    doc = fitz.open()
+    pt2mm = 25.4 / 72.0
+    writer = PdfWriter()
     for _ in range(3):
-        page = doc.new_page(width=200, height=100)
-        page.draw_rect(page.rect, color=(1, 1, 0), fill=(1, 1, 0))
-    doc.save(src)
-    doc.close()
+        writer.new_page(200 * pt2mm, 100 * pt2mm)  # 200x100 pt
+        writer.draw_rect_filled(0, 0, 200 * pt2mm, 100 * pt2mm, color=(1, 1, 0))
+    writer.save(src)
+    writer.close()
 
-    arts = ImportPdfUseCase(PyMuPdfImporter()).execute(src)
+    arts = ImportPdfUseCase(PdfiumImporter()).execute(src)
     faca = GenerateRectangularCutUseCase()
     arts = [faca.execute(a, 3.0) for a in arts]
     material = Material("UV", width=600, spacing=5)
@@ -43,7 +44,7 @@ def _selftest() -> int:
 
     pdf_out = os.path.join(tmp, "IMPRESSAO.pdf")
     dxf_out = os.path.join(tmp, "CORTE.dxf")
-    ExportPrintPdfUseCase(PyMuPdfPrintExporter()).execute(sheets, arts, sources, pdf_out)
+    ExportPrintPdfUseCase(PikePdfPrintExporter()).execute(sheets, arts, sources, pdf_out)
     contours = positioned_cut_contours_sheets(sheets, arts, material.width)
     ExportDxfUseCase(DxfExporter()).execute(contours, dxf_out)
 

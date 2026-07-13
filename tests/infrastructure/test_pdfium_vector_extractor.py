@@ -4,7 +4,7 @@ import fitz
 import pytest
 from app.domain.cut.vector import VectorContourGenerator
 from app.domain.geometry import Polygon as GeoPolygon
-from app.infrastructure.importers.pymupdf_vector_extractor import PyMuPdfVectorExtractor
+from app.infrastructure.importers.pdfium_vector_extractor import PdfiumVectorExtractor
 from app.shared.errors import PdfImportError
 
 PT2MM = 25.4 / 72.0
@@ -21,7 +21,7 @@ def test_extrai_circulo_e_gera_contorno(tmp_path):
     doc.save(str(path))
     doc.close()
 
-    rings = PyMuPdfVectorExtractor().extract_rings(str(path))
+    rings = PdfiumVectorExtractor().extract_rings(str(path))
     assert rings
 
     cut = VectorContourGenerator().generate(rings)
@@ -31,7 +31,7 @@ def test_extrai_circulo_e_gera_contorno(tmp_path):
 
 def test_arquivo_inexistente(tmp_path):
     with pytest.raises(PdfImportError):
-        PyMuPdfVectorExtractor().extract_rings(str(tmp_path / "x.pdf"))
+        PdfiumVectorExtractor().extract_rings(str(tmp_path / "x.pdf"))
 
 
 def test_arquivo_nao_pdf(tmp_path):
@@ -40,4 +40,4 @@ def test_arquivo_nao_pdf(tmp_path):
     pix.clear_with(0)
     pix.save(str(img))
     with pytest.raises(PdfImportError):
-        PyMuPdfVectorExtractor().extract_rings(str(img))
+        PdfiumVectorExtractor().extract_rings(str(img))

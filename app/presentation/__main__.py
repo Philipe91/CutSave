@@ -13,10 +13,10 @@ from app.application.use_cases.import_image import ImportImageUseCase
 from app.application.use_cases.import_pdf import ImportPdfUseCase
 from app.application.use_cases.run_production_pipeline import RunProductionPipelineUseCase
 from app.infrastructure.exporters.dxf_exporter import DxfExporter
-from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter
+from app.infrastructure.exporters.pikepdf_print_exporter import PikePdfPrintExporter
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
-from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
-from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer
+from app.infrastructure.importers.pdfium_importer import PdfiumImporter
+from app.infrastructure.rendering.pdfium_renderer import PdfiumPageRenderer
 from app.presentation import theme
 from app.presentation.main_window import MainWindow
 from app.presentation.single_instance import forward_to_running, start_server
@@ -86,14 +86,14 @@ def main() -> int:
                 return 0  # nao ativou -> encerra
 
     pipeline = RunProductionPipelineUseCase(
-        ImportPdfUseCase(PyMuPdfImporter()),
+        ImportPdfUseCase(PdfiumImporter()),
         image_uc=ImportImageUseCase(Cv2ImageImporter(paths.cache_dir)),
     )
     window = MainWindow(
         pipeline,
-        ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
+        ExportPrintPdfUseCase(PikePdfPrintExporter()),
         ExportDxfUseCase(DxfExporter()),
-        PyMuPdfPageRenderer(),
+        PdfiumPageRenderer(),
         store,
         settings,
     )

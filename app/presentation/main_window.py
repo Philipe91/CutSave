@@ -136,7 +136,7 @@ from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem
 from app.domain.nesting.max_rects import MaxRectsPacker
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
-from app.infrastructure.importers.pymupdf_vector_extractor import PyMuPdfVectorExtractor
+from app.infrastructure.importers.pdfium_vector_extractor import PdfiumVectorExtractor
 from app.presentation import faca_icons, icons, measurements, messages, theme, units
 from app.presentation.panels import ribbon as ribbon_panel
 from app.presentation.panels.status_bar import StatusBarController
@@ -1479,7 +1479,7 @@ class MainWindow(QMainWindow):
         self._contour_detector = Cv2ImageImporter()
         self._pdf_contours: dict = {}  # (caminho, página) -> contorno detectado
         # faca "do cliente" (vetor do PDF): usa o contorno vetorial enviado.
-        self._vector_extractor = PyMuPdfVectorExtractor()
+        self._vector_extractor = PdfiumVectorExtractor()
         self._vector_generator = VectorContourGenerator()
         self._vector_contours: dict = {}  # (caminho, página) -> contorno vetorial | None
         self._faca_notice: tuple[str, str] | None = None  # (nivel, texto) da detecção
@@ -5369,8 +5369,10 @@ class MainWindow(QMainWindow):
         is_pdf = Path(path).suffix.lower() == ".pdf"
         if is_pdf:
             try:
-                import fitz
-                total = fitz.open(path).page_count
+                import pypdfium2 as pdfium
+                doc = pdfium.PdfDocument(path)
+                total = len(doc)
+                doc.close()
             except Exception:
                 QMessageBox.warning(self, "PrintNest", "Não foi possível abrir o PDF.")
                 return
@@ -5513,21 +5515,29 @@ class MainWindow(QMainWindow):
         if Path(path).suffix.lower() != ".pdf":
             return None
         try:
-            import fitz
+            import pikepdf
 
             mm2pt = 72.0 / 25.4
-            doc = fitz.open(path)
+            doc = pikepdf.open(path)
             for pg, (left, top, right, bottom) in crops.items():
-                if not (0 <= pg < doc.page_count):
+                if not (0 <= pg < len(doc.pages)):
                     continue
-                page = doc[pg]
-                r = page.rect
-                new = fitz.Rect(
-                    r.x0 + left * mm2pt, r.y0 + top * mm2pt,
-                    r.x1 - right * mm2pt, r.y1 - bottom * mm2pt,
+                page = doc.pages[pg]
+                mx0, my0, mx1, my1 = (float(v) for v in page.mediabox)
+                # recorte em mm com origem no TOPO-esquerda; o PDF conta o Y
+                # de baixo para cima (top corta my1, bottom corta my0)
+                new = (
+                    mx0 + left * mm2pt, my0 + bottom * mm2pt,
+                    mx1 - right * mm2pt, my1 - top * mm2pt,
                 )
-                if new.width > 1 and new.height > 1:
-                    page.set_mediabox(new)
+                if (new[2] - new[0]) > 1 and (new[3] - new[1]) > 1:
+                    box = pikepdf.Array(list(new))
+                    page.MediaBox = box
+                    page.CropBox = box
+                    # caixas antigas apontavam para a página SEM recorte
+                    for key in ("/TrimBox", "/BleedBox", "/ArtBox"):
+                        if key in page:
+                            del page[key]
             cache = Path(tempfile.gettempdir()) / "printnest_crops"
             cache.mkdir(parents=True, exist_ok=True)
             out = str(cache / f"crop_{abs(hash((path, sig))) & 0xffffffff:08x}.pdf")
@@ -7329,55 +7339,55 @@ class MainWindow(QMainWindow):
             )
             if not path:
                 return
-        import fitz
+        from app.infrastructure.exporters.pdf_writer import PdfWriter
 
-        mm2pt = 72.0 / 25.4
         pad = self._faca_pad()  # folga para as marcas caberem na página
+        _FACA_PEN = {"color": (0.86, 0.0, 0.0), "width_pt": 0.5}  # faca (vermelho)
         QApplication.setOverrideCursor(Qt.WaitCursor)  # ver _wait_cursor
-        doc = fitz.open()
+        writer = PdfWriter()
         try:
             for sheet in sheets:
-                page = doc.new_page(
-                    width=(sheet.material.width + 2 * pad) * mm2pt,
-                    height=(sheet.used_length + 2 * pad) * mm2pt,
+                writer.new_page(
+                    sheet.material.width + 2 * pad,
+                    sheet.used_length + 2 * pad,
                 )
                 contours, segments, marks, _mk = self._dxf_payload([sheet])
-                pen = {"color": (0.86, 0.0, 0.0), "width": 0.5}  # faca (vermelho)
                 for contour in contours:
-                    # contorno curvo sai como Bezier NATIVO do PDF (curva lisa,
-                    # mesmos nos); retas/retangulos seguem como polilinha.
+                    # contorno curvo sai como Bezier NATIVO do PDF e agora em
+                    # UM caminho FECHADO por contorno (QAX-06: antes eram
+                    # dezenas de Beziers soltos e a mesa podia levantar a faca).
                     segs = cubic_segments(contour.points)
                     if segs and has_curves(segs):
-                        P = fitz.Point
-                        for s in segs:
-                            page.draw_bezier(
-                                P((s.p0.x + pad) * mm2pt, (s.p0.y + pad) * mm2pt),
-                                P((s.c1.x + pad) * mm2pt, (s.c1.y + pad) * mm2pt),
-                                P((s.c2.x + pad) * mm2pt, (s.c2.y + pad) * mm2pt),
-                                P((s.p1.x + pad) * mm2pt, (s.p1.y + pad) * mm2pt),
-                                **pen,
-                            )
+                        writer.draw_bezier_path(
+                            [
+                                (
+                                    (s.p0.x + pad, s.p0.y + pad),
+                                    (s.c1.x + pad, s.c1.y + pad),
+                                    (s.c2.x + pad, s.c2.y + pad),
+                                    (s.p1.x + pad, s.p1.y + pad),
+                                )
+                                for s in segs
+                            ],
+                            close=True, **_FACA_PEN,
+                        )
                         continue
-                    pts = [
-                        fitz.Point((p.x + pad) * mm2pt, (p.y + pad) * mm2pt)
-                        for p in contour.points
-                    ]
+                    pts = [(p.x + pad, p.y + pad) for p in contour.points]
                     if len(pts) >= 2:
-                        page.draw_polyline(pts + [pts[0]], **pen)  # fecha o contorno
+                        writer.draw_polyline(pts, close=True, **_FACA_PEN)
                 for seg in segments:
-                    page.draw_line(
-                        fitz.Point((seg.start.x + pad) * mm2pt, (seg.start.y + pad) * mm2pt),
-                        fitz.Point((seg.end.x + pad) * mm2pt, (seg.end.y + pad) * mm2pt),
-                        **pen,
+                    writer.draw_line(
+                        (seg.start.x + pad, seg.start.y + pad),
+                        (seg.end.x + pad, seg.end.y + pad),
+                        **_FACA_PEN,
                     )
                 for mark in marks:  # bolinhas de registro: PRETO solido (igual impressao)
-                    page.draw_circle(
-                        fitz.Point((mark.center.x + pad) * mm2pt, (mark.center.y + pad) * mm2pt),
-                        mark.radius * mm2pt, color=(0, 0, 0), fill=(0, 0, 0),
+                    writer.draw_circle(
+                        (mark.center.x + pad, mark.center.y + pad),
+                        mark.radius, color=(0, 0, 0), fill=(0, 0, 0),
                     )
-            doc.save(path)
+            writer.save(path)
         finally:
             QApplication.restoreOverrideCursor()
-            doc.close()
+            writer.close()
         if interactive:
             self._toasts.success("Faca exportada em PDF")

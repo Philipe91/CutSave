@@ -30,10 +30,10 @@ def test_main_relatorio_de_pdf_valido(capsys, tmp_path):
 
 
 def test_format_report_inclui_dimensao(tmp_path):
-    from app.infrastructure.importers.pymupdf_inspector import PyMuPdfInspector
+    from app.infrastructure.importers.pdfium_inspector import PdfiumInspector
 
     path = tmp_path / "amostra.pdf"
     _build_pdf(path)
-    texto = format_report(PyMuPdfInspector().inspect(str(path)))
+    texto = format_report(PdfiumInspector().inspect(str(path)))
     assert "Pagina 1" in texto
     assert "209" in texto  # largura A4 em mm

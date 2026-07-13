@@ -1,6 +1,6 @@
 import fitz
 import pytest
-from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer
+from app.infrastructure.rendering.pdfium_renderer import PdfiumPageRenderer
 from app.shared.errors import PdfImportError
 
 
@@ -15,7 +15,7 @@ def _pdf(tmp_path):
 
 
 def test_render_retorna_png(tmp_path):
-    data = PyMuPdfPageRenderer().render_png(_pdf(tmp_path))
+    data = PdfiumPageRenderer().render_png(_pdf(tmp_path))
     assert data[:8] == b"\x89PNG\r\n\x1a\n"  # assinatura PNG
 
 
@@ -29,7 +29,7 @@ def test_apara_recorta_no_trimbox(tmp_path):
     doc.save(str(path))
     doc.close()
 
-    renderer = PyMuPdfPageRenderer()
+    renderer = PdfiumPageRenderer()
     media_png = renderer.render_png(str(path), box="media")
     trim_png = renderer.render_png(str(path), box="trim")
     # a renderizacao da apara e menor (so o miolo do TrimBox)
@@ -41,7 +41,7 @@ def test_apara_recorta_no_trimbox(tmp_path):
 
 def test_arquivo_inexistente_falha(tmp_path):
     with pytest.raises(PdfImportError):
-        PyMuPdfPageRenderer().render_png(str(tmp_path / "nao_existe.pdf"))
+        PdfiumPageRenderer().render_png(str(tmp_path / "nao_existe.pdf"))
 
 
 @pytest.mark.parametrize("box", ["media", "trim", "auto"])
@@ -51,5 +51,5 @@ def test_render_imagem_em_qualquer_caixa_nao_quebra(tmp_path, box):
     from PIL import Image
     p = tmp_path / "img.png"
     Image.new("RGBA", (120, 80), (10, 10, 10, 255)).save(p, dpi=(150, 150))
-    data = PyMuPdfPageRenderer().render_png(str(p), box=box)
+    data = PdfiumPageRenderer().render_png(str(p), box=box)
     assert data[:8] == b"\x89PNG\r\n\x1a\n"

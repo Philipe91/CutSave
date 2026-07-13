@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 
 from app.application.dto.pdf_report import PdfDocumentReport
-from app.infrastructure.importers.pymupdf_inspector import PyMuPdfInspector
+from app.infrastructure.importers.pdfium_inspector import PdfiumInspector
 from app.shared.errors import PrintNestError
 
 
@@ -31,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         print("Uso: python -m app.tools.pdf_discovery <arquivo.pdf> [...]", file=sys.stderr)
         return 2
 
-    inspector = PyMuPdfInspector()
+    inspector = PdfiumInspector()
     exit_code = 0
     for path in args:
         try:

@@ -27,7 +27,7 @@ from app.application.use_cases.import_pdf import ImportPdfUseCase
 from app.application.use_cases.run_grid_nesting import RunGridNestingUseCase
 from app.domain.model.material import Material
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
-from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter
+from app.infrastructure.importers.pdfium_importer import PdfiumImporter
 from PIL import Image
 
 
@@ -57,7 +57,7 @@ def _make_png(path: Path, size: int = 600) -> None:
 def bench_pdf(tmp: Path, pages: int) -> None:
     pdf = tmp / "bench.pdf"
     _make_pdf(pdf, pages)
-    importer = ImportPdfUseCase(PyMuPdfImporter())
+    importer = ImportPdfUseCase(PdfiumImporter())
     faca = GenerateRectangularCutUseCase()
     t = _timer()
     arts = importer.execute(str(pdf), "media")
@@ -82,7 +82,7 @@ def bench_image_contour(tmp: Path, images: int) -> None:
 
 
 def bench_nesting(tmp: Path, copies: int) -> None:
-    importer = ImportPdfUseCase(PyMuPdfImporter())
+    importer = ImportPdfUseCase(PdfiumImporter())
     faca = GenerateRectangularCutUseCase()
     pdf = tmp / "one.pdf"
     _make_pdf(pdf, 1)

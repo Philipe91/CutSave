@@ -13,10 +13,10 @@ from app.application.use_cases.run_production_pipeline import (  # noqa: E402
     RunProductionPipelineUseCase,
 )
 from app.infrastructure.exporters.dxf_exporter import DxfExporter  # noqa: E402
-from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter  # noqa: E402
+from app.infrastructure.exporters.pikepdf_print_exporter import PikePdfPrintExporter  # noqa: E402
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter  # noqa: E402
-from app.infrastructure.importers.pymupdf_importer import PyMuPdfImporter  # noqa: E402
-from app.infrastructure.rendering.pymupdf_renderer import PyMuPdfPageRenderer  # noqa: E402
+from app.infrastructure.importers.pdfium_importer import PdfiumImporter  # noqa: E402
+from app.infrastructure.rendering.pdfium_renderer import PdfiumPageRenderer  # noqa: E402
 from app.presentation.main_window import MainWindow  # noqa: E402
 from app.shared.config.settings import SettingsStore  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
@@ -42,14 +42,14 @@ def _window(tmp_path):
     store = SettingsStore(tmp_path / "config.json")
     settings = store.load_or_create()
     pipeline = RunProductionPipelineUseCase(
-        ImportPdfUseCase(PyMuPdfImporter()),
+        ImportPdfUseCase(PdfiumImporter()),
         image_uc=ImportImageUseCase(Cv2ImageImporter(cache_dir=tmp_path / "imgcache")),
     )
     return MainWindow(
         pipeline,
-        ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
+        ExportPrintPdfUseCase(PikePdfPrintExporter()),
         ExportDxfUseCase(DxfExporter()),
-        PyMuPdfPageRenderer(),
+        PdfiumPageRenderer(),
         store,
         settings,
     )
@@ -1962,14 +1962,14 @@ def _window_cfg(tmp_path, name):
     store = SettingsStore(folder / "config.json")
     settings = store.load_or_create()
     pipeline = RunProductionPipelineUseCase(
-        ImportPdfUseCase(PyMuPdfImporter()),
+        ImportPdfUseCase(PdfiumImporter()),
         image_uc=ImportImageUseCase(Cv2ImageImporter(cache_dir=folder / "imgcache")),
     )
     return MainWindow(
         pipeline,
-        ExportPrintPdfUseCase(PyMuPdfPrintExporter()),
+        ExportPrintPdfUseCase(PikePdfPrintExporter()),
         ExportDxfUseCase(DxfExporter()),
-        PyMuPdfPageRenderer(),
+        PdfiumPageRenderer(),
         store,
         settings,
     )

@@ -1,6 +1,6 @@
 import fitz
 import pytest
-from app.infrastructure.importers.pymupdf_inspector import PyMuPdfInspector
+from app.infrastructure.importers.pdfium_inspector import PdfiumInspector
 from app.shared.errors import PdfInspectionError
 
 # A4 em points (1 pt = 1/72")
@@ -32,42 +32,42 @@ def pdf_path(tmp_path):
 
 
 def test_conta_paginas(pdf_path):
-    report = PyMuPdfInspector().inspect(pdf_path)
+    report = PdfiumInspector().inspect(pdf_path)
     assert report.page_count == 2
     assert len(report.pages) == 2
 
 
 def test_dimensao_em_milimetros(pdf_path):
-    page = PyMuPdfInspector().inspect(pdf_path).pages[0]
+    page = PdfiumInspector().inspect(pdf_path).pages[0]
     assert page.width_pt == pytest.approx(A4_W_PT)
     assert page.size_mm.width == pytest.approx(A4_W_MM, abs=0.05)
     assert page.size_mm.height == pytest.approx(A4_H_MM, abs=0.05)
 
 
 def test_detecta_vetor_na_primeira_pagina(pdf_path):
-    report = PyMuPdfInspector().inspect(pdf_path)
+    report = PdfiumInspector().inspect(pdf_path)
     assert report.pages[0].has_vector is True
     assert report.has_vector is True
 
 
 def test_detecta_raster_na_segunda_pagina(pdf_path):
-    report = PyMuPdfInspector().inspect(pdf_path)
+    report = PdfiumInspector().inspect(pdf_path)
     assert report.pages[1].has_raster is True
     assert report.has_raster is True
 
 
 def test_pagina_de_vetor_nao_tem_raster(pdf_path):
-    report = PyMuPdfInspector().inspect(pdf_path)
+    report = PdfiumInspector().inspect(pdf_path)
     assert report.pages[0].has_raster is False
 
 
 def test_arquivo_inexistente_levanta_erro(tmp_path):
     with pytest.raises(PdfInspectionError):
-        PyMuPdfInspector().inspect(str(tmp_path / "nao_existe.pdf"))
+        PdfiumInspector().inspect(str(tmp_path / "nao_existe.pdf"))
 
 
 def test_arquivo_nao_pdf_levanta_erro(tmp_path):
     fake = tmp_path / "fake.pdf"
     fake.write_text("isto nao e um pdf", encoding="utf-8")
     with pytest.raises(PdfInspectionError):
-        PyMuPdfInspector().inspect(str(fake))
+        PdfiumInspector().inspect(str(fake))

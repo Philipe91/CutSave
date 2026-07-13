@@ -9,7 +9,7 @@ from app.application.dto.print_placement import (
     PrintSheet,
 )
 from app.domain.geometry import Point2D, Size
-from app.infrastructure.exporters.pymupdf_print_exporter import PyMuPdfPrintExporter
+from app.infrastructure.exporters.pikepdf_print_exporter import PikePdfPrintExporter
 from app.shared.errors import PrintExportError
 
 MM2PT = 72.0 / 25.4
@@ -59,11 +59,11 @@ def test_crop_remove_a_borda_branca(tmp_path):
     crop = 25 / MM2PT  # recorta a borda branca -> centro preto preenche a folha
 
     out_sem = tmp_path / "sem.pdf"
-    PyMuPdfPrintExporter().export(
+    PikePdfPrintExporter().export(
         [PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art),), art)], str(out_sem)
     )
     out_com = tmp_path / "com.pdf"
-    PyMuPdfPrintExporter().export(
+    PikePdfPrintExporter().export(
         [PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art, crop),), art)], str(out_com)
     )
 
@@ -79,7 +79,7 @@ def test_gera_pdf_com_uma_pagina_por_chapa(tmp_path):
     out = tmp_path / "IMPRESSAO.pdf"
     art_w, art_h = 144 / MM2PT, 72 / MM2PT
     sheets = [_sheet(src, art_w, art_h, 200), _sheet(src, art_w, art_h, 200)]
-    PyMuPdfPrintExporter().export(sheets, str(out))
+    PikePdfPrintExporter().export(sheets, str(out))
 
     doc = fitz.open(str(out))
     assert doc.page_count == 2
@@ -91,7 +91,7 @@ def test_posicionamento_e_escala(tmp_path):
     src = _source_pdf(tmp_path)
     out = tmp_path / "IMPRESSAO.pdf"
     art_w, art_h = 144 / MM2PT, 72 / MM2PT
-    PyMuPdfPrintExporter().export([_sheet(src, art_w, art_h, 200)], str(out))
+    PikePdfPrintExporter().export([_sheet(src, art_w, art_h, 200)], str(out))
 
     doc = fitz.open(str(out))
     pix = doc[0].get_pixmap()  # 72 dpi: 1pt = 1px
@@ -104,7 +104,7 @@ def test_export_image_gera_png_no_dpi(tmp_path):
     src = _source_pdf(tmp_path)
     out = tmp_path / "IMG.png"
     art_w, art_h = 144 / MM2PT, 72 / MM2PT
-    paths = PyMuPdfPrintExporter().export_image(
+    paths = PikePdfPrintExporter().export_image(
         [_sheet(src, art_w, art_h, 200)], str(out), dpi=150
     )
     assert paths == [str(out)]
@@ -119,7 +119,7 @@ def test_export_image_varias_chapas_numera(tmp_path):
     out = tmp_path / "IMG.png"
     art_w, art_h = 144 / MM2PT, 72 / MM2PT
     sheets = [_sheet(src, art_w, art_h, 200), _sheet(src, art_w, art_h, 200)]
-    paths = PyMuPdfPrintExporter().export_image(sheets, str(out), dpi=72)
+    paths = PikePdfPrintExporter().export_image(sheets, str(out), dpi=72)
     assert len(paths) == 2
     assert [Path(p).name for p in paths] == ["IMG_01.png", "IMG_02.png"]
     assert all(Path(p).exists() for p in paths)
@@ -129,7 +129,7 @@ def test_export_image_jpeg(tmp_path):
     src = _source_pdf(tmp_path)
     out = tmp_path / "IMG.jpg"
     art_w, art_h = 144 / MM2PT, 72 / MM2PT
-    PyMuPdfPrintExporter().export_image(
+    PikePdfPrintExporter().export_image(
         [_sheet(src, art_w, art_h, 200)], str(out), dpi=72, image_format="jpeg"
     )
     assert out.exists()
@@ -147,7 +147,7 @@ def test_imagem_e_embutida_via_insert_image(tmp_path):
     out = tmp_path / "IMPRESSAO.pdf"
     art = Size(120 / MM2PT, 60 / MM2PT)
     sheet = PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art),), Size(200, 60 / MM2PT))
-    PyMuPdfPrintExporter().export([sheet], str(out))
+    PikePdfPrintExporter().export([sheet], str(out))
 
     doc = fitz.open(str(out))
     assert doc.page_count == 1
@@ -160,7 +160,7 @@ def test_imagem_exporta_para_png(tmp_path):
     out = tmp_path / "OUT.png"
     art = Size(120 / MM2PT, 60 / MM2PT)
     sheet = PrintSheet((PrintPlacement(src, 0, Point2D(0, 0), art),), Size(200, 60 / MM2PT))
-    paths = PyMuPdfPrintExporter().export_image([sheet], str(out), dpi=96)
+    paths = PikePdfPrintExporter().export_image([sheet], str(out), dpi=96)
     assert paths == [str(out)]
     assert out.exists()
 
@@ -175,7 +175,7 @@ def test_marcas_circulos_e_linhas_sao_desenhadas(tmp_path):
         circles=(PrintCircle(Point2D(5, 5), 6.0),),
         lines=(PrintLine(Point2D(10, 10), Point2D(30, 10), 1.0),),
     )
-    PyMuPdfPrintExporter().export([sheet], str(out))
+    PikePdfPrintExporter().export([sheet], str(out))
     assert out.exists()
     doc = fitz.open(str(out))
     assert doc[0].get_drawings()  # ha vetores desenhados (circulo + linha)
@@ -189,4 +189,56 @@ def test_arquivo_origem_invalido_falha(tmp_path):
         Size(100, 100),
     )
     with pytest.raises(PrintExportError):
-        PyMuPdfPrintExporter().export([sheet], str(out))
+        PikePdfPrintExporter().export([sheet], str(out))
+
+
+@pytest.mark.parametrize("rotate", [0, 90, 180, 270])
+def test_paridade_pixel_com_motor_antigo_em_todas_rotacoes(tmp_path, rotate):
+    """Prova da migração de licença: a composição pikepdf reproduz o
+    show_pdf_page do fitz PIXEL a PIXEL (tolerância = antialiasing de borda)
+    em todas as rotações, com fonte ASSIMÉTRICA (pega espelho/giro errado)."""
+    src = tmp_path / "tri.pdf"
+    doc = fitz.open()
+    pg = doc.new_page(width=200, height=100)
+    pg.draw_polyline(
+        [fitz.Point(10, 90), fitz.Point(60, 10), fitz.Point(190, 90), fitz.Point(10, 90)],
+        color=(0, 0.5, 0), fill=(0.2, 0.8, 0.2),
+    )
+    doc.save(str(src))
+    doc.close()
+
+    w_mm, h_mm = 200 / MM2PT, 100 / MM2PT
+    if rotate in (90, 270):
+        w_mm, h_mm = h_mm, w_mm  # footprint girado (como o nesting monta)
+    sheet = PrintSheet(
+        (PrintPlacement(str(src), 0, Point2D(10, 15), Size(w_mm, h_mm), rotate=rotate),),
+        Size(120, 120),
+    )
+
+    # referência: composição do fitz (o comportamento consagrado)
+    ref = fitz.open()
+    page = ref.new_page(width=120 * MM2PT, height=120 * MM2PT)
+    rect = fitz.Rect(
+        10 * MM2PT, 15 * MM2PT, (10 + w_mm) * MM2PT, (15 + h_mm) * MM2PT
+    )
+    sd = fitz.open(str(src))
+    page.show_pdf_page(rect, sd, 0, rotate=rotate)
+    ref_pix = page.get_pixmap(dpi=96)
+    sd.close()
+
+    out = tmp_path / f"rot{rotate}.pdf"
+    PikePdfPrintExporter().export([sheet], str(out))
+    cand = fitz.open(str(out))
+    cand_pix = cand[0].get_pixmap(dpi=96)
+
+    assert (ref_pix.width, ref_pix.height) == (cand_pix.width, cand_pix.height)
+    diverge = 0
+    for x in range(0, ref_pix.width, 3):
+        for y in range(0, ref_pix.height, 3):
+            a, b = ref_pix.pixel(x, y), cand_pix.pixel(x, y)
+            if sum(abs(a[i] - b[i]) for i in range(3)) > 30:
+                diverge += 1
+    total = (ref_pix.width // 3) * (ref_pix.height // 3)
+    cand.close()
+    ref.close()
+    assert diverge / total < 0.002, f"{diverge}/{total} pixels divergem (rot={rotate})"
