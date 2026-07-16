@@ -364,28 +364,32 @@ def _glyph_pixmap(kind: str, key: str, cut: str, muted: str, accent: str, size: 
     return pm
 
 
+def _glyph_icon(glyph: str, variant: str, size: int) -> QIcon:
+    return QIcon(_glyph_pixmap(glyph, variant, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+
+
 def nodes_icon(level: str, size: int = 26) -> QIcon:
-    return QIcon(_glyph_pixmap("nodes", level or "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return _glyph_icon("nodes", level or "", size)
 
 
 def shared_icon(kind: str, size: int = 26) -> QIcon:
-    return QIcon(_glyph_pixmap("shared", kind or "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return _glyph_icon("shared", kind or "", size)
 
 
 def offset_icon(direction: str, size: int = 22) -> QIcon:
-    return QIcon(_glyph_pixmap("offset", direction or "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return _glyph_icon("offset", direction or "", size)
 
 
 def regmark_icon(kind: str, size: int = 26) -> QIcon:
-    return QIcon(_glyph_pixmap("regmark", kind or "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return _glyph_icon("regmark", kind or "", size)
 
 
 def import_box_icon(kind: str, size: int = 26) -> QIcon:
-    return QIcon(_glyph_pixmap("importbox", kind or "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return _glyph_icon("importbox", kind or "", size)
 
 
 def view_mode_icon(kind: str, size: int = 26) -> QIcon:
-    return QIcon(_glyph_pixmap("viewmode", kind or "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return _glyph_icon("viewmode", kind or "", size)
 
 
 def corner_radius_pixmap(size: int = 22) -> QPixmap:
@@ -483,3 +487,132 @@ def empty_steps_pixmap(active: int = 0) -> QPixmap:
     """Faixa com os 3 passos do fluxo para o canvas vazio; o passo ativo sai
     na cor de destaque do tema."""
     return _steps_pixmap(active, theme.CUT, theme.TEXT_MUTED, theme.ACCENT)
+
+
+# ---------------------------------------------------------------------------
+# Ilustrações do fluxo de CARTELAS (aba "Cartelas"): montar a cartela,
+# repetir na chapa com o refile e as duas facas. Mesma receita dos glifos.
+# ---------------------------------------------------------------------------
+
+
+def _mini_star(p: QPainter, cx: float, cy: float, r: float, muted: str) -> None:
+    fill = QColor(muted)
+    fill.setAlpha(110)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QBrush(fill))
+    p.drawPolygon(_star(cx, cy, r, r * 0.45))
+
+
+def _cartela_cell(p: QPainter, x: float, y: float, w: float, h: float,
+                  muted: str, stars: int = 1) -> None:
+    """Uma cartela: bordinha discreta + pecinhas (estrelas) dentro."""
+    p.setPen(QPen(QColor(muted), 1.0))
+    p.setBrush(Qt.NoBrush)
+    p.drawRect(int(x), int(y), int(w), int(h))
+    if stars == 1:
+        _mini_star(p, x + w / 2, y + h / 2, min(w, h) * 0.28, muted)
+    else:  # 2x2 pecinhas
+        for i in (0.28, 0.72):
+            for j in (0.28, 0.72):
+                _mini_star(p, x + w * i, y + h * j, min(w, h) * 0.16, muted)
+
+
+@lru_cache(maxsize=32)
+def _cartela_pixmap(kind: str, cut: str, muted: str, accent: str,
+                    w: int, h: int) -> QPixmap:
+    pm = QPixmap(w, h)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+
+    if kind == "montar":
+        # PASSO 1: uma cartela em destaque, pecas (com faca) encaixadas dentro
+        cw, ch = w * 0.44, h * 0.82
+        x0, y0 = (w - cw) / 2, (h - ch) / 2
+        p.setPen(QPen(QColor(accent), 1.8))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(int(x0), int(y0), int(cw), int(ch))
+        for i in (0.26, 0.74):
+            for j in (0.25, 0.75):
+                cx, cy = x0 + cw * i, y0 + ch * j
+                r = min(cw, ch) * 0.16
+                _mini_star(p, cx, cy, r, muted)
+                p.setPen(_dash_pen(cut, 1.0))
+                p.setBrush(Qt.NoBrush)
+                p.drawEllipse(QPointF(cx, cy), r * 1.45, r * 1.45)
+
+    elif kind == "replicar":
+        # PASSO 2: a chapa cheia de copias da MESMA cartela + refile vermelho
+        # fora a fora + bolinhas de registro (referencia do cliente)
+        mx, my = w * 0.14, h * 0.08
+        sx0, sy0 = mx, my
+        sw, sh = w - 2 * mx, h - 2 * my
+        p.setPen(QPen(QColor(muted), 1.2))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(int(sx0), int(sy0), int(sw), int(sh))
+        cols, rows = 3, 2
+        gx, gy = sw * 0.06, sh * 0.10  # sobra do refile nas bordas
+        cw = (sw - 2 * gx) / cols
+        ch = (sh - 2 * gy) / rows
+        for i in range(cols):
+            for j in range(rows):
+                _cartela_cell(p, sx0 + gx + i * cw, sy0 + gy + j * ch, cw, ch, muted)
+        p.setPen(QPen(QColor(cut), 1.4))
+        for i in range(cols + 1):  # linhas de refile FORA A FORA
+            x = sx0 + gx + i * cw
+            p.drawLine(QPointF(x, sy0), QPointF(x, sy0 + sh))
+        for j in range(rows + 1):
+            y = sy0 + gy + j * ch
+            p.drawLine(QPointF(sx0, y), QPointF(sx0 + sw, y))
+        ink = QColor("#000000")
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(ink))
+        d = min(w, h) * 0.045
+        for px in (sx0 + gx, sx0 + sw / 2, sx0 + sw - gx):
+            p.drawEllipse(QPointF(px, sy0 + gy * 0.45), d, d)
+        for px in (sx0 + gx, sx0 + sw - gx):
+            p.drawEllipse(QPointF(px, sy0 + sh - gy * 0.45), d, d)
+
+    elif kind == "facas":
+        # PASSO 3: as DUAS facas — Mimaki (1 cartela) e refile (chapa toda)
+        doc_h = h * 0.80
+        y0 = (h - doc_h) / 2
+        # esquerda: 1 cartela com as facas das pecas (tracejado vermelho)
+        cw = w * 0.26
+        x0 = w * 0.10
+        p.setPen(QPen(QColor(muted), 1.2))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(int(x0), int(y0), int(cw), int(doc_h))
+        for i in (0.30, 0.70):
+            for j in (0.28, 0.72):
+                p.setPen(_dash_pen(cut, 1.1))
+                p.drawEllipse(
+                    QPointF(x0 + cw * i, y0 + doc_h * j),
+                    cw * 0.14, cw * 0.14,
+                )
+        # seta entre os documentos
+        axc = w * 0.47
+        cy = h / 2
+        p.setPen(QPen(QColor(muted), 1.6, Qt.SolidLine, Qt.RoundCap))
+        p.drawLine(QPointF(axc - 7, cy), QPointF(axc + 7, cy))
+        p.drawLine(QPointF(axc + 2, cy - 5), QPointF(axc + 7, cy))
+        p.drawLine(QPointF(axc + 2, cy + 5), QPointF(axc + 7, cy))
+        # direita: chapa com o refile (linhas cheias vermelhas)
+        gw = w * 0.34
+        gx0 = w * 0.56
+        p.setPen(QPen(QColor(muted), 1.2))
+        p.drawRect(int(gx0), int(y0), int(gw), int(doc_h))
+        p.setPen(QPen(QColor(cut), 1.4))
+        for i in range(1, 3):
+            x = gx0 + gw * i / 3
+            p.drawLine(QPointF(x, y0), QPointF(x, y0 + doc_h))
+        p.drawLine(QPointF(gx0, y0 + doc_h / 2), QPointF(gx0 + gw, y0 + doc_h / 2))
+
+    p.end()
+    return pm
+
+
+def cartela_pixmap(kind: str, w: int = 224, h: int = 84) -> QPixmap:
+    """Ilustração do fluxo de cartelas ('montar' | 'replicar' | 'facas'),
+    nas cores do tema ATUAL."""
+    return _cartela_pixmap(kind, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, w, h)

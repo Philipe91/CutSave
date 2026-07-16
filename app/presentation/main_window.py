@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import contextlib
-from contextlib import contextmanager
 import functools
 import tempfile
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -92,8 +92,10 @@ from app.application.footprint import artwork_footprint
 from app.application.ports.page_renderer import IPageRenderer
 from app.application.positioning import (
     SHEET_GAP_MM,
+    cartela_cut_frames,
     mimaki_frame_contours,
     mimaki_marks,
+    mimaki_marks_for_frames,
     mimaki_marks_sheets,
     positioned_cut_contours,
     positioned_cut_contours_sheets,
@@ -102,8 +104,6 @@ from app.application.positioning import (
     shared_cut_segments,
     shared_cut_segments_sheets,
 )
-from app.domain.cut.curves import cubic_segments, has_curves
-from app.domain.cut.shared import merge_touching_rect_cuts
 from app.application.project_io import (
     PROJECT_EXTENSION,
     PROJECT_SETTING_KEYS,
@@ -127,6 +127,9 @@ from app.domain.cut.contour_ops import (
     smooth_contour,
     weld_contours,
 )
+from app.domain.cut.curves import cubic_segments, has_curves
+from app.domain.cut.shared import Segment as SharedSegment
+from app.domain.cut.shared import merge_touching_rect_cuts
 from app.domain.cut.vector import VectorContourGenerator
 from app.domain.geometry import Point2D, Size
 from app.domain.model.cut_contour import CutContour
@@ -194,6 +197,20 @@ class SnapConfig:
         self.dragging = False  # snap só age durante o arraste com o mouse
 
 
+_DROP_FILE_EXTS = (".pdf", ".png", ".jpg", ".jpeg", ".webp")
+
+
+def dropped_file_paths(event) -> list[str]:
+    """Arquivos suportados num drag/drop vindo de FORA (Explorer)."""
+    mime = event.mimeData()
+    if not mime.hasUrls():
+        return []
+    return [
+        u.toLocalFile() for u in mime.urls()
+        if u.toLocalFile() and u.toLocalFile().lower().endswith(_DROP_FILE_EXTS)
+    ]
+
+
 class ZoomableGraphicsView(QGraphicsView):
     """Preview estilo CorelDRAW: zoom (roda), pan (arrastar), fundo cinza."""
 
@@ -203,6 +220,7 @@ class ZoomableGraphicsView(QGraphicsView):
     nudge = Signal(float, float)  # deslocamento (dx, dy) em mm, via setas
     cursor_moved = Signal(float, float)  # posição do cursor (x, y) em mm na cena
     library_drop = Signal(QPointF)  # arquivo arrastado da biblioteca, soltou na cena
+    files_dropped = Signal(list)  # arquivos do EXPLORER soltos na cena
     double_clicked = Signal(QPointF)  # duplo clique (posição de cena) — Pontos
 
     def __init__(self, scene: QGraphicsScene) -> None:
@@ -261,13 +279,15 @@ class ZoomableGraphicsView(QGraphicsView):
         )
 
     def dragEnterEvent(self, event) -> None:
-        if self._is_library_drag(event):
+        # arquivos do Explorer: o texto-guia PROMETE "arraste para cá" — o
+        # drop era recusado (cursor proibido) e parecia que o app travou.
+        if self._is_library_drag(event) or dropped_file_paths(event):
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event) -> None:
-        if self._is_library_drag(event):
+        if self._is_library_drag(event) or dropped_file_paths(event):
             event.acceptProposedAction()
         else:
             super().dragMoveEvent(event)
@@ -275,6 +295,11 @@ class ZoomableGraphicsView(QGraphicsView):
     def dropEvent(self, event) -> None:
         if self._is_library_drag(event):
             self.library_drop.emit(self.mapToScene(event.position().toPoint()))
+            event.acceptProposedAction()
+            return
+        files = dropped_file_paths(event)
+        if files:
+            self.files_dropped.emit(files)
             event.acceptProposedAction()
         else:
             super().dropEvent(event)
@@ -1514,6 +1539,7 @@ class MainWindow(QMainWindow):
         units.set_unit(getattr(settings, "unit", units.CM))
 
         self.setWindowTitle("PrintNest Premium")
+        self.setAcceptDrops(True)  # arquivos do Explorer em qualquer ponto da janela
         self._build_ui()
         self._illustrate_all()  # miniaturas ilustrativas (nós, registro, caixas...)
         self._load_settings()
@@ -1642,6 +1668,21 @@ class MainWindow(QMainWindow):
                                  "Gera um PDF só com a faca (linhas de corte)")
         exp_img = self._act("Exportar Imagem (PNG/JPEG)...", self.export_image, None,
                             "Rasteriza a impressao em imagem, no DPI escolhido")
+        exp_mimaki = self._act("Exportar Faca Mimaki (PDF)...", self.export_faca_mimaki, None,
+                               "Faca das peças para a Mimaki (sem bolinhas de registro)")
+        exp_iecho = self._act("Exportar Faca IECHO (DXF)...", self.export_faca_iecho, None,
+                              "Linhas de separação das cartelas (fora a fora) + bolinhas")
+        exp_cartelas = self._act("Exportar produção em cartelas...", self.export_producao_cartelas,
+                                 None,
+                                 "Gera os 3 arquivos de uma vez: impressão com as duas marcas, "
+                                 "faca Mimaki e faca IECHO")
+        exp_mimaki_cart = self._act("Exportar Faca Mimaki (1 cartela)...",
+                                    self.export_faca_mimaki_cartela, None,
+                                    "Faca das peças de UMA cartela (todas são iguais no "
+                                    "fluxo de cartelas idênticas)")
+        cartelas_act = self._act("Cartelas e refile", self._show_cartelas_tab, None,
+                                 "Abre a aba lateral 'Cartelas': monte a cartela, repita na "
+                                 "chapa e exporte as facas Mimaki + refile")
         sair = self._act("Sair", self.close, None, "Fecha o programa")
         sobre = self._act("Sobre", self._show_about, None, "Sobre o PrintNest")
 
@@ -1651,6 +1692,8 @@ class MainWindow(QMainWindow):
                        None, add, substituir,
                        None, exp_center,
                        None, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img,
+                       None, cartelas_act, exp_cartelas, exp_mimaki, exp_mimaki_cart,
+                       exp_iecho,
                        None, sair):
             m_arq.addSeparator() if action is None else m_arq.addAction(action)
         obj_props = self._act("Propriedades do objeto", self._show_object_props,
@@ -1789,7 +1832,8 @@ class MainWindow(QMainWindow):
 
         # ações guardadas para habilitar/desabilitar conforme o estado
         self._act_generate = gerar
-        self._export_actions = [exp_center, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img]
+        self._export_actions = [exp_center, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img,
+                                exp_cartelas, exp_mimaki, exp_iecho]
         for action in self._export_actions:
             action.setEnabled(False)
 
@@ -1847,6 +1891,12 @@ class MainWindow(QMainWindow):
                 tb.menu_button("Distribuir", "align-horizontal-justify-center",
                                [dist_h, dist_v], tip="Distribuir igualmente"),
                 tb.tool_button(snap_act, "magnet", show_text=False),
+            ]),
+            ("Cartelas", [
+                # fluxo cartela + refile a UM clique (pedido do cliente: fora
+                # da lista de cards do Documento); vem ANTES de Exportar para
+                # não cair no overflow (») da barra em telas menores.
+                tb.tool_button(cartelas_act, "scissors"),
             ]),
             ("Exportar", [
                 # QA 2.0: o grupo só tem exportações — o nome dizia "Produção"
@@ -1906,6 +1956,7 @@ class MainWindow(QMainWindow):
     def _start_tour(self, force: bool = False) -> None:
         """Guia passo a passo na primeira abertura (Ajuda → Tour repete)."""
         import os
+
         from app.presentation.onboarding import TourOverlay, TourStep, tour_done
         if not force and (tour_done() or os.environ.get("PYTEST_CURRENT_TEST")):
             return
@@ -1984,6 +2035,22 @@ class MainWindow(QMainWindow):
             self._view.viewport().update()
         # miniaturas ilustrativas carregam cores do tema: redesenha todas
         self._illustrate_all()
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        """Arquivos do Explorer soltos em QUALQUER ponto da janela entram na
+        biblioteca (o canvas promete "arraste para cá" — tem de funcionar)."""
+        if dropped_file_paths(event):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        files = dropped_file_paths(event)
+        if files:
+            event.acceptProposedAction()
+            self.add_paths(files)
+        else:
+            super().dropEvent(event)
 
     def _show_license(self) -> None:
         """Ajuda -> Licenca: ativar/ver/transferir (nao bloqueia o uso aqui)."""
@@ -3134,6 +3201,7 @@ class MainWindow(QMainWindow):
     def _illustrate_all(self) -> None:
         """(Re)desenha TODAS as miniaturas ilustrativas da janela. Chamado ao
         montar a UI e quando o tema troca (as cores entram nos desenhos)."""
+        self._refresh_cartela_illustrations()  # passos da aba Cartelas
         for name in ("_ct_mode", "_faca_mode", "_pf_mode"):
             combo = getattr(self, name, None)
             if combo is not None:
@@ -3166,6 +3234,10 @@ class MainWindow(QMainWindow):
         ("_reg_type", "combo"), ("_reg_margin", "spin"), ("_reg_diameter", "spin"),
         ("_mk_distance", "spin"), ("_mk_size", "spin"), ("_mk_thickness", "spin"),
         ("_import_box", "combo"), ("_view_mode", "combo"), ("_center_check", "check"),
+        ("_cart_on", "check"), ("_cart_w", "spin"), ("_cart_h", "spin"),
+        ("_cart_gap", "spin"), ("_cart_margin", "spin"),
+        ("_cart_identical", "check"),
+        ("_cart_reg_mimaki", "check"), ("_cart_reg_iecho", "check"),
     )
 
     def _build_tab_bar(self) -> QWidget:
@@ -3439,6 +3511,7 @@ class MainWindow(QMainWindow):
         self._view.drag_finished.connect(self._end_move)
         self._view.nudge.connect(self._nudge)
         self._view.library_drop.connect(self._on_library_drop)
+        self._view.files_dropped.connect(self.add_paths)
         self._view.double_clicked.connect(self._on_canvas_double_click)
 
         work = QWidget()
@@ -3632,10 +3705,27 @@ class MainWindow(QMainWindow):
         dl.addWidget(self._compact_check)
 
         dl.addWidget(self._build_resumo_card())          # resumo da produção (topo, fixo)
+
+        # Atalho destacado para a aba "Cartelas": com 5 abas o painel estreito
+        # corta a barra e a aba fica atrás das setinhas de rolagem — o botão
+        # azul no topo da aba padrão garante o fluxo a um clique.
+        cta = QPushButton("  Cartelas e refile  →")
+        cta.setIcon(icons.icon("scissors", theme.ICON_ON_ACCENT))
+        cta.setProperty("accent", "true")
+        cta.setCursor(Qt.PointingHandCursor)
+        cta.setToolTip(
+            "Produza em cartelas: monte uma cartela, repita na chapa e\n"
+            "exporte as duas facas (Mimaki de 1 cartela + refile da chapa)."
+        )
+        cta.clicked.connect(self._show_cartelas_tab)
+        self._cartelas_cta = cta
+        dl.addWidget(cta)
         dl.addWidget(self._build_producao_card())        # 1 - Produção (aberto)
         dl.addWidget(self._build_acabamento_card())      # 2 - Acabamento (recolhido)
         dl.addWidget(self._build_imagens_card())         # 3 - Imagens (recolhido)
         dl.addWidget(self._build_registro_card())        # 4 - Marcas de registro (recolhido)
+        # Cartelas saiu da lista de cards: agora e uma ABA propria ("Cartelas"),
+        # sempre visivel — o cliente nao precisa rolar a lista para achar.
         dl.addWidget(self._build_avancado_card())        # 5 - Avançado (recolhido)
         dl.addStretch()
         self._doc_widget = document  # usado pelo Modo Compacto p/ achar os campos
@@ -3666,6 +3756,7 @@ class MainWindow(QMainWindow):
         self._props_tabs.addTab(self._build_object_page(), "Objeto")
         self._transform_page = self._build_transform_page()
         self._props_tabs.addTab(self._transform_page, "Transformar")
+        self._props_tabs.addTab(self._build_cartelas_tab(), "Cartelas")
         # ao sair da aba Transformar, some com os fantasmas
         self._props_tabs.currentChanged.connect(lambda _: self._refresh_transform_preview())
 
@@ -4640,6 +4731,217 @@ class MainWindow(QMainWindow):
         ))
         return card
 
+    def _build_cartelas_tab(self) -> QWidget:
+        """Aba lateral 'Cartelas' (fluxo cartela + refile da grafica), FORA da
+        lista de cards do Documento: sempre a um clique, sem rolar a lista.
+
+        Passo a passo ilustrado: 1) montar a cartela (as pecas encaixam
+        dentro dela); 2) repetir a MESMA cartela na chapa inteira, com as
+        linhas de refile centralizadas (todas as cartelas iguais); 3) exportar
+        as duas facas — Mimaki (1 cartela so) e refile (chapa toda)."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(theme.SPACE_SM)
+
+        cap = QLabel("Monte uma cartela, repita na chapa e exporte as duas facas.")
+        cap.setProperty("role", "caption")
+        cap.setWordWrap(True)
+        lay.addWidget(cap)
+
+        self._cart_on = QCheckBox("Produzir em cartelas")
+        self._cart_on.setToolTip(
+            "Liga o fluxo de cartelas: a chapa vira uma grade de cartelas\n"
+            "iguais, com linhas retas de refile (fora a fora) entre elas.\n"
+            "Use com o registro \"Mimaki + IECHO\" para a impressão sair\n"
+            "com as duas marcas."
+        )
+        self._cart_on.toggled.connect(self._cartela_toggled)
+        lay.addWidget(self._cart_on)
+
+        # Botão que FAZ TUDO: importa (se a biblioteca estiver vazia), liga o
+        # modo e monta a chapa. Sem ele o cliente marcava a opção antes de
+        # gerar a produção e nada acontecia ("to perdido", 15/07).
+        self._btn_cart_gerar = QPushButton("  Gerar chapa de cartelas")
+        self._btn_cart_gerar.setIcon(icons.icon("grid-3x3", theme.ICON_ON_ACCENT))
+        self._btn_cart_gerar.setProperty("accent", "true")
+        self._btn_cart_gerar.setCursor(Qt.PointingHandCursor)
+        self._btn_cart_gerar.setToolTip(
+            "Monta a página: liga o modo cartelas e gera a produção.\n"
+            "Se ainda não houver arquivo, abre a janela de importação."
+        )
+        self._btn_cart_gerar.clicked.connect(self._cartela_generate)
+        lay.addWidget(self._btn_cart_gerar)
+
+        card1 = CollapsibleCard("Passo 1 · Monte a cartela")
+        self._cart_step1 = QLabel()
+        self._cart_step1.setAlignment(Qt.AlignCenter)
+        card1.body.addWidget(self._cart_step1)
+        hint1 = QLabel(
+            "As quantidades da tabela são o conteúdo de <b>uma</b> cartela; "
+            "as peças encaixam dentro dela."
+        )
+        hint1.setWordWrap(True)
+        hint1.setProperty("role", "caption")
+        card1.body.addWidget(hint1)
+        self._cart_w = LengthSpin(10, 5000)
+        self._cart_w.setValue(330.0)
+        self._cart_w.editingFinished.connect(lambda: self._relayout(renest=True))
+        self._cart_h = LengthSpin(10, 5000)
+        self._cart_h.setValue(480.0)
+        self._cart_h.editingFinished.connect(lambda: self._relayout(renest=True))
+        self._cart_margin = LengthSpin(0, 100)
+        self._cart_margin.setValue(5.0)
+        self._cart_margin.editingFinished.connect(lambda: self._relayout(renest=True))
+        self._grid_fields(card1.body, [
+            ("Largura da cartela", self._cart_w,
+             "Largura de cada cartela (mm). O sistema calcula quantas\n"
+             "cabem na chapa e centraliza o conjunto."),
+            ("Altura da cartela", self._cart_h, "Altura de cada cartela (mm)."),
+            ("Respiro interno", self._cart_margin,
+             "Distância mínima entre as peças e a borda da cartela (mm),\n"
+             "para a faca da peça não encostar no corte de refile."),
+        ])
+        lay.addWidget(card1)
+
+        card2 = CollapsibleCard("Passo 2 · Repita na chapa (refile)")
+        self._cart_step2 = QLabel()
+        self._cart_step2.setAlignment(Qt.AlignCenter)
+        card2.body.addWidget(self._cart_step2)
+        self._cart_identical = QCheckBox("Todas as cartelas iguais (repetir a 1ª)")
+        self._cart_identical.setChecked(True)
+        self._cart_identical.setToolTip(
+            "Enche a chapa com cópias exatas da cartela do Passo 1 — o\n"
+            "jeito clássico da gráfica (uma faca Mimaki serve para todas).\n"
+            "Desligado: as cartelas são preenchidas em sequência com a\n"
+            "quantidade total da tabela (podem sair diferentes entre si)."
+        )
+        self._cart_identical.toggled.connect(lambda _: self._relayout(renest=True))
+        card2.body.addWidget(self._cart_identical)
+        self._cart_gap = LengthSpin(0, 200)
+        self._cart_gap.editingFinished.connect(lambda: self._relayout(renest=True))
+        self._grid_fields(card2.body, [
+            ("Espaço entre cartelas", self._cart_gap,
+             "0 = cartelas coladas (o refile corta UMA linha entre elas).\n"
+             "Maior que 0 = duas linhas, com apara no meio."),
+        ])
+        # Registros do fluxo, SEM caçar o card "Marcas de registro": dois
+        # checkboxes que comandam o mesmo _reg_type (e ficam em dia com ele).
+        self._cart_reg_mimaki = QCheckBox("Registro Mimaki em cada cartela (Ls)")
+        self._cart_reg_mimaki.setChecked(True)
+        self._cart_reg_mimaki.setToolTip(
+            "Marcas em L nos cantos de CADA cartela — a Mimaki lê cartela\n"
+            "por cartela depois do refile."
+        )
+        self._cart_reg_iecho = QCheckBox("Registro IECHO no refile (bolinhas)")
+        self._cart_reg_iecho.setChecked(True)
+        self._cart_reg_iecho.setToolTip(
+            "Bolinhas pretas nos cantos da CHAPA — a refiladora IECHO usa\n"
+            "para alinhar os cortes de separação."
+        )
+        self._cart_reg_mimaki.toggled.connect(lambda _: self._apply_cart_marks())
+        self._cart_reg_iecho.toggled.connect(lambda _: self._apply_cart_marks())
+        card2.body.addWidget(self._cart_reg_mimaki)
+        card2.body.addWidget(self._cart_reg_iecho)
+        # combo "Tipo de registro" mudou por fora? espelha nos checkboxes
+        self._reg_type.currentIndexChanged.connect(lambda _: self._sync_cart_marks())
+        self._cart_info = QLabel()
+        self._cart_info.setWordWrap(True)
+        self._cart_info.setProperty("role", "caption")
+        card2.body.addWidget(self._cart_info)
+        lay.addWidget(card2)
+
+        card3 = CollapsibleCard("Passo 3 · Exporte as facas")
+        self._cart_step3 = QLabel()
+        self._cart_step3.setAlignment(Qt.AlignCenter)
+        card3.body.addWidget(self._cart_step3)
+        hint3 = QLabel(
+            "São <b>duas</b> facas: a da Mimaki corta as peças de uma cartela "
+            "(todas são iguais); a de refile separa as cartelas na chapa toda."
+        )
+        hint3.setWordWrap(True)
+        hint3.setProperty("role", "caption")
+        card3.body.addWidget(hint3)
+        self._btn_faca_mimaki_cart = QPushButton("  Faca Mimaki — 1 cartela (PDF)")
+        self._btn_faca_mimaki_cart.setIcon(icons.icon("scissors", theme.ICON))
+        self._btn_faca_mimaki_cart.setToolTip(
+            "Contornos das peças de UMA cartela (+ quadro das marcas em L).\n"
+            "Como as cartelas são iguais, essa faca serve para todas."
+        )
+        self._btn_faca_mimaki_cart.clicked.connect(self.export_faca_mimaki_cartela)
+        card3.body.addWidget(self._btn_faca_mimaki_cart)
+        self._btn_faca_refile = QPushButton("  Faca de refile — chapa toda (DXF)")
+        self._btn_faca_refile.setIcon(icons.icon("grid-3x3", theme.ICON))
+        self._btn_faca_refile.setToolTip(
+            "Linhas retas de refile (fora a fora) + bolinhas de registro,\n"
+            "para a refiladora separar as cartelas."
+        )
+        self._btn_faca_refile.clicked.connect(self.export_faca_iecho)
+        card3.body.addWidget(self._btn_faca_refile)
+        self._btn_producao_cart = QPushButton("  Produção completa (3 arquivos)")
+        self._btn_producao_cart.setIcon(icons.icon("download", theme.ICON))
+        self._btn_producao_cart.setToolTip(
+            "Gera de uma vez: IMPRESSAO.pdf (com as duas marcas),\n"
+            "FACA-MIMAKI.pdf (1 cartela) e FACA-IECHO.dxf (refile)."
+        )
+        self._btn_producao_cart.clicked.connect(self.export_producao_cartelas)
+        card3.body.addWidget(self._btn_producao_cart)
+        lay.addWidget(card3)
+
+        lay.addStretch()
+        self._refresh_cartela_illustrations()
+        self._update_cartela_info()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(page)
+        self._cartelas_tab = scroll
+        return scroll
+
+    def _refresh_cartela_illustrations(self) -> None:
+        """(Re)desenha as ilustrações da aba Cartelas nas cores do tema."""
+        if not hasattr(self, "_cart_step1"):
+            return
+        self._cart_step1.setPixmap(faca_icons.cartela_pixmap("montar"))
+        self._cart_step2.setPixmap(faca_icons.cartela_pixmap("replicar"))
+        self._cart_step3.setPixmap(faca_icons.cartela_pixmap("facas"))
+
+    def _update_cartela_info(self) -> None:
+        """Resumo vivo da grade: quantas cartelas cabem e as sobras do refile."""
+        if not hasattr(self, "_cart_info"):
+            return
+        if not self._cartela_enabled():
+            self._cart_info.setText(
+                "Ative \"Produzir em cartelas\" para ver a distribuição na chapa."
+            )
+            return
+        grid = self._cartela_grid_now()
+        if grid is None:
+            self._cart_info.setText(
+                f"<span style='color:{theme.WARNING}'>A cartela não cabe na "
+                "chapa — confira as medidas.</span>"
+            )
+            return
+        rows = grid.rows or 1
+        per = grid.cols * rows
+        texto = (
+            f"<b>{grid.cols} × {rows} = {per} cartela(s)</b> por chapa · "
+            f"sobra lateral {units.fmt_len(grid.origin_x)} · "
+            f"vertical {units.fmt_len(grid.origin_y)}"
+        )
+        if self._result is None:  # modo ligado mas a chapa nunca foi montada
+            passo = (
+                "clique em <b>Gerar chapa de cartelas</b> (acima) para montar"
+                if self._paths else
+                "adicione um arquivo (Ctrl+I) e clique em "
+                "<b>Gerar chapa de cartelas</b>"
+            )
+            texto += (
+                f"<br><span style='color:{theme.WARNING}'>A página ainda não "
+                f"foi montada — {passo}.</span>"
+            )
+        self._cart_info.setText(texto)
+
     def _build_avancado_card(self) -> CollapsibleCard:
         """Secao 5 - Avançado (recolhida): ações tecnicas."""
         card = self._doc_card("Avançado", "avançado", collapsed=True)
@@ -5587,6 +5889,127 @@ class MainWindow(QMainWindow):
             spacing_y=float(self._spacing_v.value()),
         )
 
+    # ---- cartelas (fluxo Mimaki + IECHO) ----
+    def _cartela_enabled(self) -> bool:
+        return bool(getattr(self, "_cart_on", None)) and self._cart_on.isChecked()
+
+    def _cartela_identical_enabled(self) -> bool:
+        """Fluxo de cartelas IDENTICAS ligado (repetir a 1a na chapa toda)."""
+        return (
+            self._cartela_enabled()
+            and hasattr(self, "_cart_identical")
+            and self._cart_identical.isChecked()
+        )
+
+    def _nesting_for_mode(self):
+        """Nesting da vez: grade (faca compartilhada) ou MaxRects; embrulhado
+        no nesting por CARTELA quando o modo cartela esta ligado (identicas:
+        repete a 1a cartela; senao, preenche em sequencia)."""
+        uc = self._grid_nesting_uc if self._shared.currentIndex() == 1 else self._nesting_uc
+        if self._cartela_enabled():
+            from app.application.use_cases.cartela_nesting import (
+                CartelaNestingUseCase,
+                IdenticalCartelaNestingUseCase,
+            )
+            klass = (
+                IdenticalCartelaNestingUseCase
+                if self._cartela_identical_enabled() else CartelaNestingUseCase
+            )
+            return klass(
+                uc,
+                float(self._cart_w.value()), float(self._cart_h.value()),
+                gutter=float(self._cart_gap.value()),
+                cell_margin=float(self._cart_margin.value()),
+            )
+        return uc
+
+    def _apply_cart_marks(self) -> None:
+        """Checkboxes de registro da aba Cartelas -> combo 'Tipo de registro'.
+        Mimaki (Ls por cartela) + IECHO (bolinhas do refile) em linguagem de
+        gráfica, sem o cliente caçar o card de marcas."""
+        data = {
+            (True, True): "both", (True, False): "mimaki",
+            (False, True): "circles", (False, False): "none",
+        }[(self._cart_reg_mimaki.isChecked(), self._cart_reg_iecho.isChecked())]
+        idx = self._reg_type.findData(data)
+        if idx >= 0 and idx != self._reg_type.currentIndex():
+            self._reg_type.setCurrentIndex(idx)  # redesenha as marcas ao vivo
+
+    def _sync_cart_marks(self) -> None:
+        """Combo 'Tipo de registro' mudou por fora -> espelha nos checkboxes
+        da aba Cartelas (só com o modo ligado, para um reset de padrões antes
+        de gerar não desmarcar a preferência do fluxo)."""
+        if not hasattr(self, "_cart_reg_mimaki") or not self._cartela_enabled():
+            return
+        data = self._reg_type.currentData()
+        for box, on in (
+            (self._cart_reg_mimaki, data in ("mimaki", "both")),
+            (self._cart_reg_iecho, data in ("circles", "both")),
+        ):
+            box.blockSignals(True)
+            box.setChecked(on)
+            box.blockSignals(False)
+
+    def _cartela_toggled(self, on: bool) -> None:
+        """Marcar 'Produzir em cartelas' dá resposta IMEDIATA: se a produção
+        ainda não foi gerada (o _relayout ignoraria a mudança), gera agora
+        com os arquivos da biblioteca — era um no-op silencioso e o cliente
+        ficava perdido sem ver a chapa montada."""
+        if on:
+            self._suspend_relayout = True
+            try:
+                self._apply_cart_marks()  # registros do fluxo (Mimaki/IECHO)
+            finally:
+                self._suspend_relayout = False
+        if on and not self._loaded and self._paths:
+            self.generate()
+        else:
+            self._relayout(renest=True)
+        self._update_cartela_info()
+
+    def _cartela_generate(self) -> None:
+        """Botão 'Gerar chapa de cartelas' (aba Cartelas): faz o caminho
+        inteiro num clique — importa se preciso, liga o modo e monta a chapa."""
+        if not self._paths:
+            self.add_pdfs()  # seletor de arquivos; cancelar = não gera
+            if not self._paths:
+                return
+        if not self._cart_on.isChecked():
+            self._cart_on.blockSignals(True)  # evita gerar duas vezes
+            self._cart_on.setChecked(True)
+            self._cart_on.blockSignals(False)
+        self._suspend_relayout = True
+        try:
+            self._apply_cart_marks()  # registros escolhidos nos checkboxes
+        finally:
+            self._suspend_relayout = False
+        self.generate()
+        self._update_cartela_info()
+
+    def _cartela_grid_now(self, material=None, sheet_length=None):
+        """Grade de cartelas dos parametros ATUAIS (None se desligado/nao cabe)."""
+        if not self._cartela_enabled():
+            return None
+        from app.domain.cut.cartela import build_cartela_grid
+        material = material or self._material()
+        if sheet_length is None:
+            sheet_length = float(self._height.value())
+        return build_cartela_grid(
+            material.width, sheet_length,
+            float(self._cart_w.value()), float(self._cart_h.value()),
+            float(self._cart_gap.value()),
+        )
+
+    def _cartela_segments_for(self, layout):
+        """Linhas de separacao (IECHO) de UMA chapa; [] se modo desligado."""
+        grid = self._cartela_grid_now(layout.material, layout.used_length)
+        if grid is None:
+            return []
+        from app.domain.cut.cartela import cartela_separation_segments
+        return cartela_separation_segments(
+            grid, layout.material.width, layout.used_length
+        )
+
     def generate(self, *, blocking: bool = False, paths: list | None = None,
                  faca: bool = True) -> None:
         # paths=None -> todos os arquivos da biblioteca; uma lista -> só esses
@@ -5794,9 +6217,20 @@ class MainWindow(QMainWindow):
         #    as posições atuais (ajuste de geometria: sangria/recorte/tamanho).
         if renest or fresh:
             # faca compartilhada precisa das peças alinhadas em grade; senao usa
-            # MaxRects (maximo aproveitamento, preenche os vaos).
-            uc = self._grid_nesting_uc if self._shared.currentIndex() == 1 else self._nesting_uc
-            sheets = uc.execute_sheets(instances, material, sheet_height)
+            # MaxRects (maximo aproveitamento). Modo cartela embrulha qualquer
+            # um dos dois (encaixe cartela por cartela).
+            try:
+                nesting_uc = self._nesting_for_mode()
+                if hasattr(nesting_uc, "set_from_table"):
+                    # cartelas identicas: a tabela define o conteudo de UMA
+                    # cartela; re-nesting recebe a producao ja replicada
+                    nesting_uc.set_from_table(bool(from_table or fresh))
+                sheets = nesting_uc.execute_sheets(
+                    instances, material, sheet_height
+                )
+            except ValidationError as exc:
+                self._alert.show_message(AlertLevel.ERROR, str(exc))
+                return
         else:
             sheets = self._preserve_arrangement(by_id, material)
         sheets = self._center_sheets(sheets, material, instances)  # centraliza na página
@@ -5805,6 +6239,7 @@ class MainWindow(QMainWindow):
         total = sum(s.item_count for s in sheets)
         self._status.setText(f"{len(sheets)} chapa(s) | {total} peça(s)")
         self._update_status_and_alerts(sheets, total, instances, material)
+        self._update_cartela_info()
         if before is not None:
             after = (sheets, instances)
             self._undo.push(
@@ -5816,8 +6251,9 @@ class MainWindow(QMainWindow):
         iguais) e na altura (dentro do comprimento da chapa). Desloca o bloco
         inteiro por igual, entao o arranjo relativo das peças não muda; o
         comprimento (used_length) da chapa e preservado. Sem efeito se a flag
-        estiver desligada."""
-        if not self._center_on_sheet:
+        estiver desligada. Modo cartela: a GRADE ja centraliza (deslocar o
+        conteudo desalinharia as pecas das linhas de separacao)."""
+        if not self._center_on_sheet or self._cartela_enabled():
             return sheets
         by_id = {a.id: a for a in artworks}
         out = []
@@ -6140,6 +6576,13 @@ class MainWindow(QMainWindow):
                     ))
             if draw_cut and shared:
                 for seg in shared_cut_segments(layout, result.artworks):
+                    self._keep(self._scene.addLine(
+                        dx + seg.start.x, dy + seg.start.y,
+                        dx + seg.end.x, dy + seg.end.y, faca_pen,
+                    ))
+            if draw_cut:
+                # linhas de separacao das CARTELAS (corte da IECHO, fora a fora)
+                for seg in self._cartela_segments_for(layout):
                     self._keep(self._scene.addLine(
                         dx + seg.start.x, dy + seg.start.y,
                         dx + seg.end.x, dy + seg.end.y, faca_pen,
@@ -6626,8 +7069,9 @@ class MainWindow(QMainWindow):
             if art is not None:
                 instances.extend([art] * n)
         material = self._material()
-        uc = self._grid_nesting_uc if self._shared.currentIndex() == 1 else self._nesting_uc
-        sheets = uc.execute_sheets(instances, material, float(self._height.value()))
+        sheets = self._nesting_for_mode().execute_sheets(
+            instances, material, float(self._height.value())
+        )
         after = (sheets, instances)
         self._apply_state(after)
         self._undo.push(SnapshotCommand(self, before, after, "duplicar página"))
@@ -6910,22 +7354,35 @@ class MainWindow(QMainWindow):
                     mark.diameter, mark.diameter, mark_pen, mark_brush,
                 ))
         if reg in ("mimaki", "both"):
-            marks = mimaki_marks(
-                layout, artworks,
-                distance_mm=float(self._mk_distance.value()),
-                mark_size_mm=float(self._mk_size.value()),
-            )
-            if marks is None:
-                return
-            f = marks.frame
-            self._keep(self._scene.addRect(
-                dx + f.min_x, dy + f.min_y, f.max_x - f.min_x, f.max_y - f.min_y, faca_pen
-            ))
-            for seg in marks.segments:
-                self._keep(self._scene.addLine(
-                    dx + seg.start.x, dy + seg.start.y,
-                    dx + seg.end.x, dy + seg.end.y, mark_pen,
+            # cartelas identicas: um quadro de marcas em L POR cartela (a
+            # Mimaki le cada uma depois do refile); senao, o quadro unico
+            frames = self._cartela_mimaki_frames(layout)
+            if frames:
+                marks_list = mimaki_marks_for_frames(
+                    frames,
+                    distance_mm=float(self._mk_distance.value()),
+                    mark_size_mm=float(self._mk_size.value()),
+                )
+            else:
+                single = mimaki_marks(
+                    layout, artworks,
+                    distance_mm=float(self._mk_distance.value()),
+                    mark_size_mm=float(self._mk_size.value()),
+                )
+                if single is None:
+                    return
+                marks_list = [single]
+            for marks in marks_list:
+                f = marks.frame
+                self._keep(self._scene.addRect(
+                    dx + f.min_x, dy + f.min_y, f.max_x - f.min_x, f.max_y - f.min_y,
+                    faca_pen,
                 ))
+                for seg in marks.segments:
+                    self._keep(self._scene.addLine(
+                        dx + seg.start.x, dy + seg.start.y,
+                        dx + seg.end.x, dy + seg.end.y, mark_pen,
+                    ))
 
     @staticmethod
     def _display_pixmap(pixmap, crop, rotation, art_size, cache, key):
@@ -6969,6 +7426,11 @@ class MainWindow(QMainWindow):
                 a.id: self._rotation_of(a.id) for a in self._result.artworks
             } if self._result is not None else None,
             "box": self._import_box.currentData(),
+            # cartelas identicas: marcas em L POR cartela na impressao
+            "mimaki_frames_for": (
+                self._cartela_mimaki_frames
+                if self._cartela_identical_enabled() else None
+            ),
         }
 
     # ---- Centro de Exportação (Ctrl+E) ----
@@ -7306,14 +7768,19 @@ class MainWindow(QMainWindow):
         return pad
 
     @_guard_export
-    def export_faca_pdf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
+    def export_faca_pdf(self, path: str | None = None, pages=None, sheets_override=None,
+                        include_circle_marks: bool = True,
+                        dialog_title: str = "Exportar Faca (PDF)",
+                        default_name: str = "FACA.pdf") -> None:
         """Exporta a faca (linhas de corte) em PDF vetorial, uma página por chapa.
-        Inclui as marcas de registro (bolinhas), igual ao DXF e a impressao."""
+        Inclui as marcas de registro (bolinhas), igual ao DXF e a impressao.
+        include_circle_marks=False: versao para a MIMAKI (só contornos +
+        quadro das marcas em L; as bolinhas ficam com a IECHO)."""
         if self._result is None:
             return
         interactive = not isinstance(path, str) or not path
         sheets = sheets_override if sheets_override is not None else self._select_export_sheets(
-            self._effective_sheets(), pages, interactive, "Exportar Faca (PDF)"
+            self._effective_sheets(), pages, interactive, dialog_title
         )
         if sheets is None:
             return
@@ -7334,8 +7801,8 @@ class MainWindow(QMainWindow):
             return
         if interactive:
             path, _ = QFileDialog.getSaveFileName(
-                self, "Exportar Faca (PDF)",
-                str(Path(self._settings.last_dir) / "FACA.pdf"), "PDF (*.pdf)",
+                self, dialog_title,
+                str(Path(self._settings.last_dir) / default_name), "PDF (*.pdf)",
             )
             if not path:
                 return
@@ -7380,14 +7847,199 @@ class MainWindow(QMainWindow):
                         (seg.end.x + pad, seg.end.y + pad),
                         **_FACA_PEN,
                     )
-                for mark in marks:  # bolinhas de registro: PRETO solido (igual impressao)
-                    writer.draw_circle(
-                        (mark.center.x + pad, mark.center.y + pad),
-                        mark.radius, color=(0, 0, 0), fill=(0, 0, 0),
-                    )
+                if include_circle_marks:
+                    for mark in marks:  # bolinhas de registro: PRETO solido
+                        writer.draw_circle(
+                            (mark.center.x + pad, mark.center.y + pad),
+                            mark.radius, color=(0, 0, 0), fill=(0, 0, 0),
+                        )
             writer.save(path)
         finally:
             QApplication.restoreOverrideCursor()
             writer.close()
         if interactive:
             self._toasts.success("Faca exportada em PDF")
+
+    # ---- exportacao por maquina (fluxo de cartelas Mimaki + IECHO) ----
+    def export_faca_mimaki(self, path: str | None = None, pages=None) -> None:
+        """Faca da MIMAKI: contornos das peças (+ quadro das marcas em L).
+        Sem bolinhas e sem linhas de cartela — essas ficam com a IECHO."""
+        self.export_faca_pdf(
+            path, pages=pages, include_circle_marks=False,
+            dialog_title="Exportar Faca Mimaki (PDF)",
+            default_name="FACA-MIMAKI.pdf",
+        )
+
+    @_guard_export
+    def export_faca_iecho(self, path: str | None = None, pages=None) -> None:
+        """Faca da IECHO: linhas retas de separação das cartelas (fora a
+        fora) + bolinhas de registro, em DXF."""
+        if self._result is None:
+            return
+        interactive = not isinstance(path, str) or not path
+        if not self._cartela_enabled():
+            if interactive:
+                QMessageBox.information(
+                    self, "PrintNest",
+                    "Ative \"Produzir em cartelas\" (aba Cartelas) para gerar\n"
+                    "a faca de refile (separação das cartelas).",
+                )
+            return
+        sheets = self._select_export_sheets(
+            self._effective_sheets(), pages, interactive, "Exportar Faca IECHO (DXF)"
+        )
+        if not sheets:
+            return
+        if interactive:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Exportar Faca IECHO (DXF)",
+                str(Path(self._settings.last_dir) / "FACA-IECHO.dxf"), "DXF (*.dxf)",
+            )
+            if not path:
+                return
+        with _wait_cursor():
+            sheet_width = sheets[0].material.width
+            segments = []
+            for index, layout in enumerate(sheets):
+                dx = index * (sheet_width + SHEET_GAP_MM)
+                for seg in self._cartela_segments_for(layout):
+                    segments.append(SharedSegment(
+                        Point2D(seg.start.x + dx, seg.start.y),
+                        Point2D(seg.end.x + dx, seg.end.y),
+                    ))
+            if not segments:
+                if interactive:
+                    QMessageBox.warning(
+                        self, "PrintNest",
+                        "Nenhuma linha de cartela para exportar (a cartela\n"
+                        "não coube na chapa — confira as medidas).",
+                    )
+                return
+            marks = []
+            if self._reg() in ("circles", "both"):
+                marks = registration_marks_sheets(
+                    sheets, self._result.artworks, sheet_width,
+                    margin_mm=float(self._reg_margin.value()),
+                    diameter_mm=float(self._reg_diameter.value()),
+                )
+            self._dxf_export.execute([], path, segments=segments, marks=marks)
+        if interactive:
+            self._toasts.success("Faca IECHO (cartelas) exportada em DXF")
+
+    def export_producao_cartelas(self) -> None:
+        """Exporta o pacote completo do fluxo de cartelas de uma vez:
+        IMPRESSAO.pdf (com as duas marcas) + FACA-MIMAKI.pdf + FACA-IECHO.dxf."""
+        if self._result is None:
+            return
+        if not self._cartela_enabled():
+            QMessageBox.information(
+                self, "PrintNest",
+                "Ative \"Produzir em cartelas\" (aba Cartelas) para usar a\n"
+                "exportação por máquina.",
+            )
+            return
+        if self._reg() != "both":
+            resp = QMessageBox.question(
+                self, "PrintNest",
+                "O registro atual não é \"Mimaki + IECHO\", então a impressão\n"
+                "não vai sair com as duas marcas.\n\nExportar assim mesmo?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if resp != QMessageBox.Yes:
+                return
+        base, _ = QFileDialog.getSaveFileName(
+            self, "Exportar produção (nome base dos 3 arquivos)",
+            str(Path(self._settings.last_dir) / "TRABALHO"), "Todos (*)",
+        )
+        if not base:
+            return
+        base = str(Path(base).with_suffix(""))  # tira extensão se digitada
+        self.export_pdf(f"{base}_IMPRESSAO.pdf")
+        # cartelas identicas: a faca da Mimaki e a de UMA cartela (serve para
+        # todas); no modo sequencial segue a faca da chapa inteira
+        if self._cartela_identical_enabled() and self._single_cartela_layout() is not None:
+            self.export_faca_mimaki_cartela(f"{base}_FACA-MIMAKI.pdf")
+        else:
+            self.export_faca_mimaki(f"{base}_FACA-MIMAKI.pdf")
+        self.export_faca_iecho(f"{base}_FACA-IECHO.dxf")
+        self._toasts.success(
+            f"Produção exportada: {Path(base).name}_IMPRESSAO.pdf, "
+            "_FACA-MIMAKI.pdf e _FACA-IECHO.dxf"
+        )
+
+    def _show_cartelas_tab(self) -> None:
+        """Abre a aba lateral 'Cartelas' (fluxo cartela + refile)."""
+        if hasattr(self, "_cartelas_tab"):
+            self._props_tabs.setCurrentWidget(self._cartelas_tab)
+
+    def _single_cartela_layout(self):
+        """Layout sintetico com o conteudo da 1a cartela, em coordenadas
+        LOCAIS da cartela (0,0 no canto dela). E a base da faca Mimaki no
+        fluxo de cartelas identicas: uma faca serve para todas. None se o
+        modo cartela esta desligado ou nao ha producao."""
+        if not self._cartela_enabled() or self._result is None:
+            return None
+        sheets = self._effective_sheets()
+        if not sheets:
+            return None
+        first = sheets[0]
+        grid = self._cartela_grid_now(first.material, first.used_length)
+        if grid is None:
+            return None
+        eps = 1e-6
+        ox, oy = grid.slot_origin(0)
+        items = [
+            PlacedItem(
+                it.artwork_id,
+                Point2D(it.position.x - ox, it.position.y - oy),
+                it.rotation,
+            )
+            for it in first.items
+            if ox - eps <= it.position.x <= ox + grid.cell_w + eps
+            and oy - eps <= it.position.y <= oy + grid.cell_h + eps
+        ]
+        if not items:
+            return None
+        cart_material = Material(
+            name=f"{first.material.name}/cartela",
+            width=grid.cell_w,
+            margin=0.0,
+            spacing=first.material.spacing,
+            spacing_y=first.material.spacing_y,
+        )
+        return Layout(material=cart_material, items=tuple(items),
+                      used_length=grid.cell_h)
+
+    @_guard_export
+    def export_faca_mimaki_cartela(self, path: str | None = None) -> None:
+        """Faca da MIMAKI no fluxo de cartelas identicas: os contornos das
+        peças de UMA cartela (+ quadro das marcas em L). Como todas as
+        cartelas são copias exatas, essa unica faca corta a produção toda;
+        a separação das cartelas sai na faca de refile (chapa toda)."""
+        if self._result is None:
+            return
+        interactive = not isinstance(path, str) or not path
+        layout = self._single_cartela_layout()
+        if layout is None:
+            if interactive:
+                QMessageBox.information(
+                    self, "PrintNest",
+                    "Ative \"Produzir em cartelas\" (aba Cartelas) e gere a\n"
+                    "chapa antes de exportar a faca de uma cartela.",
+                )
+            return
+        self.export_faca_pdf(
+            path, sheets_override=[layout], include_circle_marks=False,
+            dialog_title="Exportar Faca Mimaki — 1 cartela (PDF)",
+            default_name="FACA-MIMAKI-CARTELA.pdf",
+        )
+
+    def _cartela_mimaki_frames(self, layout):
+        """Bbox das facas de CADA cartela da chapa (marcas em L por cartela).
+        Vazio fora do fluxo de cartelas identicas."""
+        if not self._cartela_identical_enabled() or self._result is None:
+            return []
+        grid = self._cartela_grid_now(layout.material, layout.used_length)
+        if grid is None:
+            return []
+        return cartela_cut_frames(layout, self._result.artworks, grid)

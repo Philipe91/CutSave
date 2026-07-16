@@ -2060,9 +2060,8 @@ def test_ilustracoes_nos_demais_controles(qapp, tmp_path):
     # Pacote de ilustrações (13/07): nós da faca, modo do corte, marcas de
     # registro, caixa de importação, modo de visualização, sangria fora/
     # dentro, raio dos cantos e a faixa de 3 passos do canvas vazio.
-    from PySide6.QtCore import Qt
-
     from app.presentation import faca_icons
+    from PySide6.QtCore import Qt
     w = _window(tmp_path)
     for name in ("_ct_nodes", "_faca_nodes", "_ct_shared", "_reg_type",
                  "_import_box", "_view_mode"):
@@ -2077,6 +2076,96 @@ def test_ilustracoes_nos_demais_controles(qapp, tmp_path):
     for step in (0, 1):                              # faixa do canvas vazio
         assert not faca_icons.empty_steps_pixmap(step).isNull()
     assert w._view.empty_step == 0  # janela recém-aberta: passo "Adicionar"
+
+
+def test_cartelas_fluxo_mimaki_iecho(qapp, tmp_path):
+    # Fluxo de cartelas (13/07): peças encaixam DENTRO das cartelas, a faca
+    # IECHO sai com as linhas retas fora a fora em DXF e a faca Mimaki sai
+    # em PDF sem as bolinhas.
+    import ezdxf
+    src = _two_page_pdf(tmp_path)
+    w = _window(tmp_path)
+    w._width.setValue(700)
+    w._height.setValue(1000)
+    w.add_paths([src])
+    w._cart_w.setValue(330.0)
+    w._cart_h.setValue(480.0)
+    w._cart_gap.setValue(0.0)
+    w._cart_margin.setValue(5.0)
+    w._cart_on.setChecked(True)
+    w.generate(blocking=True)
+
+    # toda peça respeita a origem da grade (20,20) + respiro interno (5)
+    for layout in w._result.sheets:
+        for item in layout.items:
+            assert item.position.x >= 25 - 1e-6
+            assert item.position.y >= 25 - 1e-6
+
+    out_dxf = tmp_path / "FACA-IECHO.dxf"
+    w.export_faca_iecho(str(out_dxf))
+    doc = ezdxf.readfile(str(out_dxf))
+    lines = [e for e in doc.modelspace() if e.dxftype() == "LINE"]
+    assert len(lines) >= 6  # grade 2x2 colada: 3 verticais + 3 horizontais
+
+    out_pdf = tmp_path / "FACA-MIMAKI.pdf"
+    w.export_faca_mimaki(str(out_pdf))
+    assert out_pdf.exists()
+
+    # desligado, a exportação IECHO não gera nada (fluxo normal intacto)
+    w._cart_on.setChecked(False)
+    out2 = tmp_path / "nada.dxf"
+    w.export_faca_iecho(str(out2))
+    assert not out2.exists()
+
+
+def test_arrastar_arquivo_do_explorer_adiciona(qapp, tmp_path):
+    # Regressão 13/07: o canvas dizia "arraste seus arquivos para cá" mas o
+    # drop do Explorer era RECUSADO (cursor proibido) — parecia travamento.
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
+
+    src = _two_page_pdf(tmp_path)
+    w = _window(tmp_path)
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(src)])
+    event = QDropEvent(
+        QPointF(50, 50), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier
+    )
+    w.dropEvent(event)
+    import pathlib
+    assert pathlib.Path(src) in [pathlib.Path(p) for p in w._paths]  # entrou
+
+    # arquivo não suportado é recusado sem quebrar
+    ruim = tmp_path / "x.txt"
+    ruim.write_text("nao", encoding="utf-8")
+    mime2 = QMimeData()
+    mime2.setUrls([QUrl.fromLocalFile(str(ruim))])
+    event2 = QDropEvent(
+        QPointF(50, 50), Qt.CopyAction, mime2, Qt.LeftButton, Qt.NoModifier
+    )
+    before = list(w._paths)
+    w.dropEvent(event2)
+    assert w._paths == before
+
+
+def test_jpeg_cmyk_vai_para_a_chapa(qapp, tmp_path):
+    # Regressão 14/07 (adesivo da gráfica): JPEG CMYK explodia o preview
+    # ("cannot write mode CMYK as PNG") e a peça nunca chegava na chapa.
+    from PIL import Image
+    from PySide6.QtCore import QPointF
+
+    jpg = tmp_path / "cmyk.jpg"
+    Image.new("CMYK", (300, 200), (10, 80, 90, 5)).save(jpg, quality=90)
+    w = _window(tmp_path)
+    w.add_paths([str(jpg)])
+    w._table.setCurrentCell(0, 0)
+    w._on_library_drop(QPointF(50, 50))  # arrastar da biblioteca p/ o canvas
+    assert w._result is not None
+    assert sum(s.item_count for s in w._result.sheets) == 1
+    w.generate(blocking=True)  # com faca
+    out = tmp_path / "IMP.pdf"
+    w.export_pdf(str(out))
+    assert out.exists()
 
 
 def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
@@ -2114,7 +2203,9 @@ def test_undo_de_ajustes_nao_funde_gestos_separados(qapp):
     # Bug 13/07: TODOS os ajustes da sessão fundiam num único comando e um
     # Ctrl+Z "voltava pro início". Agora só funde o MESMO gesto (janela curta).
     from app.presentation.main_window import (
-        RELAYOUT_MERGE_ID, SnapshotCommand, _MERGE_WINDOW_S,
+        _MERGE_WINDOW_S,
+        RELAYOUT_MERGE_ID,
+        SnapshotCommand,
     )
 
     a = SnapshotCommand(None, "b0", "a0", "ajustar", merge_id=RELAYOUT_MERGE_ID)

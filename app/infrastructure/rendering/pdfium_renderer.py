@@ -53,6 +53,11 @@ class PdfiumPageRenderer(IPageRenderer):
             pil.load()
         except Exception as exc:
             raise PdfImportError(f"Falha ao abrir imagem: {path}") from exc
+        # JPEG de grafica costuma vir CMYK (e ha YCbCr/16-bit): PNG so aceita
+        # RGB/RGBA/L/LA — sem converter, o preview EXPLODIA e a peca nunca
+        # aparecia na chapa (bug do adesivo CMYK, 14/07).
+        if pil.mode not in ("RGB", "RGBA", "L", "LA"):
+            pil = pil.convert("RGBA" if "transparency" in pil.info else "RGB")
         scale = dpi / 72.0
         if abs(scale - 1.0) > 1e-9:
             pil = pil.resize(

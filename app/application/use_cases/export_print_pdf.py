@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from app.application.dto.print_placement import (
     PrintCircle,
@@ -10,8 +10,12 @@ from app.application.dto.print_placement import (
 )
 from app.application.footprint import artwork_footprint
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
-from app.application.positioning import mimaki_marks, registration_marks
-from app.domain.geometry import Point2D, Size
+from app.application.positioning import (
+    mimaki_marks,
+    mimaki_marks_for_frames,
+    registration_marks,
+)
+from app.domain.geometry import BoundingBox, Point2D, Size
 from app.domain.model.artwork import Artwork
 from app.domain.model.layout import Layout
 from app.shared.errors import ValidationError
@@ -46,6 +50,7 @@ class ExportPrintPdfUseCase:
         rotate: int = 0,
         rotations: Mapping[str, int] | None = None,
         box: str = "media",
+        mimaki_frames_for: Callable[[Layout], Sequence[BoundingBox]] | None = None,
     ) -> list[PrintSheet]:
         """Monta os PrintSheet (posicao, escala e marcas) usados na exportacao.
 
@@ -88,6 +93,7 @@ class ExportPrintPdfUseCase:
                 layout, artworks, reg_type, pad,
                 reg_margin_mm, reg_diameter_mm,
                 mimaki_distance_mm, mimaki_size_mm, mimaki_thickness_mm,
+                mimaki_frames_for=mimaki_frames_for,
             )
             sheet_size = Size(layout.material.width + 2 * pad, layout.used_length + 2 * pad)
             print_sheets.append(PrintSheet(tuple(placements), sheet_size, circles, lines))
@@ -127,6 +133,7 @@ class ExportPrintPdfUseCase:
         layout, artworks, reg_type, pad,
         reg_margin_mm, reg_diameter_mm,
         mimaki_distance_mm, mimaki_size_mm, mimaki_thickness_mm,
+        mimaki_frames_for=None,
     ):
         circles: tuple[PrintCircle, ...] = ()
         lines: tuple[PrintLine, ...] = ()
@@ -138,17 +145,31 @@ class ExportPrintPdfUseCase:
                 PrintCircle(m.center.translated(pad, pad), m.diameter) for m in marks
             )
         if reg_type in ("mimaki", "both"):
-            marks = mimaki_marks(
-                layout, artworks,
-                distance_mm=mimaki_distance_mm, mark_size_mm=mimaki_size_mm,
-            )
-            if marks is not None:
-                lines = tuple(
-                    PrintLine(
-                        s.start.translated(pad, pad),
-                        s.end.translated(pad, pad),
-                        mimaki_thickness_mm,
+            # cartelas identicas: um conjunto de marcas em L POR cartela (a
+            # Mimaki le cada cartela depois do refile); sem frames, o quadro
+            # unico ao redor da chapa segue como sempre foi.
+            frames = mimaki_frames_for(layout) if mimaki_frames_for else None
+            if frames:
+                segments = [
+                    s
+                    for mk in mimaki_marks_for_frames(
+                        frames,
+                        distance_mm=mimaki_distance_mm, mark_size_mm=mimaki_size_mm,
                     )
-                    for s in marks.segments
+                    for s in mk.segments
+                ]
+            else:
+                marks = mimaki_marks(
+                    layout, artworks,
+                    distance_mm=mimaki_distance_mm, mark_size_mm=mimaki_size_mm,
                 )
+                segments = list(marks.segments) if marks is not None else []
+            lines = tuple(
+                PrintLine(
+                    s.start.translated(pad, pad),
+                    s.end.translated(pad, pad),
+                    mimaki_thickness_mm,
+                )
+                for s in segments
+            )
         return circles, lines

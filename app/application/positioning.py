@@ -198,6 +198,48 @@ def mimaki_marks_sheets(
     return result
 
 
+def cartela_cut_frames(layout: Layout, artworks: Sequence[Artwork], grid) -> list[BoundingBox]:
+    """Bbox das facas DENTRO de cada cartela da grade (uma por cartela).
+
+    Fluxo de cartelas identicas: cada cartela precisa das PROPRIAS marcas em
+    L (a Mimaki corta cartela por cartela depois do refile), entao o quadro
+    de marcas e por cartela, nao um so ao redor da chapa. 'grid' e um
+    CartelaGrid (app/domain/cut/cartela.py)."""
+    eps = 1e-6
+    by_id = {art.id: art for art in artworks}
+    rects = _faca_rects_of(layout, by_id, dx=0.0)
+    per = grid.per_sheet
+    if per <= 0:  # chapa aberta: fileiras que o comprimento usado carrega
+        step = grid.cell_h + grid.gutter
+        rows = max(1, int((layout.used_length - grid.origin_y + grid.gutter + eps) // step))
+        per = rows * grid.cols
+    frames: list[BoundingBox] = []
+    for slot in range(per):
+        ox, oy = grid.slot_origin(slot)
+        inside = [
+            r for r in rects
+            if r.min_x >= ox - eps and r.max_x <= ox + grid.cell_w + eps
+            and r.min_y >= oy - eps and r.max_y <= oy + grid.cell_h + eps
+        ]
+        bbox = _union_bbox(inside)
+        if bbox is not None:
+            frames.append(bbox)
+    return frames
+
+
+def mimaki_marks_for_frames(
+    frames: Sequence[BoundingBox],
+    *,
+    distance_mm: float,
+    mark_size_mm: float,
+) -> list[MimakiMarks]:
+    """Quadro + marcas em L para cada bbox (um conjunto por cartela)."""
+    return [
+        _MIMAKI_GENERATOR.generate(b, distance_mm=distance_mm, mark_size_mm=mark_size_mm)
+        for b in frames
+    ]
+
+
 def mimaki_frame_contours(marks_list: Sequence[MimakiMarks]) -> list[CutContour]:
     """Retangulos dos quadros Mimaki como facas de corte (CutContour)."""
     contours: list[CutContour] = []
