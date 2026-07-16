@@ -80,7 +80,6 @@ from PySide6.QtWidgets import (
     QTabBar,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QToolBar,
     QToolButton,
     QVBoxLayout,
@@ -147,9 +146,11 @@ from app.presentation.widgets import (
     Alert,
     AlertLevel,
     CollapsibleCard,
+    IconRailTabs,
     MeasureField,
     ToastManager,
     labeled,
+    make_exclusive,
 )
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ProjectError, ValidationError
@@ -2035,6 +2036,10 @@ class MainWindow(QMainWindow):
             self._view.viewport().update()
         # miniaturas ilustrativas carregam cores do tema: redesenha todas
         self._illustrate_all()
+        # trilho do inspector: icones re-renderizados na cor do tema novo
+        rail = getattr(self, "_props_tabs", None)
+        if rail is not None:
+            rail.refresh_icons()
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         """Arquivos do Explorer soltos em QUALQUER ponto da janela entram na
@@ -3727,6 +3732,10 @@ class MainWindow(QMainWindow):
         # Cartelas saiu da lista de cards: agora e uma ABA propria ("Cartelas"),
         # sempre visivel — o cliente nao precisa rolar a lista para achar.
         dl.addWidget(self._build_avancado_card())        # 5 - Avançado (recolhido)
+        # acordeao exclusivo: abrir uma secao recolhe as demais, entao todos
+        # os titulos ficam sempre visiveis sem rolar a lista (o Resumo fica
+        # fora do grupo: e leitura, pode conviver aberto com qualquer secao)
+        make_exclusive(self._doc_cards)
         dl.addStretch()
         self._doc_widget = document  # usado pelo Modo Compacto p/ achar os campos
         doc_scroll = QScrollArea()
@@ -3749,14 +3758,15 @@ class MainWindow(QMainWindow):
         self._sel_stack.addWidget(self._build_piece_page())  # 1 = peça
         self._sel_stack.addWidget(self._build_group_page())  # 2 = grupo
 
-        self._props_tabs = QTabWidget()
-        self._props_tabs.setObjectName("inspectorTabs")  # barra de abas destacada
-        self._props_tabs.addTab(doc_scroll, "Documento")
-        self._props_tabs.addTab(self._sel_stack, "Seleção")
-        self._props_tabs.addTab(self._build_object_page(), "Objeto")
+        # trilho de icones (estilo VS Code): as abas de texto eram cortadas
+        # quando o painel ficava estreito; icone nao depende da largura.
+        self._props_tabs = IconRailTabs()
+        self._props_tabs.addTab(doc_scroll, "file-text", "Documento")
+        self._props_tabs.addTab(self._sel_stack, "mouse-pointer", "Seleção")
+        self._props_tabs.addTab(self._build_object_page(), "layers", "Objeto")
         self._transform_page = self._build_transform_page()
-        self._props_tabs.addTab(self._transform_page, "Transformar")
-        self._props_tabs.addTab(self._build_cartelas_tab(), "Cartelas")
+        self._props_tabs.addTab(self._transform_page, "copy-plus", "Transformar")
+        self._props_tabs.addTab(self._build_cartelas_tab(), "scissors", "Cartelas")
         # ao sair da aba Transformar, some com os fantasmas
         self._props_tabs.currentChanged.connect(lambda _: self._refresh_transform_preview())
 
@@ -3765,8 +3775,10 @@ class MainWindow(QMainWindow):
         wl.setContentsMargins(theme.SPACE_XS, 0, 0, 0)
         wl.setSpacing(theme.SPACE_SM)
         wl.addWidget(self._props_tabs, 1)
-        wrap.setMinimumWidth(280)
-        wrap.setMaximumWidth(400)
+        # o trilho de icones ocupa ~46px: painel um pouco mais largo para os
+        # campos manterem a mesma area util de antes (280px de conteudo)
+        wrap.setMinimumWidth(340)
+        wrap.setMaximumWidth(446)
         return wrap
 
     # ==================== Aba "Transformar" (duplicação inteligente) ==========

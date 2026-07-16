@@ -66,3 +66,27 @@ class CollapsibleCard(QFrame):
 
     def set_collapsed(self, collapsed: bool) -> None:
         self._header.setChecked(not collapsed)
+
+    @property
+    def is_open(self) -> bool:
+        return self._header.isChecked()
+
+
+def make_exclusive(cards: list[CollapsibleCard]) -> None:
+    """Acordeão exclusivo: abrir um card recolhe os demais do grupo.
+
+    A lista some com a rolagem longa: só uma seção fica aberta por vez, então
+    todos os títulos continuam visíveis sem rolar. Fechar o card aberto é
+    permitido (grupo pode ficar todo recolhido)."""
+
+    def _close_others(opened: CollapsibleCard):
+        def handler(checked: bool) -> None:
+            if not checked:
+                return
+            for other in cards:
+                if other is not opened and other.is_open:
+                    other.set_collapsed(True)
+        return handler
+
+    for card in cards:
+        card._header.toggled.connect(_close_others(card))

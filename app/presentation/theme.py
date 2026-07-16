@@ -374,17 +374,24 @@ def build_app_qss() -> str:
         font-weight: 600;
     }}
 
-    /* barra de abas do inspector: fundo proprio + linha de base, para ler
-       claramente como uma BARRA (e nao abas soltas no ar) */
-    QTabWidget#inspectorTabs::pane {{
-        border: none; border-top: 1px solid {BORDER}; top: -1px;
+    /* trilho de icones do inspector (IconRailTabs): substitui as abas de
+       texto, que eram cortadas quando o painel ficava estreito */
+    QWidget#railBar {{
+        background: {SURFACE_ALT};
+        border-left: 1px solid {BORDER};
     }}
-    QTabWidget#inspectorTabs > QTabBar {{
+    QToolButton#railBtn {{
+        border: none; border-radius: {RADIUS_SM}px;
+        background: transparent; padding: 0;
+    }}
+    QToolButton#railBtn:hover {{ background: {HOVER}; }}
+    QToolButton#railBtn:checked {{ background: {ACCENT_SOFT}; }}
+    QLabel#railTitle {{
         background: {SURFACE_ALT};
         border-bottom: 1px solid {BORDER};
-    }}
-    QTabWidget#inspectorTabs > QTabBar::tab {{
-        margin-top: 3px; margin-bottom: 0; padding: 8px 14px;
+        color: {TEXT};
+        font-size: {FONT_LG}px; font-weight: 600;
+        padding: {SPACE_SM}px {SPACE_MD}px;
     }}
 
     /* ===================== status bar ===================== */
