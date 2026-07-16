@@ -78,6 +78,54 @@ def test_faca_do_cliente_usa_o_vetor_do_pdf(qapp, tmp_path):
     assert window._faca_notice is not None and window._faca_notice[0] == "info"
 
 
+def _arte_com_faca_magenta_pdf(tmp_path):
+    """PDF como o cliente manda: arte preenchida + FACA em traço magenta,
+    sem preenchimento, por cima (convenção CutContour)."""
+    doc = fitz.open()
+    page = doc.new_page(width=267, height=101)
+    page.draw_rect(fitz.Rect(15, 15, 250, 88), color=None, fill=(0.2, 0.4, 1))  # arte
+    page.draw_rect(fitz.Rect(8, 8, 259, 93), color=(1, 0, 1), width=1.0)        # faca
+    path = tmp_path / "cliente_magenta.pdf"
+    doc.save(str(path))
+    doc.close()
+    return str(path)
+
+
+def test_faca_magenta_detectada_automaticamente(qapp, tmp_path):
+    # 16/07 (teste real do Philipe): no modo AUTO (padrão), a linha magenta
+    # do PDF tem de virar a faca do cliente SEM trocar o combo — e sair 1:1
+    # com o desenho (sem sangria default, sem suavizar/simplificar).
+    pt2mm = 25.4 / 72.0
+    w = _window(tmp_path)
+    w.add_paths([_arte_com_faca_magenta_pdf(tmp_path)])
+    w._offset.setValue(0)  # sangria zero: fidelidade total ao desenho
+    w.generate(blocking=True)
+    art = w._result.artworks[0]
+    assert art.cut_contour is not None
+    xs = [p.x for p in art.cut_contour.points]
+    ys = [p.y for p in art.cut_contour.points]
+    # bbox da faca = o retângulo MAGENTA (251x85pt), não a página nem a arte
+    assert max(xs) - min(xs) == pytest.approx(251 * pt2mm, abs=1.0)
+    assert max(ys) - min(ys) == pytest.approx(85 * pt2mm, abs=1.0)
+    assert w._faca_notice is not None and w._faca_notice[0] == "info"
+    assert "MAGENTA" in w._faca_notice[1]
+
+    # a linha magenta é INSTRUÇÃO de corte: não pode sair no PDF de impressão
+    from app.domain.cut.vector import is_knife_color
+    from app.infrastructure.importers.pdfium_vector_extractor import (
+        PdfiumVectorExtractor,
+    )
+    out = tmp_path / "IMPRESSAO.pdf"
+    w.export_pdf(str(out))
+    assert out.exists()
+    infos = PdfiumVectorExtractor().extract_rings_info(str(out))
+    assert infos  # a arte (vetores) foi para a impressão...
+    assert not any(  # ...mas nenhum traço magenta foi junto
+        i.stroked and i.stroke_rgb is not None and is_knife_color(i.stroke_rgb)
+        for i in infos
+    )
+
+
 def test_fluxo_completo_da_ui(qapp, tmp_path):
     src = _two_page_pdf(tmp_path)
     window = _window(tmp_path)
@@ -2078,11 +2126,16 @@ def test_ilustracoes_nos_demais_controles(qapp, tmp_path):
     assert w._view.empty_step == 0  # janela recém-aberta: passo "Adicionar"
 
 
-def test_cartelas_fluxo_mimaki_iecho(qapp, tmp_path):
+def test_cartelas_fluxo_mimaki_iecho(qapp, tmp_path, monkeypatch):
     # Fluxo de cartelas (13/07): peças encaixam DENTRO das cartelas, a faca
     # IECHO sai com as linhas retas fora a fora em DXF e a faca Mimaki sai
     # em PDF sem as bolinhas.
+    # 16/07: o fluxo saiu da UI (CARTELAS_ENABLED=False, planos futuros) —
+    # o teste religa o flag para o motor dormente continuar validado.
     import ezdxf
+
+    import app.presentation.main_window as mw
+    monkeypatch.setattr(mw, "CARTELAS_ENABLED", True)
     src = _two_page_pdf(tmp_path)
     w = _window(tmp_path)
     w._width.setValue(700)
@@ -2116,6 +2169,19 @@ def test_cartelas_fluxo_mimaki_iecho(qapp, tmp_path):
     out2 = tmp_path / "nada.dxf"
     w.export_faca_iecho(str(out2))
     assert not out2.exists()
+
+
+def test_cartelas_pausado_some_da_ui(qapp, tmp_path):
+    # 16/07: fluxo de cartelas pausado (CARTELAS_ENABLED=False) — nenhuma
+    # porta de entrada na UI, e o app funciona normal sem a aba existir.
+    w = _window(tmp_path)
+    tabs = [w._props_tabs.tabText(i) for i in range(w._props_tabs.count())]
+    assert "Cartelas" not in tabs
+    assert not hasattr(w, "_cartelas_cta")   # botão azul não existe
+    assert not hasattr(w, "_cart_on")        # aba nunca foi construída
+    assert not w._cartela_enabled()          # guard central responde False
+    menus = [a.text() for a in w.menuBar().actions()]
+    assert menus  # menu montou sem os itens de cartela (sem crash)
 
 
 def test_arrastar_arquivo_do_explorer_adiciona(qapp, tmp_path):

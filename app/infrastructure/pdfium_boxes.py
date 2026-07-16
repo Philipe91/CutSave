@@ -11,11 +11,20 @@ do PrintNest pensa TOPO-esquerda (como o Qt e o antigo fitz). As funções
 
 from __future__ import annotations
 
+import threading
+
 import pypdfium2 as pdfium
 
 from app.shared.errors import PdfImportError
 
 _PDF_MAGIC = b"%PDF"
+
+# O PDFium NAO e thread-safe (nem para leitura): o render roda no worker de
+# produção enquanto a UI extrai faca/miniaturas na thread principal. Todo
+# trecho que toca pdfium segura este lock — sem ele, access violation
+# (0xC0000005) intermitente, visto no teste real de 16/07. Reentrante para
+# um trecho protegido poder chamar outro (ex.: strip -> extractor).
+PDFIUM_LOCK = threading.RLock()
 
 
 def open_pdf(path: str) -> pdfium.PdfDocument:

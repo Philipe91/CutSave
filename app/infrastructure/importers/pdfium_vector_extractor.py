@@ -5,7 +5,8 @@ import ctypes
 import pypdfium2.raw as raw
 
 from app.application.ports.vector_extractor import IVectorExtractor
-from app.infrastructure.pdfium_boxes import open_pdf
+from app.domain.cut.vector import RingInfo
+from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf
 
 PT2MM = 25.4 / 72.0
 
@@ -23,20 +24,57 @@ class PdfiumVectorExtractor(IVectorExtractor):
         self._steps = bezier_steps
 
     def extract_rings(self, path: str, page_index: int = 0) -> list[list[tuple[float, float]]]:
-        document = open_pdf(path)
-        try:
-            page = document[page_index]
-            _w, page_h = page.get_size()
-            rings = []
-            for obj in page.get_objects(max_depth=4):
-                if obj.type != raw.FPDF_PAGEOBJ_PATH:
-                    continue
-                ring = self._path_to_ring(obj, page_h)
-                if len(ring) >= 3:
-                    rings.append(ring)
-            return rings
-        finally:
-            document.close()
+        return [info.ring for info in self.extract_rings_info(path, page_index)]
+
+    def extract_rings_info(self, path: str, page_index: int = 0) -> list[RingInfo]:
+        """Aneis + pintura (traço/preenchimento/cor do traço) de cada path.
+
+        A cor separa a FACA do cliente (traço magenta/spot, sem fill) da arte
+        vetorial (preenchida) — ver select_cut_rings no domínio."""
+        with PDFIUM_LOCK:  # pdfium não é thread-safe (worker + UI ao vivo)
+            document = open_pdf(path)
+            try:
+                page = document[page_index]
+                _w, page_h = page.get_size()
+                infos = []
+                for obj in page.get_objects(max_depth=4):
+                    if obj.type != raw.FPDF_PAGEOBJ_PATH:
+                        continue
+                    ring = self._path_to_ring(obj, page_h)
+                    if len(ring) >= 3:
+                        stroked, filled = self._draw_mode(obj)
+                        infos.append(RingInfo(
+                            ring=ring,
+                            stroked=stroked,
+                            filled=filled,
+                            stroke_rgb=self._stroke_rgb(obj) if stroked else None,
+                        ))
+                return infos
+            finally:
+                document.close()
+
+    @staticmethod
+    def _draw_mode(obj) -> tuple[bool, bool]:
+        """(tem traço?, tem preenchimento?) do path."""
+        fill_mode = ctypes.c_int()
+        stroke = ctypes.c_int()
+        ok = raw.FPDFPath_GetDrawMode(obj.raw, fill_mode, stroke)
+        if not ok:  # sem informação: trata como arte comum (preenchida)
+            return False, True
+        return bool(stroke.value), fill_mode.value != raw.FPDF_FILLMODE_NONE
+
+    @staticmethod
+    def _stroke_rgb(obj) -> tuple[int, int, int] | None:
+        """Cor do traço em RGB, ou None se o pdfium não resolver (ex.: spot
+        CutContour em colorspace exótico — pista de faca, não de arte)."""
+        r = ctypes.c_uint()
+        g = ctypes.c_uint()
+        b = ctypes.c_uint()
+        a = ctypes.c_uint()
+        ok = raw.FPDFPageObj_GetStrokeColor(obj.raw, r, g, b, a)
+        if not ok:
+            return None
+        return (r.value, g.value, b.value)
 
     def _path_to_ring(self, obj, page_h: float) -> list[tuple[float, float]]:
         """Um anel por objeto de path (como o get_drawings do fitz): move so

@@ -129,7 +129,7 @@ from app.domain.cut.contour_ops import (
 from app.domain.cut.curves import cubic_segments, has_curves
 from app.domain.cut.shared import Segment as SharedSegment
 from app.domain.cut.shared import merge_touching_rect_cuts
-from app.domain.cut.vector import VectorContourGenerator
+from app.domain.cut.vector import VectorContourGenerator, select_cut_rings
 from app.domain.geometry import Point2D, Size
 from app.domain.model.cut_contour import CutContour
 from app.domain.model.image_artwork import ImageArtwork, ImageKind
@@ -162,6 +162,14 @@ IMAGE_FILE_FILTER = (
 )
 
 RULER_SIZE = 24
+
+# Fluxo de CARTELAS pausado (16/07/2026, decisão do Philipe: "tá dando
+# trabalho demais — deixe para planos futuros"). O flag esconde TODAS as
+# portas de entrada (aba lateral, botão azul, menu Arquivo, grupo da
+# toolbar); o motor continua vivo e testado (app/domain/cut/cartela.py,
+# app/application/use_cases/cartela_nesting.py e os handlers abaixo, todos
+# protegidos por _cartela_enabled()). Para religar o recurso: True aqui.
+CARTELAS_ENABLED = False
 
 # Empurrar com as setas (nudge), estilo CorelDRAW: normal, micro (Ctrl), super (Shift).
 NUDGE_MM = 1.0
@@ -1687,14 +1695,19 @@ class MainWindow(QMainWindow):
         sair = self._act("Sair", self.close, None, "Fecha o programa")
         sobre = self._act("Sobre", self._show_about, None, "Sobre o PrintNest")
 
+        # itens do fluxo de cartelas só entram no menu com o flag ligado
+        menu_cartelas = (
+            (None, cartelas_act, exp_cartelas, exp_mimaki_cart, exp_iecho)
+            if CARTELAS_ENABLED else ()
+        )
         bar = self.menuBar()
         m_arq = bar.addMenu("&Arquivo")
         for action in (novo, abrir, salvar, salvar_como, fechar_aba,
                        None, add, substituir,
                        None, exp_center,
                        None, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img,
-                       None, cartelas_act, exp_cartelas, exp_mimaki, exp_mimaki_cart,
-                       exp_iecho,
+                       None, exp_mimaki,
+                       *menu_cartelas,
                        None, sair):
             m_arq.addSeparator() if action is None else m_arq.addAction(action)
         obj_props = self._act("Propriedades do objeto", self._show_object_props,
@@ -1893,12 +1906,12 @@ class MainWindow(QMainWindow):
                                [dist_h, dist_v], tip="Distribuir igualmente"),
                 tb.tool_button(snap_act, "magnet", show_text=False),
             ]),
-            ("Cartelas", [
+            *([("Cartelas", [
                 # fluxo cartela + refile a UM clique (pedido do cliente: fora
                 # da lista de cards do Documento); vem ANTES de Exportar para
                 # não cair no overflow (») da barra em telas menores.
                 tb.tool_button(cartelas_act, "scissors"),
-            ]),
+            ])] if CARTELAS_ENABLED else []),
             ("Exportar", [
                 # QA 2.0: o grupo só tem exportações — o nome dizia "Produção"
                 # e mentia. Faca inteira mora na barra Faca (propBar).
@@ -3711,20 +3724,19 @@ class MainWindow(QMainWindow):
 
         dl.addWidget(self._build_resumo_card())          # resumo da produção (topo, fixo)
 
-        # Atalho destacado para a aba "Cartelas": com 5 abas o painel estreito
-        # corta a barra e a aba fica atrás das setinhas de rolagem — o botão
-        # azul no topo da aba padrão garante o fluxo a um clique.
-        cta = QPushButton("  Cartelas e refile  →")
-        cta.setIcon(icons.icon("scissors", theme.ICON_ON_ACCENT))
-        cta.setProperty("accent", "true")
-        cta.setCursor(Qt.PointingHandCursor)
-        cta.setToolTip(
-            "Produza em cartelas: monte uma cartela, repita na chapa e\n"
-            "exporte as duas facas (Mimaki de 1 cartela + refile da chapa)."
-        )
-        cta.clicked.connect(self._show_cartelas_tab)
-        self._cartelas_cta = cta
-        dl.addWidget(cta)
+        # Atalho destacado para a aba "Cartelas" (só com o fluxo ligado)
+        if CARTELAS_ENABLED:
+            cta = QPushButton("  Cartelas e refile  →")
+            cta.setIcon(icons.icon("scissors", theme.ICON_ON_ACCENT))
+            cta.setProperty("accent", "true")
+            cta.setCursor(Qt.PointingHandCursor)
+            cta.setToolTip(
+                "Produza em cartelas: monte uma cartela, repita na chapa e\n"
+                "exporte as duas facas (Mimaki de 1 cartela + refile da chapa)."
+            )
+            cta.clicked.connect(self._show_cartelas_tab)
+            self._cartelas_cta = cta
+            dl.addWidget(cta)
         dl.addWidget(self._build_producao_card())        # 1 - Produção (aberto)
         dl.addWidget(self._build_acabamento_card())      # 2 - Acabamento (recolhido)
         dl.addWidget(self._build_imagens_card())         # 3 - Imagens (recolhido)
@@ -3766,7 +3778,8 @@ class MainWindow(QMainWindow):
         self._props_tabs.addTab(self._build_object_page(), "layers", "Objeto")
         self._transform_page = self._build_transform_page()
         self._props_tabs.addTab(self._transform_page, "copy-plus", "Transformar")
-        self._props_tabs.addTab(self._build_cartelas_tab(), "scissors", "Cartelas")
+        if CARTELAS_ENABLED:
+            self._props_tabs.addTab(self._build_cartelas_tab(), "scissors", "Cartelas")
         # ao sair da aba Transformar, some com os fantasmas
         self._props_tabs.currentChanged.connect(lambda _: self._refresh_transform_preview())
 
@@ -5210,7 +5223,9 @@ class MainWindow(QMainWindow):
             return art_r
         if mode == "vector":  # faca do cliente (linha vetorial do PDF)
             raw = self._scaled_contour(self._pdf_vector_contour(base), sx, sy)
-            return self._contour_faca(base, raw, params, params["offset"])
+            # mode="vector": fidelidade — o desenho do cliente NAO passa por
+            # densidade/suavizar/reducao de nos (só sangria/raio se pedidos)
+            return self._contour_faca(base, raw, params, params["offset"], mode="vector")
         # contorno (justo / suave / simplificado), para imagem ou PDF rasterizado
         if is_img:
             raw = base.raw_contour
@@ -5246,7 +5261,8 @@ class MainWindow(QMainWindow):
     def _resolve_faca_mode(self, mode: str, base) -> str:
         """Resolve o modo 'auto' pelo tipo da arte e valida o modo pedido.
 
-        - PDF: 'auto' -> retângulo (corte reto da caixa).
+        - PDF: 'auto' -> faca do CLIENTE se houver linha magenta no vetor
+          (a convenção de corte das gráficas); senão retângulo (corte reto).
         - Imagem opaca (JPG / fundo solido): 'auto' -> retângulo. Assim um JPG
           retangular sai quadrado, sem serrilhado do contorno.
         - Imagem com transparência (PNG alpha): 'auto' -> contorno (recorte).
@@ -5259,6 +5275,10 @@ class MainWindow(QMainWindow):
                 return "contour" if base.image_kind == ImageKind.IMAGE_ALPHA else "rect"
             return mode
         if mode == "auto":
+            # a linha magenta é inequívoca ("quero cortar AQUI") — usa a faca
+            # do cliente sem o usuário precisar trocar o combo
+            if self._pdf_client_knife(base) is not None:
+                return "vector"
             return "rect"
         return mode
 
@@ -5287,31 +5307,67 @@ class MainWindow(QMainWindow):
             return contour
         return CutContour(tuple(Point2D(p.x * sx, p.y * sy) for p in contour.points))
 
-    def _pdf_vector_contour(self, base):
-        """Faca do cliente: extrai o contorno vetorial do PDF (a linha de corte
-        que o cliente já desenhou). Cacheado por (caminho, página). Se não houver
-        vetor utilizavel, registra um aviso e cai no retângulo (raw=None)."""
+    def _pdf_vector_contour_ex(self, base):
+        """(contorno, motivo) da faca vetorial do PDF, cacheado por (path, pág).
+
+        motivo: tier de select_cut_rings ('magenta'/'spot'/'stroke'/'all') ou
+        None quando não há vetor utilizável. NÃO mexe nos avisos — quem chama
+        decide o que dizer (o modo AUTO sonda silenciosamente)."""
         key = self._sources.get(base.id)
         if key is None:
-            return None
+            return None, None
         if key in self._vector_contours:
             return self._vector_contours[key]
         path, page = key
         try:
-            rings = self._vector_extractor.extract_rings(path, page)
-            contour = self._vector_generator.generate(rings)
-            self._faca_notice = (
-                "info",
-                f"Faca do cliente detectada no vetor do PDF ({len(contour.points)} pontos).",
-            )
-        except Exception:  # sem vetor de corte utilizavel -> retângulo
-            contour = None
+            infos = self._vector_extractor.extract_rings_info(path, page)
+            rings, reason = select_cut_rings(infos)
+            result = (self._vector_generator.generate(rings), reason)
+        except Exception:  # sem vetor de corte utilizavel
+            result = (None, None)
+        self._vector_contours[key] = result
+        return result
+
+    def _pdf_client_knife(self, base):
+        """Faca do cliente SÓ se inequívoca (linha magenta). Usada pelo modo
+        AUTO: magenta = intenção clara de corte; os demais tiers exigem que o
+        usuário escolha 'Faca do cliente' de propósito."""
+        contour, reason = self._pdf_vector_contour_ex(base)
+        return contour if reason == "magenta" else None
+
+    def _pdf_vector_contour(self, base):
+        """Faca do cliente (modo 'vector'): contorno vetorial do PDF + aviso
+        didático do que foi detectado. Sem vetor utilizavel, registra um aviso
+        e cai no retângulo (retorna None)."""
+        contour, reason = self._pdf_vector_contour_ex(base)
+        if contour is None:
             self._faca_notice = (
                 "warning",
-                "Não encontrei linha de corte vetorial no PDF; usei o retângulo. "
-                "Verifique se o corte foi enviado como vetor.",
+                "Não encontrei vetor de corte no PDF; usei o retângulo. "
+                "Desenhe a faca como traço vetorial magenta 100% (sem "
+                "preenchimento) por cima da arte e exporte em PDF.",
             )
-        self._vector_contours[key] = contour
+        elif reason == "magenta":
+            self._faca_notice = (
+                "info",
+                "Faca do cliente detectada pela linha MAGENTA do PDF "
+                f"({len(contour.points)} pontos).",
+            )
+        elif reason in ("spot", "stroke"):
+            self._faca_notice = (
+                "info",
+                "Faca do cliente detectada pelo traço sem preenchimento "
+                f"({len(contour.points)} pontos). Para garantir sempre, "
+                "desenhe a faca em magenta 100% (rosa choque).",
+            )
+        else:  # "all": sem pista de faca — usou a união de TODOS os vetores
+            self._faca_notice = (
+                "warning",
+                "Não achei uma linha de faca no PDF (traço magenta ou sem "
+                "preenchimento); usei o contorno geral dos vetores — "
+                "confira o resultado. Ideal: desenhe a faca como traço "
+                "magenta 100%, sem preenchimento, por cima da arte.",
+            )
         return contour
 
     def _regenerate_faca(self) -> None:
@@ -5398,6 +5454,16 @@ class MainWindow(QMainWindow):
 
     def _finish_contour(self, contour, params, sangria, mode):
         """Aplica densidade + suavizar + sangria a UM contorno ja recortado/girado."""
+        if mode == "vector":
+            # faca do CLIENTE: o desenho dele é a verdade — sem densidade,
+            # sem suavizar, sem redução de nós (deformavam a faca e o cliente
+            # via "outra faca"). Sangria e raio só se o usuário pedir.
+            if sangria != 0:
+                contour = offset_contour(contour, sangria, params.get("corner", "round"))
+            radius = float(params.get("corner_radius", 0.0))
+            if radius > 0:
+                contour = round_corners(contour, radius)
+            return contour
         tol = self._density_tol()  # densidade: reduz nos/ruido antes de suavizar
         if mode == "contour_simplify":
             tol = max(tol, 0.6)  # variacao "simplificado": garante menos nos
@@ -6546,8 +6612,11 @@ class MainWindow(QMainWindow):
                         rect.setPen(material_pen)
                 if draw_cut and art.has_cut and not shared:
                     is_client = (
-                        self._params_for(self._path_of(item.artwork_id)).get("mode")
-                        == "vector"
+                        self._resolve_faca_mode(
+                            self._params_for(self._path_of(item.artwork_id))
+                            .get("mode", "auto"),
+                            art,
+                        ) == "vector"
                     )
                     pen = client_pen if is_client else faca_pen
                     # faca principal + facas adicionais (varios desenhos na peca)

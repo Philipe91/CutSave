@@ -6,7 +6,8 @@ from pathlib import Path
 from PIL import Image
 
 from app.application.ports.page_renderer import IPageRenderer
-from app.infrastructure.pdfium_boxes import clip_topleft_pt, open_pdf
+from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, clip_topleft_pt, open_pdf
+from app.infrastructure.pdfium_knife import knife_free_pdf
 from app.shared.errors import PdfImportError
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
@@ -28,23 +29,27 @@ class PdfiumPageRenderer(IPageRenderer):
     ) -> bytes:
         if Path(path).suffix.lower() in _IMAGE_SUFFIXES:
             return self._render_image_file(path, dpi)
-        document = open_pdf(path)
-        try:
-            page = document[page_index]
-            scale = dpi / 72.0
-            pil = page.render(scale=scale).to_pil()
-            clip = clip_topleft_pt(page, box)
-            if clip is not None:
-                x0, y0, w, h = (v * scale for v in clip)
-                pil = pil.crop((
-                    max(0, round(x0)), max(0, round(y0)),
-                    min(pil.width, round(x0 + w)), min(pil.height, round(y0 + h)),
-                ))
-            buf = io.BytesIO()
-            pil.save(buf, format="PNG")
-            return buf.getvalue()
-        finally:
-            document.close()
+        # a linha MAGENTA e faca (instrução de corte), não arte: renderiza a
+        # cópia limpa — preview/miniatura mostram o que de fato imprime
+        path = knife_free_pdf(path)
+        with PDFIUM_LOCK:  # pdfium não é thread-safe (worker + UI ao vivo)
+            document = open_pdf(path)
+            try:
+                page = document[page_index]
+                scale = dpi / 72.0
+                pil = page.render(scale=scale).to_pil()
+                clip = clip_topleft_pt(page, box)
+                if clip is not None:
+                    x0, y0, w, h = (v * scale for v in clip)
+                    pil = pil.crop((
+                        max(0, round(x0)), max(0, round(y0)),
+                        min(pil.width, round(x0 + w)), min(pil.height, round(y0 + h)),
+                    ))
+                buf = io.BytesIO()
+                pil.save(buf, format="PNG")
+                return buf.getvalue()
+            finally:
+                document.close()
 
     @staticmethod
     def _render_image_file(path: str, dpi: int) -> bytes:

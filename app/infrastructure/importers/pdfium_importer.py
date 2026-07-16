@@ -7,7 +7,7 @@ import pypdfium2.raw as pdfium_raw
 from app.application.ports.pdf_importer import IPdfImporter
 from app.domain.geometry import Measurement, Size
 from app.domain.model.artwork import ArtKind, Artwork, FileFormat
-from app.infrastructure.pdfium_boxes import open_pdf, page_box_dims_pt
+from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf, page_box_dims_pt
 
 # Numero minimo de desenhos vetoriais para considerar a arte "vetorial".
 _VECTOR_MIN_DRAWINGS = 2
@@ -50,15 +50,16 @@ class PdfiumImporter(IPdfImporter):
     """
 
     def import_artworks(self, path: str, box: str = "auto") -> list[Artwork]:
-        document = open_pdf(path)
-        try:
-            stem = Path(path).stem
-            return [
-                self._page_to_artwork(document[i], stem, i, box)
-                for i in range(len(document))
-            ]
-        finally:
-            document.close()
+        with PDFIUM_LOCK:  # pdfium não é thread-safe (worker + UI ao vivo)
+            document = open_pdf(path)
+            try:
+                stem = Path(path).stem
+                return [
+                    self._page_to_artwork(document[i], stem, i, box)
+                    for i in range(len(document))
+                ]
+            finally:
+                document.close()
 
     def _page_to_artwork(self, page, stem: str, index: int, box: str) -> Artwork:
         width_pt, height_pt = page_box_dims_pt(page, box)

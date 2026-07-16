@@ -7,7 +7,8 @@ from pathlib import Path
 from app.application.dto.print_placement import PrintSheet
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
 from app.infrastructure.exporters.pdf_writer import PdfWriter
-from app.infrastructure.pdfium_boxes import open_pdf, raw_box, trim_clip_pdf
+from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf, raw_box, trim_clip_pdf
+from app.infrastructure.pdfium_knife import knife_free_pdf
 from app.shared.errors import PrintExportError
 
 MM2PT = 72.0 / 25.4
@@ -43,11 +44,13 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                             rotate=pl.rotate,
                         )
                         continue
-                    key = (pl.source_path, pl.source_page, pl.box, pl.crop_mm)
+                    # impressão SEM a linha magenta da faca (cópia limpa)
+                    src = knife_free_pdf(pl.source_path)
+                    key = (src, pl.source_page, pl.box, pl.crop_mm)
                     if key not in clips:
                         clips[key] = self._source_clip(*key)
                     writer.place_pdf_page(
-                        pl.source_path, pl.source_page,
+                        src, pl.source_page,
                         pl.position.x, pl.position.y,
                         pl.size.width, pl.size.height,
                         rotate=pl.rotate, clip_pdf_pt=clips[key],
@@ -110,19 +113,20 @@ class PikePdfPrintExporter(IPrintPdfExporter):
             writer.close()
         generated: list[str] = []
         try:
-            doc = pdfium.PdfDocument(io.BytesIO(data))
-            try:
-                multi = len(doc) > 1
-                for index in range(len(doc)):
-                    pil = doc[index].render(scale=dpi / 72.0).to_pil()
-                    target = f"{stem}_{index + 1:02d}{ext}" if multi else output_path
-                    if fmt == "jpeg":
-                        pil.convert("RGB").save(target, format="JPEG", quality=95)
-                    else:
-                        pil.save(target, format=fmt.upper())
-                    generated.append(target)
-            finally:
-                doc.close()
+            with PDFIUM_LOCK:  # pdfium não é thread-safe (worker + UI ao vivo)
+                doc = pdfium.PdfDocument(io.BytesIO(data))
+                try:
+                    multi = len(doc) > 1
+                    for index in range(len(doc)):
+                        pil = doc[index].render(scale=dpi / 72.0).to_pil()
+                        target = f"{stem}_{index + 1:02d}{ext}" if multi else output_path
+                        if fmt == "jpeg":
+                            pil.convert("RGB").save(target, format="JPEG", quality=95)
+                        else:
+                            pil.save(target, format=fmt.upper())
+                        generated.append(target)
+                finally:
+                    doc.close()
         except Exception as exc:
             raise PrintExportError(f"Falha ao gerar imagem: {output_path}") from exc
         return generated
@@ -131,20 +135,21 @@ class PikePdfPrintExporter(IPrintPdfExporter):
     def _source_clip(path: str, page_index: int, box: str, crop_mm: float):
         """Recorte da origem em coords PDF cruas (pt): caixa escolhida
         (midia/apara) menos o recorte de borda. None = pagina inteira."""
-        doc = open_pdf(path)
-        try:
-            page = doc[page_index]
-            rect = trim_clip_pdf(page, box)
-            if rect is None:
-                rect = raw_box(page, "MediaBox")
+        with PDFIUM_LOCK:  # pdfium não é thread-safe (worker + UI ao vivo)
+            doc = open_pdf(path)
+            try:
+                page = doc[page_index]
+                rect = trim_clip_pdf(page, box)
                 if rect is None:
-                    w, h = page.get_size()
-                    rect = (0.0, 0.0, w, h)
-            if crop_mm > 0:
-                crop_pt = crop_mm * MM2PT
-                x0, y0, x1, y1 = rect
-                if (x1 - x0) > 2 * crop_pt and (y1 - y0) > 2 * crop_pt:
-                    rect = (x0 + crop_pt, y0 + crop_pt, x1 - crop_pt, y1 - crop_pt)
-            return tuple(rect)
-        finally:
-            doc.close()
+                    rect = raw_box(page, "MediaBox")
+                    if rect is None:
+                        w, h = page.get_size()
+                        rect = (0.0, 0.0, w, h)
+                if crop_mm > 0:
+                    crop_pt = crop_mm * MM2PT
+                    x0, y0, x1, y1 = rect
+                    if (x1 - x0) > 2 * crop_pt and (y1 - y0) > 2 * crop_pt:
+                        rect = (x0 + crop_pt, y0 + crop_pt, x1 - crop_pt, y1 - crop_pt)
+                return tuple(rect)
+            finally:
+                doc.close()
