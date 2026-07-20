@@ -196,7 +196,8 @@ VIEW_HINTS = {
     "both": "Arte e linha de faca juntas no canvas.",
     "print": "Só a arte, sem as linhas de faca.",
     "cut": "Só as linhas de faca, sem a arte.",
-    "split": "Impressão à esquerda, corte à direita.",
+    "split": "Impressão em cima, corte embaixo.",
+    "split_h": "Impressão à esquerda, corte à direita.",
 }
 
 
@@ -322,17 +323,27 @@ def _glyph_pixmap(kind: str, key: str, cut: str, muted: str, accent: str, size: 
         r = _sheet_rect(p, size, muted, margin=0.10)
         fill = QColor(muted)
         fill.setAlpha(130)
-        if key == "split":
+        if key in ("split", "split_h"):
             p.setPen(QPen(QColor(muted), 1.0))
-            p.drawLine(QPointF(c, r[1]), QPointF(c, r[1] + r[3]))
-            lx, rx = r[0] + r[2] * 0.25, r[0] + r[2] * 0.75
-            cy = r[1] + r[3] / 2
+            if key == "split":
+                # empilhado: arte em cima, faca embaixo
+                cx = r[0] + r[2] / 2
+                cy = r[1] + r[3] / 2
+                p.drawLine(QPointF(r[0], cy), QPointF(r[0] + r[2], cy))
+                art_xy = (cx, r[1] + r[3] * 0.25)
+                cut_xy = (cx, r[1] + r[3] * 0.75)
+            else:
+                # lado a lado: arte à esquerda, faca à direita
+                cy = r[1] + r[3] / 2
+                p.drawLine(QPointF(c, r[1]), QPointF(c, r[1] + r[3]))
+                art_xy = (r[0] + r[2] * 0.25, cy)
+                cut_xy = (r[0] + r[2] * 0.75, cy)
             p.setPen(Qt.NoPen)
             p.setBrush(QBrush(fill))
-            p.drawPolygon(_star(lx, cy, size * 0.16, size * 0.072))
+            p.drawPolygon(_star(art_xy[0], art_xy[1], size * 0.16, size * 0.072))
             p.setBrush(Qt.NoBrush)
             p.setPen(_dash_pen(cut, 1.1))
-            p.drawPolygon(_star(rx, cy, size * 0.16, size * 0.072))
+            p.drawPolygon(_star(cut_xy[0], cut_xy[1], size * 0.16, size * 0.072))
         else:
             if key in ("both", "print"):
                 p.setPen(Qt.NoPen)

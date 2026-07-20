@@ -242,6 +242,26 @@ def test_modos_de_visualizacao(qapp, tmp_path):
     assert len(_pixmaps()) == 2  # dividida desenha a impressao uma vez
 
 
+def test_tela_dividida_horizontal(qapp, tmp_path):
+    from PySide6.QtWidgets import QGraphicsPixmapItem
+
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    window._view_mode.setCurrentIndex(window._view_mode.findData("split"))
+    rect_v = window._scene.itemsBoundingRect()
+    window._view_mode.setCurrentIndex(window._view_mode.findData("split_h"))
+    rect_h = window._scene.itemsBoundingRect()
+
+    pix = [it for it in window._scene.items() if isinstance(it, QGraphicsPixmapItem)]
+    assert len(pix) == 2  # arte desenhada uma vez (à esquerda)
+    # faca deslocada em X (e não em Y): cena mais larga e mais baixa que o split vertical
+    assert rect_h.width() > rect_v.width()
+    assert rect_h.height() < rect_v.height()
+
+
 def test_medida_do_arquivo_selecionado(qapp, tmp_path):
     src = _two_page_pdf(tmp_path)
     window = _window(tmp_path)

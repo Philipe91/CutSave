@@ -3560,6 +3560,7 @@ class MainWindow(QMainWindow):
         self._view_mode.addItem("Só Impressão", "print")
         self._view_mode.addItem("Só Corte", "cut")
         self._view_mode.addItem("Tela dividida (impressão / corte)", "split")
+        self._view_mode.addItem("Tela dividida (lado a lado)", "split_h")
         self._view_mode.currentIndexChanged.connect(lambda _: self._refresh_preview())
         self._display_bar.adjustSize()
         self._display_bar.move(12, 12)
@@ -6474,6 +6475,20 @@ class MainWindow(QMainWindow):
                 draw_art=False, draw_cut=True, dy=total_h + max(50.0, total_h * 0.15),
                 interactive=False,
             )
+        elif mode == "split_h":
+            # lado a lado: arte à esquerda, faca deslocada em X (largura total
+            # ocupada pelas chapas + respiro), espelhando o split vertical.
+            self._draw_sheets(draw_art=True, draw_cut=False, dy=0.0, interactive=False)
+            total_w = max(
+                (i * (s.material.width + SHEET_GAP_MM) + s.material.width
+                 for i, s in enumerate(self._result.sheets)),
+                default=0.0,
+            )
+            self._draw_sheets(
+                draw_art=False, draw_cut=True, dy=0.0,
+                dx0=total_w + max(50.0, total_w * 0.15),
+                interactive=False,
+            )
         else:
             self._draw_sheets(
                 draw_art=mode in ("both", "print"),
@@ -6500,7 +6515,8 @@ class MainWindow(QMainWindow):
         self._refresh_object_list()
         self._update_overlay()
 
-    def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float, interactive: bool) -> None:
+    def _draw_sheets(self, *, draw_art: bool, draw_cut: bool, dy: float,
+                     dx0: float = 0.0, interactive: bool) -> None:
         result = self._result
         by_id = {a.id: a for a in result.artworks}
         # cores do canvas SEMPRE pelos tokens do tema (QA-06: valores hardcoded
@@ -6550,7 +6566,7 @@ class MainWindow(QMainWindow):
         # graca (vetor puro, custo constante em qualquer zoom).
         shadow_brush = QBrush(QColor(17, 24, 39, 26))
         for index, layout in enumerate(result.sheets):
-            dx = index * (layout.material.width + SHEET_GAP_MM)
+            dx = dx0 + index * (layout.material.width + SHEET_GAP_MM)
             off = max(1.5, layout.material.width * 0.004)  # ~4/1000 da largura
             self._keep(self._scene.addRect(
                 dx + off, dy + off, layout.material.width, layout.used_length,
