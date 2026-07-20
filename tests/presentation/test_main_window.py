@@ -2234,6 +2234,32 @@ def test_jpeg_cmyk_vai_para_a_chapa(qapp, tmp_path):
     assert out.exists()
 
 
+def test_b1_multi_drop_da_biblioteca(qapp, tmp_path):
+    # B1: Ctrl/Shift seleciona VÁRIOS arquivos na biblioteca e o drop solta
+    # todos de uma vez (antes era um por um).
+    from PIL import Image
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QAbstractItemView
+
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    Image.new("RGB", (300, 200), (255, 0, 0)).save(a)
+    Image.new("RGB", (200, 300), (0, 0, 255)).save(b)
+    w = _window(tmp_path)
+    assert w._table.selectionMode() == QAbstractItemView.ExtendedSelection
+    w.add_paths([str(a), str(b)])
+    w._table.selectAll()  # equivale a Ctrl/Shift nas duas linhas
+
+    # sem produção: o drop gera com os DOIS arquivos selecionados
+    w._on_library_drop(QPointF(50, 50))
+    assert w._result is not None
+    assert sum(s.item_count for s in w._result.sheets) == 2
+
+    # com produção: o drop adiciona os dois de novo (2 + 2 = 4 peças)
+    w._table.selectAll()
+    w._on_library_drop(QPointF(50, 50))
+    assert sum(s.item_count for s in w._result.sheets) == 4
+
+
 def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
     # QA EXTREMO QAX-04 (🟠): cada setSelected disparava o handler O(n) →
     # O(n²): 2048 peças = travamento. Em lote, o handler roda 1x.

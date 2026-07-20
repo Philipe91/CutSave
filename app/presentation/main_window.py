@@ -4529,7 +4529,7 @@ class MainWindow(QMainWindow):
         self._table.setWordWrap(True)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._table.setDragEnabled(True)  # arrastar arquivo para a área de trabalho
         self._table.setDragDropMode(QAbstractItemView.DragOnly)
         self._table.itemSelectionChanged.connect(self._update_selection_info)
@@ -6986,9 +6986,24 @@ class MainWindow(QMainWindow):
 
     # ---- adicionar arquivo da biblioteca a produção já gerada (arrastar) ----
     def _on_library_drop(self, scene_pos) -> None:
-        row = self._table.currentRow()
-        if 0 <= row < len(self._paths):
-            self._add_file_to_production(self._paths[row], scene_pos)
+        rows = sorted({ix.row() for ix in self._table.selectedIndexes()})
+        if not rows:
+            rows = [self._table.currentRow()]
+        paths = [self._paths[r] for r in rows if 0 <= r < len(self._paths)]
+        if not paths:
+            return
+        if self._result is None or not self._loaded:
+            # ainda não gerou: o drop monta a produção com os arquivos
+            # SELECIONADOS (não todos), e SEM faca. A faca surge depois ao
+            # clicar "Gerar Faca". O usuário organiza dali.
+            self.generate(blocking=True, paths=paths, faca=False)
+            return
+        step = NUDGE_SUPER_MM
+        for n, path in enumerate(paths):
+            # deslocamento diagonal por arquivo para o drop não sobrepor
+            self._add_file_to_production(
+                path, QPointF(scene_pos.x() + n * step, scene_pos.y() + n * step)
+            )
 
     def _add_file_to_production(self, path: str, scene_pos) -> None:
         """Adiciona um arquivo da biblioteca a produção na posição do drop, sem
