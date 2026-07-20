@@ -120,10 +120,15 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                     for index in range(len(doc)):
                         pil = doc[index].render(scale=dpi / 72.0).to_pil()
                         target = f"{stem}_{index + 1:02d}{ext}" if multi else output_path
+                        # dpi GRAVADO no arquivo: sem ele o RIP/Corel abre a
+                        # 96dpi e a chapa de 19,7cm vira 92cm (teste real
+                        # 16/07 — regressão da migração PyMuPDF->pdfium)
                         if fmt == "jpeg":
-                            pil.convert("RGB").save(target, format="JPEG", quality=95)
+                            pil.convert("RGB").save(
+                                target, format="JPEG", quality=95, dpi=(dpi, dpi)
+                            )
                         else:
-                            pil.save(target, format=fmt.upper())
+                            pil.save(target, format=fmt.upper(), dpi=(dpi, dpi))
                         generated.append(target)
                 finally:
                     doc.close()

@@ -114,6 +114,23 @@ def test_export_image_gera_png_no_dpi(tmp_path):
     assert abs(pix.width - 200 / 25.4 * 150) < 5
 
 
+def test_export_image_grava_o_dpi_no_arquivo(tmp_path):
+    # Regressão 16/07 (teste real): PNG/JPEG saíam SEM o dpi gravado — o
+    # RIP/Corel abria a 96dpi e a chapa de 19,7cm virava 92cm ("10x maior").
+    from PIL import Image
+
+    src = _source_pdf(tmp_path)
+    art_w, art_h = 144 / MM2PT, 72 / MM2PT
+    for ext, fmt in (("png", "png"), ("jpg", "jpeg")):
+        out = tmp_path / f"DPI.{ext}"
+        PikePdfPrintExporter().export_image(
+            [_sheet(src, art_w, art_h, 200)], str(out), dpi=300, image_format=fmt
+        )
+        dpi = Image.open(str(out)).info.get("dpi")
+        assert dpi is not None, f"{fmt}: dpi não gravado"
+        assert abs(dpi[0] - 300) < 2 and abs(dpi[1] - 300) < 2
+
+
 def test_export_image_varias_chapas_numera(tmp_path):
     src = _source_pdf(tmp_path)
     out = tmp_path / "IMG.png"
