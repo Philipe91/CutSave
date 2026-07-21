@@ -23,7 +23,7 @@ As imagens deste guia ficam na pasta `imagens/` ao lado deste arquivo.
 3. Abra o CorelDRAW e crie o botão (só na primeira vez):
    - **Ferramentas → Opções → Personalização → Comandos**
      *(em algumas versões: Ferramentas → Personalização → Comandos)*
-     *(imagem: imagens/01-abrir-personalizacao.png)*
+     ![Menu Ferramentas](imagens/01-abrir-personalizacao.png)
    - No filtro (lista suspensa no alto), escolha **Macros**;
      *(imagem: imagens/02-filtro-macros.png)*
    - **Arraste** o item **PrintNest.PrintNestMenu** para a barra de cima;
@@ -48,16 +48,20 @@ Pronto! 🎉
 ### Modo Corte (laser/CNC)
 1. Selecione as peças ou o texto no Corel (texto **não** precisa converter em
    curvas — o plugin converte sozinho).
-2. Botão **PrintNest** → **[Não] Modo Corte**. A janela abre **já
-   organizando** as peças pelo contorno real.
-   *(imagem: imagens/05-modo-corte-organizando.png)*
+2. Botão **PrintNest** → aparece a pergunta → **[Não] Modo Corte**.
+
+   ![As duas opções](imagens/07-popup-duas-opcoes.png)
+
+   A janela abre **já organizando** as peças pelo contorno real.
+
+   ![Modo Corte organizado](imagens/05-modo-corte-organizando.png)
 3. Ajuste se quiser: **Giro das peças** (mais fino = encaixe mais denso, um
    pouco mais demorado) e **Tempo de otimização** (mais tempo = melhor
    aproveitamento). Clique **Organizar** de novo.
 4. Escolha a saída:
    - **Enviar p/ Corel** → o arranjo volta para a página do Corel como
      **curvas magenta editáveis** — ajuste fino, duplicação, o que quiser;
-     *(imagem: imagens/06-enviar-para-corel.png)*
+     ![Enviar para o Corel](imagens/06-enviar-para-corel.png)
    - **Exportar DXF** → arquivo em milímetros, layer CUT, direto na máquina.
 
 ## Botões disponíveis (se quiser mais de um)
