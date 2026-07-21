@@ -1618,6 +1618,9 @@ class MainWindow(QMainWindow):
         )
         reset = self._act("Resetar arranjo", self._reset_arrangement, None,
                           "Refaz o nesting do zero (descarta ajustes manuais)")
+        modo_corte = self._act("Modo Corte", self._open_cut_mode, None,
+                               "Nesting pelo contorno REAL (laser/CNC): importa SVG, PDF "
+                               "ou texto, encaixa as peças e exporta o DXF")
         rem = self._act("Remover PDF selecionado", self.remove_selected, None,
                         "Remove o PDF selecionado da lista")
         dup = self._act("Duplicar", self._duplicate_selected, "Ctrl+D",
@@ -1912,6 +1915,12 @@ class MainWindow(QMainWindow):
                 # não cair no overflow (») da barra em telas menores.
                 tb.tool_button(cartelas_act, "scissors"),
             ])] if CARTELAS_ENABLED else []),
+            ("Corte", [
+                # Modo Corte (laser/CNC) e um fluxo SEPARADO: abre em dialogo
+                # proprio, com cena e exportacao proprias, e nao mexe no
+                # arranjo de impressao que estiver na tela.
+                tb.tool_button(modo_corte, "scissors"),
+            ]),
             ("Exportar", [
                 # QA 2.0: o grupo só tem exportações — o nome dizia "Produção"
                 # e mentia. Faca inteira mora na barra Faca (propBar).
@@ -7453,6 +7462,15 @@ class MainWindow(QMainWindow):
         """Refaz o nesting do zero (descarta movimentos/exclusoes/duplicatas)."""
         self._fit_next = True
         self._relayout(from_table=True)
+
+    def _open_cut_mode(self) -> None:
+        """Modo Corte (laser/CNC): dialogo modal com cena e exportacao
+        proprias — nao toca no arranjo de impressao. Import tardio porque o
+        dialogo puxa pyclipper/fontTools, peso que o modo Impressao nao paga
+        se o operador nunca abrir o Modo Corte."""
+        from app.presentation.cut_mode_dialog import CutModeDialog
+
+        CutModeDialog(self, export_dxf=self._dxf_export).exec()
 
     def _draw_marks(self, layout, artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen) -> None:
         if reg in ("circles", "both"):

@@ -119,6 +119,77 @@ Entregue: proposta → após meu ok, a mudança + teste. Commit só com aprovaç
 
 ---
 
+## TAREFA D1 — Modo Corte: rotação fina das letras (15°/45°)
+
+```
+TAREFA (faça SÓ esta, nada além):
+D1 — No Modo Corte, permitir rotações além de 0/90/180/270° (45° e 15°) para
+letras/formas orgânicas encaixarem mais — pedido do Philipe em 21/07.
+NÃO é flip de flag: o domínio hoje SÓ aceita múltiplos de 90.
+Âncoras:
+- app/domain/model/placement.py: Rotation é IntEnum {0,90,180,270} e
+  PlacedItem.rotation usa esse enum → precisa aceitar ângulo arbitrário
+  (float ou enum estendido) SEM quebrar project_io (serializa como int).
+- app/domain/nesting/true_shape.py:_to_rotation (~L547) rejeita fora de 90 em
+  90; o cache de NFP é por (forma, rotação) → mais ângulos = cache e tempo
+  crescem linear. Expor a escolha (90/45/15) em vez de liberar tudo.
+- app/application/use_cases/run_true_shape_nesting.py:placed_cut_contours já
+  gira por float(item.rotation) → a Fase 4 acompanha de graça.
+- UI: app/presentation/cut_mode_dialog.py — trocar o checkbox "Permitir girar"
+  por combo "Rotações: Nenhuma / 90° / 45° / 15°".
+Entregue: proposta do modelo de dados ANTES de codar (mexe em domínio
+serializado). Depois do ok: mudança + testes (inclusive project_io). Commit só
+com aprovação.
+```
+
+---
+
+## TAREFA D2 — Plugin CorelDRAW do Modo Corte
+
+```
+TAREFA (faça SÓ esta, nada além):
+D2 — Botão "PrintNest Corte" no CorelDRAW: exporta o desenho (página ou
+seleção) e abre DIRETO o diálogo do Modo Corte com o arquivo já carregado,
+para organizar e exportar o DXF de lá — pedido do Philipe em 21/07.
+A infra já existe: corel/PrintNest.bas exporta PDF temporário preservando
+vetores e chama o PrintNest.exe (instância única, printnest_path.txt).
+Âncoras:
+- corel/PrintNest.bas: duplicar a macro com um argumento novo (ex.:
+  --modo-corte <pdf>) na linha de comando.
+- printnest_main.py / app/presentation/__main__.py: tratar o argumento; com
+  ele, abrir a MainWindow e chamar _open_cut_mode + add_vector_file(pdf)
+  (cut_mode_dialog.add_vector_file já aceita PDF).
+- Instância única: conferir como o arquivo entra na sessão atual (ver
+  tests/presentation/test_single_instance.py) e rotear o argumento novo.
+- corel/README.md + instalar_plugin_corel.bat: documentar o botão novo e
+  lembrar que o Philipe precisa regerar o PrintNest.gms.
+Entregue: mudança + teste do parse do argumento + atualização do README do
+corel/. Commit só com aprovação.
+```
+
+---
+
+## TAREFA D3 — Modo Corte: "Allow inside" (nestar dentro de furos), estilo eCut
+
+```
+TAREFA (faça SÓ esta, nada além):
+D3 — Nestar pecas PEQUENAS dentro dos FUROS de pecas grandes (miolo do "O",
+vao do "e"), como o "Allow inside" do eCut — e o principal ganho de densidade
+que falta para igualar o visual do eCut (21/07: nosso aproveitamento ja empata
+em ~37-38%, mas o eCut preenche os vaos).
+Âncoras:
+- app/domain/nesting/true_shape.py: inside_check=True hoje lanca
+  NotImplementedError (~L602); os furos ja viajam em NestingShape.holes.
+- O IFP hoje e so o retangulo da chapa (_ifp_rect); "inside" = IFP adicional
+  dentro de cada furo de peca JA colocada (Minkowski do furo com a peca nova).
+- Fase 4 (placed_cut_contours) e preview ja desenham furo — nada muda la.
+Entregue: proposta de design ANTES (custo de NFP por furo, criterio de escolha
+furo x chapa), depois implementacao + testes com oraculo. Commit so com
+aprovacao.
+```
+
+---
+
 ## Ondas 2 e 3 (depois)
 - A2 (marca personalizável) + A3 (novos tipos) — só após o Philipe enviar o
   documento com a pesquisa das marcas do mercado.
