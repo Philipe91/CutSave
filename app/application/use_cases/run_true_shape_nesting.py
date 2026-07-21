@@ -42,13 +42,19 @@ def to_nesting_shapes(
     shapes: Sequence[PolygonWithHoles],
     *,
     rotations: tuple[float, ...] = (0.0, 90.0, 180.0, 270.0),
+    start: int = 1,
 ) -> list[NestingShape]:
     """PolygonWithHoles -> NestingShape com ids sequenciais estaveis
     ("shape-0001", ...). Quem tem GlyphShapes achata os .shapes antes de
-    chamar — cada corpo vira uma peca independente no nesting."""
+    chamar — cada corpo vira uma peca independente no nesting.
+
+    'start' existe porque a numeracao reinicia a cada chamada: quem JUNTA o
+    resultado de varias chamadas (a UI da Fase 5 importa varios arquivos)
+    precisa continuar a contagem, senao dois lotes colidem no mesmo id e o
+    dicionario da reconstrucao devolve o contorno errado."""
     return [
         NestingShape(f"shape-{i:04d}", shape.outer, tuple(rotations), shape.holes)
-        for i, shape in enumerate(shapes, start=1)
+        for i, shape in enumerate(shapes, start=start)
     ]
 
 
@@ -86,6 +92,53 @@ class RunTrueShapeNestingUseCase:
         self._packer = packer
         self._exporter = exporter
 
+    # -- calculo (sem gravar nada) ----------------------------------------------
+
+    def pack(self, shapes: Sequence[NestingShape], material: Material) -> Layout:
+        """So o nesting da chapa aberta. Existe separado de execute() para o
+        PREVIEW: com genetics_time o resultado NAO e deterministico, entao
+        desenhar e exportar precisam partir do MESMO Layout — senao o DXF sai
+        diferente do que o usuario viu na tela."""
+        return self._packer.pack(self._checked(shapes), material)
+
+    def pack_sheets(
+        self, shapes: Sequence[NestingShape], material: Material, sheet_length: float
+    ) -> list[Layout]:
+        """So o nesting em folhas (ver pack)."""
+        return list(self._packer.pack_sheets(self._checked(shapes), material, sheet_length))
+
+    # -- gravacao ---------------------------------------------------------------
+
+    def export_layouts(
+        self,
+        shapes: Sequence[NestingShape],
+        layouts: Sequence[Layout],
+        output_path: str,
+        *,
+        per_sheet: bool = False,
+    ) -> NestingExportResult:
+        """Grava layouts JA calculados. per_sheet=True gera um DXF por folha
+        com sufixo _folha1, _folha2... — a numeracao segue os ARQUIVOS
+        gravados, entao folha vazia no meio nao abre buraco na sequencia."""
+        shapes = self._checked(shapes)
+        layouts = tuple(layouts)
+        unplaced = _unplaced_ids(shapes, layouts)
+        paths: list[str] = []
+        for layout in layouts:
+            contours = _layout_contours(shapes, layout)
+            if not contours:
+                continue
+            path = _sheet_path(output_path, len(paths) + 1) if per_sheet else output_path
+            paths.append(self._exporter.execute(contours, path))
+        if not paths:
+            raise ValidationError(
+                "Nenhuma peca coube no material — nada para exportar "
+                f"(fora do nesting: {', '.join(unplaced)})."
+            )
+        return NestingExportResult(tuple(paths), layouts, unplaced)
+
+    # -- pack + gravacao (atalho) -----------------------------------------------
+
     def execute(
         self,
         shapes: Sequence[NestingShape],
@@ -94,16 +147,7 @@ class RunTrueShapeNestingUseCase:
     ) -> NestingExportResult:
         """Chapa aberta/bobina (pack): UM DXF em output_path."""
         shapes = self._checked(shapes)
-        layout = self._packer.pack(shapes, material)
-        unplaced = _unplaced_ids(shapes, (layout,))
-        contours = _layout_contours(shapes, layout)
-        if not contours:
-            raise ValidationError(
-                "Nenhuma peca coube no material — nada para exportar "
-                f"(fora do nesting: {', '.join(unplaced)})."
-            )
-        path = self._exporter.execute(contours, output_path)
-        return NestingExportResult((path,), (layout,), unplaced)
+        return self.export_layouts(shapes, (self.pack(shapes, material),), output_path)
 
     def execute_sheets(
         self,
@@ -116,19 +160,8 @@ class RunTrueShapeNestingUseCase:
         """Folhas de altura fixa (pack_sheets): um DXF por folha, com sufixo
         _folha1, _folha2... no nome de output_path."""
         shapes = self._checked(shapes)
-        layouts = tuple(self._packer.pack_sheets(shapes, material, sheet_length))
-        unplaced = _unplaced_ids(shapes, layouts)
-        paths: list[str] = []
-        for number, layout in enumerate(layouts, start=1):
-            contours = _layout_contours(shapes, layout)
-            if contours:
-                paths.append(self._exporter.execute(contours, _sheet_path(output_path, number)))
-        if not paths:
-            raise ValidationError(
-                "Nenhuma peca coube nas folhas — nada para exportar "
-                f"(fora do nesting: {', '.join(unplaced)})."
-            )
-        return NestingExportResult(tuple(paths), layouts, unplaced)
+        layouts = self.pack_sheets(shapes, material, sheet_length)
+        return self.export_layouts(shapes, layouts, output_path, per_sheet=True)
 
     # -- internas ---------------------------------------------------------------
 
