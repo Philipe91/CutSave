@@ -132,6 +132,49 @@ def test_mudar_parametro_invalida_o_preview(dialog, tmp_path):
     assert not dialog._scene.items()
 
 
+def test_preencher_furos_vem_ligado_e_chega_no_packer(dialog):
+    # Fase 6: "Allow inside" ligado por padrao — o vao das letras e material
+    # que hoje vira sucata.
+    assert dialog._inside.isChecked()
+    assert dialog._packer()._inside_check is True
+    dialog._inside.setChecked(False)
+    assert dialog._packer()._inside_check is False
+
+
+def test_preencher_furos_invalida_o_preview(dialog, tmp_path):
+    dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
+    dialog.nest()
+    assert dialog._layouts
+    dialog._inside.setChecked(False)
+    assert dialog._layouts == ()
+    assert not dialog._btn_export.isEnabled()
+
+
+def test_preencher_furos_enche_o_miolo_do_O(dialog, tmp_path):
+    # 'O' 100x100 com furo 60 + um quadrado 20: com a caixa ligada o quadrado
+    # cabe no miolo e a chapa nao cresce; desligada ele desce para outra linha.
+    anel = _svg(
+        tmp_path,
+        '<path d="M0,0 H100 V100 H0 Z M20,20 V80 H80 V20 Z" fill-rule="evenodd"/>',
+        "anel.svg",
+    )
+    dialog.add_vector_file(anel)
+    dialog.add_vector_file(_rect_svg(tmp_path, 20, 20, "quadrado.svg"))
+    dialog._width.setValue(110.0)
+    dialog._margin.setValue(0.0)
+    dialog._gap.setValue(2.0)
+    dialog._rotate_mode.setCurrentIndex(0)  # Sem giro: cenario previsivel
+
+    dialog.nest()
+    com_furo = dialog._layouts[0].used_length
+    dialog._inside.setChecked(False)
+    dialog.nest()
+    sem_furo = dialog._layouts[0].used_length
+
+    assert com_furo == pytest.approx(100.0)
+    assert sem_furo == pytest.approx(122.0)  # 100 + gap 2 + quadrado 20
+
+
 def test_peca_maior_que_a_chapa_aparece_em_nao_coube(dialog, tmp_path):
     dialog.add_vector_file(_rect_svg(tmp_path, 90, 90))
     dialog._width.setValue(30.0)

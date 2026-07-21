@@ -65,6 +65,19 @@ Pronto! 🎉
 3. Ajuste se quiser: **Giro das peças** (mais fino = encaixe mais denso, um
    pouco mais demorado) e **Tempo de otimização** (mais tempo = melhor
    aproveitamento). Clique **Organizar** de novo.
+
+   **Preencher furos (peça dentro de peça)** aproveita o vão interno das
+   peças — o miolo do "O", o buraco do "8" — para encaixar as peças menores.
+   Vem ligado e pode ficar assim: o programa testa **com e sem** o vão e fica
+   com o que render mais, então ligar não estraga um encaixe que já estava
+   bom. O ganho grande aparece quando há peças pequenas junto de peças com
+   vão largo. Como a conta fica mais pesada, em lote grande vale subir o
+   **Tempo de otimização** para 30–60s.
+
+   No DXF o corte sai **de dentro para fora**: primeiro a peça que ficou
+   dentro do vão, depois os furos, e o contorno externo por último. Se a
+   máquina fechasse o contorno de fora primeiro, a peça se soltaria da chapa
+   e o que faltava cortar sairia desalinhado.
 4. Escolha a saída:
    - **Enviar p/ Corel** → o arranjo volta para a página do Corel como
      **curvas magenta editáveis** — ajuste fino, duplicação, o que quiser;

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from PySide6.QtCore import QRectF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -307,6 +308,17 @@ class CutModeDialog(QDialog):
         self._seconds.setToolTip("Tempo do algoritmo genético — mais tempo, melhor encaixe")
         self._seconds.valueChanged.connect(self._invalidate)
         form.addRow("Tempo de otimização", self._seconds)
+
+        # "Allow inside" do mercado: enche o miolo do "O", o vão do "8". Ligado
+        # por padrão — é material que hoje vira sucata. Sai no DXF de dentro
+        # para fora (a peça hospedada corta antes do contorno que a envolve).
+        self._inside = QCheckBox("Preencher furos (peça dentro de peça)")
+        self._inside.setChecked(True)
+        self._inside.setToolTip(
+            "Aproveita o vão interno das peças (miolo do 'O') para encaixar peças menores"
+        )
+        self._inside.stateChanged.connect(self._invalidate)
+        form.addRow("", self._inside)
         return box
 
     # -- entrada de pecas --------------------------------------------------------
@@ -390,6 +402,7 @@ class CutModeDialog(QDialog):
             margin=self._margin.value(),
             genetics_time=self._seconds.value(),
             approximation=0.5,
+            inside_check=self._inside.isChecked(),
         )
 
     def _use_case(self) -> RunTrueShapeNestingUseCase:
