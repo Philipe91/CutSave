@@ -140,6 +140,54 @@ def test_nada_coube_lanca_erro_claro_sem_dxf(tmp_path):
     assert not out.exists()
 
 
+def test_peca_hospedada_num_furo_e_cortada_antes_do_hospedeiro(tmp_path):
+    # Fase 6: com "Allow inside" o quadrado 20 cai no miolo do 'O' 100 (furo
+    # 60). Na maquina o contorno de fora tem de ser o ULTIMO — cortado antes,
+    # o 'O' se solta da chapa e a peca de dentro desalinha no meio do corte.
+    o = PolygonWithHoles(_rect(100, 100), (_rect(60, 60, 20, 20),))
+    shapes = to_nesting_shapes([o, PolygonWithHoles(_rect(20, 20))], rotations=(0.0,))
+    out = tmp_path / "furo.dxf"
+    uc = _use_case(gap=2.0, margin=0.0, approximation=0.0, inside_check=True)
+    result = uc.execute(shapes, Material("acrilico", 110.0), str(out))
+    assert result.unplaced_ids == ()
+
+    boxes = _polyline_boxes(str(out))
+    assert len(boxes) == 3  # outer do 'O' + furo do 'O' + o quadrado
+    larguras = [round(b[2] - b[0], 3) for b in boxes]
+    # ordem no ARQUIVO = ordem de corte, de dentro para fora: a peca hospedada
+    # (20), depois o furo do 'O' (60) e por ultimo o contorno externo (100).
+    assert larguras == [20.0, 60.0, 100.0]
+
+    # e o quadrado esta MESMO dentro do furo (senao o teste de ordem nao prova
+    # nada): bbox do 20 contido no bbox do furo, no arquivo ja refletido.
+    q, furo, _ = boxes
+    assert furo[0] <= q[0] and furo[1] <= q[1] and q[2] <= furo[2] and q[3] <= furo[3]
+
+
+def test_furo_da_propria_peca_e_cortado_antes_do_contorno_externo(tmp_path):
+    # Mesma fisica, sem inside_check: se a maquina fecha o contorno externo
+    # primeiro, a peca solta da chapa e o furo sai fora de lugar.
+    o = PolygonWithHoles(_rect(40, 40), (_rect(10, 10, 15, 15),))
+    shapes = to_nesting_shapes([o], rotations=(0.0,))
+    out = tmp_path / "furo_proprio.dxf"
+    _use_case().execute(shapes, Material("vinil", 100.0), str(out))
+    larguras = [round(b[2] - b[0], 3) for b in _polyline_boxes(str(out))]
+    assert larguras == [10.0, 40.0]
+
+
+def test_sem_furo_a_ordem_do_dxf_segue_o_layout(tmp_path):
+    # nao-regressao: sem peca hospedada, _cut_order nao reordena nada.
+    shapes = to_nesting_shapes([PolygonWithHoles(_rect(30, 30)), PolygonWithHoles(_rect(50, 20))])
+    out = tmp_path / "simples.dxf"
+    result = _use_case().execute(shapes, Material("vinil", 200.0), str(out))
+    by_id = {s.artwork_id: s for s in shapes}
+    esperado = [
+        round(placed_cut_contours(by_id[i.artwork_id], i)[0].size.width, 3)
+        for i in result.layouts[0].items
+    ]
+    assert [round(b[2] - b[0], 3) for b in _polyline_boxes(str(out))] == esperado
+
+
 def test_execute_sheets_gera_um_dxf_numerado_por_folha(tmp_path):
     # largura 40 e folha de 35mm: cada quadrado de 30 exige uma folha propria
     shapes = to_nesting_shapes([PolygonWithHoles(_rect(30, 30)), PolygonWithHoles(_rect(30, 30))])

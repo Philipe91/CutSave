@@ -12,6 +12,9 @@ transladar para position. FUROS recebem EXATAMENTE o mesmo transform do
 outer — mesmo centro de giro e mesmo delta; normalizar o furo pelo proprio
 bbox descolaria o furo da letra.
 
+ORDEM DE CORTE (Fase 6): com "Allow inside" ligado uma peca pode cair dentro
+do furo de outra. O DXF sai de DENTRO PARA FORA — ver _cut_order.
+
 DETALHE ORIGINAL: o 'approximation' do packer simplifica o contorno SO para
 acelerar o NFP. O DXF corta o contorno REAL: a reconstrucao parte das
 NestingShapes que o CHAMADOR passou (por artwork_id), nunca do que o packer
@@ -27,6 +30,7 @@ from dataclasses import dataclass
 
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.domain.geometry import Point2D
+from app.domain.geometry.polygon import Polygon
 from app.domain.geometry.polygon_with_holes import PolygonWithHoles
 from app.domain.model.cut_contour import CutContour
 from app.domain.model.layout import Layout
@@ -174,14 +178,67 @@ class RunTrueShapeNestingUseCase:
 
 
 def _layout_contours(shapes: Sequence[NestingShape], layout: Layout) -> list[CutContour]:
-    """Contornos reais de todas as pecas do layout, na ordem dos items.
+    """Contornos reais de todas as pecas do layout, na ORDEM DE CORTE.
     Copias com o mesmo artwork_id compartilham o contorno (precondicao do
     packer), entao o dicionario por id basta."""
     by_id = {shape.artwork_id: shape for shape in shapes}
+    pieces = [placed_cut_contours(by_id[item.artwork_id], item) for item in layout.items]
     contours: list[CutContour] = []
-    for item in layout.items:
-        contours.extend(placed_cut_contours(by_id[item.artwork_id], item))
+    for piece in _cut_order(pieces):
+        # DENTRO DE CADA PECA a mesma regra: os furos primeiro, o contorno
+        # externo por ultimo. Cortar o externo antes solta a peca da chapa e
+        # o furo sai desalinhado — vale para todo trabalho com furo, nao so
+        # para os da Fase 6.
+        contours.extend(piece[1:])
+        contours.append(piece[0])
     return contours
+
+
+def _cut_order(pieces: Sequence[list[CutContour]]) -> list[list[CutContour]]:
+    """REGRA DE ORDEM DE CORTE (Fase 6, "Allow inside"): peca hospedada dentro
+    do furo de outra sai ANTES do contorno que a envolve.
+
+    Com inside_check o nesting pode botar uma peca no miolo do "O". Se a
+    maquina cortar o "O" primeiro, ele se solta da chapa e a peca de dentro —
+    ainda por cortar — desalinha junto. Cortando de dentro para fora, cada
+    peca ainda esta presa quando e cortada.
+
+    A profundidade e medida GEOMETRICAMENTE aqui, no momento da exportacao,
+    e nao carregada no Layout: PlacedItem nao sabe (nem precisa saber) quem
+    hospedou quem, e assim a regra vale para qualquer arranjo aninhado,
+    inclusive peca dentro de peca dentro de peca. Ordenacao ESTAVEL: quem tem
+    a mesma profundidade mantem a ordem do layout.
+    """
+    if not any(len(piece) > 1 for piece in pieces):
+        return list(pieces)  # ninguem tem furo: nada para reordenar
+    depth = [
+        sum(1 for j, host in enumerate(pieces) if j != i and _hosts(host, piece[0]))
+        for i, piece in enumerate(pieces)
+    ]
+    return [piece for _, piece in sorted(zip(depth, pieces, strict=True), key=lambda t: -t[0])]
+
+
+def _hosts(host: Sequence[CutContour], outer: CutContour) -> bool:
+    """True se algum furo de 'host' contem o contorno 'outer' (a peca esta
+    hospedada nesse furo). Bbox primeiro — o teste caro so roda no punhado de
+    candidatos que sobra."""
+    box = _box(outer.points)
+    for hole in host[1:]:
+        hole_box = _box(hole.points)
+        if not (
+            hole_box[0] <= box[0] and hole_box[1] <= box[1]
+            and box[2] <= hole_box[2] and box[3] <= hole_box[3]
+        ):
+            continue
+        if Polygon(tuple(hole.points)).contains(outer.points[0]):
+            return True
+    return False
+
+
+def _box(points: Sequence[Point2D]) -> tuple[float, float, float, float]:
+    xs = [p.x for p in points]
+    ys = [p.y for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _unplaced_ids(
