@@ -24,13 +24,20 @@ As imagens deste guia ficam na pasta `imagens/` ao lado deste arquivo.
    - **Ferramentas → Opções → Personalização → Comandos**
      *(em algumas versões: Ferramentas → Personalização → Comandos)*
      ![Menu Ferramentas](imagens/01-abrir-personalizacao.png)
-   - No filtro (lista suspensa no alto), escolha **Macros**;
-     *(imagem: imagens/02-filtro-macros.png)*
-   - **Arraste** o item **PrintNest.PrintNestMenu** para a barra de cima;
-     *(imagem: imagens/03-arrastar-botao.png)*
-   - (Opcional, fica bonito) aba **Aparência** → **Importar** → escolha a
-     imagem `printnest_symbol.png` da pasta do plugin.
-     *(imagem: imagens/04-aparencia-logo.png)*
+   - Na lista suspensa no alto (onde diz "Ajuda"), escolha **Macros**;
+
+     ![Escolher Macros](imagens/02-filtro-macros.png)
+
+   - Ache **PrintNest.PrintNestMenu** na lista e **arraste** para a barra
+     de ferramentas de cima;
+
+     ![Arrastar o botão](imagens/03-arrastar-botao.png)
+
+   - (Opcional, fica bonito) com o item ainda selecionado, na aba **Geral**
+     ao lado, clique em **Ícone → Procurar...** e escolha a imagem
+     `printnest_symbol.png` da pasta do plugin.
+
+     ![Colocar a logo](imagens/04-aparencia-logo.png)
 
 Pronto! 🎉
 
