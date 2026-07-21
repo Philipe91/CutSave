@@ -103,3 +103,53 @@ def test_sem_pecas():
     layout = MaxRectsPacker().pack([], Material("UV", width=1000))
     assert layout.item_count == 0
     assert layout.used_length == 0
+
+
+# --- rotacao 90 (opt-in) -----------------------------------------------------
+
+
+def _rects_com_rotacao(layout, sizes):
+    """Bounding boxes efetivos honrando PlacedItem.rotation (90/270 troca w/h)."""
+    out = []
+    for it in layout.items:
+        s = sizes[it.artwork_id]
+        w, h = (s.height, s.width) if int(it.rotation) % 180 == 90 else (s.width, s.height)
+        out.append((it.position.x, it.position.y, w, h))
+    return out
+
+
+def test_rotacao_desligada_por_padrao():
+    # sem allow_rotate, nada muda: peca deitada NAO gira mesmo sendo melhor.
+    pieces = [NestingPiece("a", Size(60, 40)), NestingPiece("b", Size(60, 40))]
+    layout = MaxRectsPacker().pack(pieces, Material("UV", width=100, margin=0))
+    assert all(int(it.rotation) == 0 for it in layout.items)
+    assert layout.used_length == 80  # empilhadas (60+60 nao cabe em 100)
+
+
+def test_peca_que_so_cabe_deitada_e_rotacionada():
+    # 80mm de largura nao cabe na chapa de 50mm; a 90 (30x80) cabe.
+    pieces = [NestingPiece("a", Size(80, 30))]
+    layout = MaxRectsPacker(allow_rotate=True).pack(pieces, Material("UV", width=50, margin=0))
+    (item,) = layout.items
+    assert int(item.rotation) == 90
+    assert item.position.x + 30 <= 50 + 1e-6  # largura efetiva respeita a chapa
+    assert layout.used_length == 80
+
+
+def test_rotacao_melhora_aproveitamento():
+    pieces = [NestingPiece("a", Size(60, 40)), NestingPiece("b", Size(60, 40))]
+    mat = Material("UV", width=100, margin=0)
+    sem = MaxRectsPacker().pack(pieces, mat)
+    com = MaxRectsPacker(allow_rotate=True).pack(pieces, mat)
+    assert com.used_length < sem.used_length  # 60 (lado a lado girada) < 80
+    assert _no_overlaps(_rects_com_rotacao(com, _sizes(pieces)))
+
+
+def test_pack_sheets_com_rotacao_sem_sobreposicao():
+    pieces = [NestingPiece(f"a{i}", Size(300, 150)) for i in range(6)]
+    sheets = MaxRectsPacker(allow_rotate=True).pack_sheets(
+        pieces, Material("UV", width=400, margin=10, spacing=5, spacing_y=5), 700
+    )
+    assert sum(s.item_count for s in sheets) == 6  # nada se perde
+    for s in sheets:
+        assert _no_overlaps(_rects_com_rotacao(s, _sizes(pieces)))

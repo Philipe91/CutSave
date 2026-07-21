@@ -7,8 +7,9 @@ pecas de tamanhos diferentes preenchem os vaos (ao contrario do grid simples,
 que so empilha em linhas e desperdica os buracos).
 
 Mesma interface do GridPacker (pack / pack_sheets), entao e plugavel no
-RunGridNestingUseCase sem mexer no resto do motor. NAO rotaciona as pecas (o
-desenho/exportacao ainda nao honram rotacao por peca) e usa espacamento >= 0
+RunGridNestingUseCase sem mexer no resto do motor. Rotacao 90 e OPT-IN
+(allow_rotate=False por padrao: o preview/export da UI ainda gira por arquivo
+via params, nao por instancia via PlacedItem.rotation). Usa espacamento >= 0
 (negativo = sobreposicao nao se aplica ao MaxRects; tratado como 0).
 """
 
@@ -20,7 +21,7 @@ from dataclasses import dataclass
 from app.domain.geometry import Point2D
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
-from app.domain.model.placement import PlacedItem
+from app.domain.model.placement import PlacedItem, Rotation
 from app.domain.nesting.grid import NestingPiece
 
 # Tolerancia de ENCAIXE em mm. Era 1e-6: residuos de float da importacao
@@ -44,11 +45,11 @@ class _MaxRectsBin:
     def __init__(self, width: float, height: float) -> None:
         self._free: list[_Rect] = [_Rect(0.0, 0.0, width, height)]
 
-    def insert(self, w: float, h: float) -> _Rect | None:
-        """Posiciona um retangulo w x h pela heuristica Bottom-Left: o espaco que
-        deixa a peca mais EMBAIXO (menor topo), depois mais a esquerda. Minimiza a
-        altura usada (otimo para a chapa) e empacota denso. Retorna o retangulo
-        posicionado (coords locais) ou None se nao couber em lugar nenhum."""
+    def find(self, w: float, h: float) -> tuple[tuple[float, float], _Rect] | None:
+        """Melhor posicao para w x h pela heuristica Bottom-Left, SEM ocupar o
+        espaco: o espaco que deixa a peca mais EMBAIXO (menor topo), depois mais
+        a esquerda. Retorna (score, retangulo) para comparar orientacoes antes
+        de decidir, ou None se nao couber em lugar nenhum."""
         best = None
         best_score = (float("inf"), float("inf"))
         for fr in self._free:
@@ -59,10 +60,17 @@ class _MaxRectsBin:
                     best = _Rect(fr.x, fr.y, w, h)
         if best is None:
             return None
-        self._place(best)
-        return best
+        return best_score, best
 
-    def _place(self, used: _Rect) -> None:
+    def insert(self, w: float, h: float) -> _Rect | None:
+        """find + place num passo so (compat com quem nao compara orientacoes)."""
+        found = self.find(w, h)
+        if found is None:
+            return None
+        self.place(found[1])
+        return found[1]
+
+    def place(self, used: _Rect) -> None:
         novos: list[_Rect] = []
         for fr in self._free:
             novos.extend(self._split(fr, used))
@@ -129,6 +137,33 @@ class MaxRectsPacker:
     pack_sheets(pieces, material, sheet_length) -> varias chapas de altura fixa.
     """
 
+    def __init__(self, allow_rotate: bool = False) -> None:
+        # Rotacao 90 opcional (Distance/Margin do eCut ja sao spacing/margin).
+        # OFF por padrao: preview/export da UI ainda nao honram rotacao por
+        # instancia (PlacedItem.rotation); ligar so quando o consumidor honrar.
+        self._allow_rotate = allow_rotate
+
+    def _try_insert(
+        self, bin_: _MaxRectsBin, piece: NestingPiece, sp: float, spy: float
+    ) -> tuple[_Rect, Rotation, float, float] | None:
+        """Testa a peca a 0 e (se permitido) a 90 e ocupa a orientacao de menor
+        topo. Retorna (retangulo, rotacao, largura_efetiva, altura_efetiva) ja
+        SEM o espacamento, ou None se nao coube em nenhuma orientacao."""
+        w, h = piece.size.width, piece.size.height
+        candidatos = []
+        achou = bin_.find(w + sp, h + spy)
+        if achou is not None:
+            candidatos.append((achou[0], achou[1], Rotation.NONE, w, h))
+        if self._allow_rotate and abs(w - h) > _EPS:  # quadrado: girar nao muda
+            achou = bin_.find(h + sp, w + spy)
+            if achou is not None:
+                candidatos.append((achou[0], achou[1], Rotation.CW90, h, w))
+        if not candidatos:
+            return None
+        _, rect, rot, ew, eh = min(candidatos, key=lambda c: c[0])
+        bin_.place(rect)
+        return rect, rot, ew, eh
+
     @staticmethod
     def _ordered(pieces: Sequence[NestingPiece]) -> list[NestingPiece]:
         # peca maior primeiro (maior lado, depois area): melhora o encaixe.
@@ -144,17 +179,23 @@ class MaxRectsPacker:
         margin = material.margin
         bin_w = material.usable_width
         ordered = self._ordered(pieces)
-        # chapa aberta: altura generosa (soma das alturas) garante caber tudo.
-        total_h = sum(p.size.height + spy for p in ordered) + 1.0
+        # chapa aberta: altura generosa garante caber tudo (com rotacao, uma
+        # peca deitada pode ficar de pe, entao a folga usa o MAIOR lado).
+        total_h = sum(max(p.size.width, p.size.height) + spy for p in ordered) + 1.0
         bin_ = _MaxRectsBin(bin_w, max(total_h, 1.0))
         placed: list[PlacedItem] = []
         max_bottom = 0.0
         for piece in ordered:
-            rect = bin_.insert(piece.size.width + sp, piece.size.height + spy)
-            if rect is None:  # nao deveria ocorrer (altura generosa); empilha abaixo
+            achou = self._try_insert(bin_, piece, sp, spy)
+            if achou is None:  # nao deveria ocorrer (altura generosa); empilha abaixo
                 rect = _Rect(0.0, max_bottom, piece.size.width, piece.size.height)
-            placed.append(PlacedItem(piece.artwork_id, Point2D(margin + rect.x, margin + rect.y)))
-            max_bottom = max(max_bottom, rect.y + piece.size.height)
+                rot, eff_h = Rotation.NONE, piece.size.height
+            else:
+                rect, rot, _, eff_h = achou
+            placed.append(
+                PlacedItem(piece.artwork_id, Point2D(margin + rect.x, margin + rect.y), rot)
+            )
+            max_bottom = max(max_bottom, rect.y + eff_h)
         used_length = (max_bottom + 2 * margin) if placed else 0.0
         return Layout(material=material, items=placed, used_length=used_length)
 
@@ -183,12 +224,13 @@ class MaxRectsPacker:
             placed: list[PlacedItem] = []
             leftover: list[NestingPiece] = []
             for piece in remaining:
-                rect = bin_.insert(piece.size.width + sp, piece.size.height + spy)
-                if rect is None:
+                achou = self._try_insert(bin_, piece, sp, spy)
+                if achou is None:
                     leftover.append(piece)
                 else:
+                    rect, rot, _, _ = achou
                     placed.append(
-                        PlacedItem(piece.artwork_id, Point2D(margin + rect.x, margin + rect.y))
+                        PlacedItem(piece.artwork_id, Point2D(margin + rect.x, margin + rect.y), rot)
                     )
             if not placed:
                 # nenhuma peca coube numa chapa vazia (maior que a chapa):
