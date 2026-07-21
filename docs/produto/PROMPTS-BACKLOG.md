@@ -169,23 +169,85 @@ corel/. Commit só com aprovação.
 
 ---
 
-## TAREFA D3 — Modo Corte: "Allow inside" (nestar dentro de furos), estilo eCut
+## TAREFA D3 — Modo Corte: preencher furos (peça dentro de peça) — PROMPT MESTRE
 
 ```
-TAREFA (faça SÓ esta, nada além):
-D3 — Nestar pecas PEQUENAS dentro dos FUROS de pecas grandes (miolo do "O",
-vao do "e"), como o "Allow inside" do eCut — e o principal ganho de densidade
-que falta para igualar o visual do eCut (21/07: nosso aproveitamento ja empata
-em ~37-38%, mas o eCut preenche os vaos).
-Âncoras:
-- app/domain/nesting/true_shape.py: inside_check=True hoje lanca
-  NotImplementedError (~L602); os furos ja viajam em NestingShape.holes.
-- O IFP hoje e so o retangulo da chapa (_ifp_rect); "inside" = IFP adicional
-  dentro de cada furo de peca JA colocada (Minkowski do furo com a peca nova).
-- Fase 4 (placed_cut_contours) e preview ja desenham furo — nada muda la.
-Entregue: proposta de design ANTES (custo de NFP por furo, criterio de escolha
-furo x chapa), depois implementacao + testes com oraculo. Commit so com
-aprovacao.
+# PrintNest — Fase 6 (D3): nestar peça DENTRO do furo de outra peça
+
+Você está em C:\projetos\Cutph (Python, PySide6, Clean Architecture,
+ruff + pytest, venv em .venv). Responda e comente em português, no estilo
+dos arquivos vizinhos. NÃO commite — eu commito após revisão.
+
+## Missão
+Implementar o inside_check do TrueShapePacker ("Allow inside" de mercado):
+peça pequena entra no FURO de peça já colocada (miolo do "O", vão do "8").
+É o principal ganho de densidade que falta — nosso aproveitamento já empata
+em ~37-38% com o benchmark, mas os vãos ficam vazios.
+
+## Contexto (leia antes de codar)
+- app/domain/nesting/true_shape.py:
+  - TrueShapePacker(inside_check=True) hoje lança NotImplementedError (o
+    construtor guarda a vaga) — vire a chave REAL aqui.
+  - Furos já viajam em NestingShape.holes (o motor hoje só usa o outer).
+  - _place_nfp: região válida = IFP retangular da chapa − união dos NFPs
+    das peças postas; candidato = vértice da região com menor (y, x);
+    best_spot já busca rotação por peça quando recebe tupla.
+  - Cache de NFP por (id_a, rot_a, id_b, rot_b) — siga o padrão para o
+    novo "IFP de furo" (cache por furo × peça × rotações).
+  - Oráculo 2A (_overlaps/_inside_sheet) valida qualquer posicionador novo.
+- Convenção de escala inteira (pyclipper × _SCALE) e gap via _offset
+  (peça inflada em gap/2) — o furo deve ser ENCOLHIDO em gap/2 pelo mesmo
+  _offset com delta negativo.
+
+## Desenho sugerido
+1. _ifp_hole(hole, piece_norm): região onde a REFERÊNCIA (bbox.min) da peça
+   cabe TOTALMENTE dentro do furo = erosão do furo pela peça (Minkowski,
+   pyclipper). Validar contra teste bruteforce (amostrar posições e conferir
+   com contenção ponto a ponto + _overlaps).
+2. Em _place_nfp (quando inside_check): a região válida vira
+   (IFP chapa − NFPs) ∪ (para cada FURO de peça posta: _ifp_hole transladado
+   para a posição real − NFPs das peças que JÁ estão dentro desse furo).
+   O candidato continua sendo o menor (y, x) global — furo perto do topo
+   ganha naturalmente.
+3. O furo participante é o da peça POSTA com a rotação dela: girar os furos
+   junto (mesmo transform do outer, como a Fase 4 faz).
+4. Fitness do GA não muda (bbox encolhe sozinho quando o vão é usado).
+5. UI: no CutModeDialog, checkbox "Preencher furos (peça dentro de peça)"
+   LIGADO por padrão -> TrueShapePacker(inside_check=...). Invalida o
+   preview ao mudar (padrão dos outros parâmetros).
+
+## Armadilhas
+- GAP dentro do furo: peça interna infla gap/2 E o furo encolhe gap/2 —
+  senão o laser funde a peça interna na parede do furo.
+- Furo pequeno demais: _ifp_hole vazio -> segue o fluxo normal (chapa).
+- Peça DENTRO de furo não pode colidir com outra peça dentro do MESMO furo
+  (NFP entre internas) nem vazar para fora do furo.
+- Ordem de corte no DXF: a peça de dentro precisa ser cortada ANTES do
+  contorno que a envolve (senão a chapa solta e desalinha). No
+  export_layouts/DxfExporter, emita primeiro os contornos das peças
+  hospedadas em furos. Documente a regra.
+- Reconstrução da Fase 4 e preview NÃO mudam (peça interna é só um
+  PlacedItem em posição normal).
+
+## Testes (tests/domain/nesting/test_true_shape.py + dialog)
+- _ifp_hole validado contra bruteforce (quadrado em furo quadrado; círculo
+  aproximado em furo redondo).
+- Quadrado 20 SÓ cabe no furo 30 do "O" 100x100 em chapa apertada -> entra
+  no furo, sem overlap, dentro do furo (contenção), gap respeitado.
+- Furo com 2 peças internas -> sem overlap entre elas.
+- gap grande demais -> peça NÃO entra no furo (vai para a chapa/fica fora).
+- inside_check=False -> comportamento idêntico ao atual (suite antiga verde
+  SEM edição).
+- Dialog: checkbox liga/desliga e invalida preview; DXF sai com a peça
+  interna antes do outer hospedeiro (ordem no arquivo).
+- Determinismo: generations+seed -> dois packs idênticos.
+
+## Regras de sempre
+- ruff limpo nos arquivos tocados; suíte inteira verde (hoje 665).
+- Motor validado contra o oráculo; NÃO regredir os benchmarks (letras
+  150mm, chapa 1000: >=32/33 giradas, ~10s no orçamento de 10s).
+- Ao terminar, PARE e entregue resumo (decisões, arquivos, testes,
+  benchmark antes/depois do aproveitamento) para revisão.
 ```
 
 ---
