@@ -9,16 +9,15 @@ import random
 import time
 
 import pytest
-
 from app.domain.geometry import Point2D
 from app.domain.geometry.polygon import Polygon
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem, Rotation
 from app.domain.nesting.true_shape import (
-    TrueShapePacker,
     _UNPLACED_PENALTY,
     NestingShape,
+    TrueShapePacker,
     _ifp_rect,
     _inside_sheet,
     _nfp,
@@ -445,6 +444,44 @@ def test_packer_reconciliacao_rotacao_vira_enum():
     assert item.rotation is Rotation.CW90
     bb = _item_poly(shapes, item).bounding_box
     assert bb.width == pytest.approx(40) and bb.height == pytest.approx(80)
+
+
+def test_place_nfp_busca_rotacao_por_peca():
+    # entrada em TUPLA = candidatos: a peca testa as rotacoes e usa a que
+    # couber mais baixo (aqui, so a 90 cabe na chapa estreita).
+    shapes = [NestingShape("p", _rect(80, 40), rotations=(0.0, 90.0))]
+    mat = Material("chapa", width=60)
+    placements = _place_nfp(shapes, [(0.0, 90.0)], mat, sheet_h=200)
+    assert placements is not None and len(placements) == 1
+    assert placements[0].rotation == 90.0
+
+
+def test_sementes_avaliadas_mesmo_com_orcamento_estourado():
+    # orcamento zero: estoura ja na 1a avaliacao. As DUAS sementes sao o
+    # minimo util — sem avaliar a 'deitada', trabalho pesado nunca girava
+    # (caso real de 21/07: 44 letras de PDF voltavam 100% em pe).
+    shapes = [NestingShape(f"p{i}", _rect(30, 90)) for i in range(4)]
+    mat = Material("chapa", width=500, spacing=5)
+    ga = _optimize_ga(shapes, mat, 500, seed=1, genetics_time=0.0)
+    assert len(ga) == 4
+    # com o espacamento, deitar as 4 pecas da bbox menor que em pe
+    assert all(int(p.rotation) % 360 == 90 for p in ga)
+
+
+def test_packer_giro_fino_sai_como_float_em_graus():
+    # Angulo fora dos 90 em 90 ('Fix angle' fino do Modo Corte): o PlacedItem
+    # carrega o float em graus e a reconstrucao da Fase 4 (float(rotation))
+    # fecha o circuito sem enum.
+    shapes = [NestingShape("fina", _rect(80, 40), rotations=(45.0,))]
+    layout = TrueShapePacker(generations=3, seed=1).pack(shapes, Material("chapa", width=200))
+    assert len(layout.items) == 1
+    item = layout.items[0]
+    assert not isinstance(item.rotation, Rotation)
+    assert float(item.rotation) == pytest.approx(45.0)
+    bb = _item_poly(shapes, item).bounding_box
+    # retangulo 80x40 girado 45 graus: bbox quadrado de (80+40)/raiz(2)
+    assert bb.width == pytest.approx(120 / 2**0.5, rel=1e-3)
+    assert bb.height == pytest.approx(120 / 2**0.5, rel=1e-3)
 
 
 def test_packer_inside_check_e_fase_futura():

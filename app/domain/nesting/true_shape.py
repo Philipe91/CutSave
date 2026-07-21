@@ -27,6 +27,7 @@ Convencoes criticas (nao mudar sem revalidar contra o oraculo):
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from collections import Counter
@@ -40,7 +41,6 @@ from app.domain.geometry.polygon import Polygon
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.model.placement import PlacedItem, Rotation
-from app.shared.errors import ValidationError
 
 # mm -> unidade inteira do clipper (0,1 micron). Ver "escala inteira" acima.
 _SCALE = 10_000
@@ -274,13 +274,22 @@ def _ifp_rect(piece: Polygon, sheet_w: float, sheet_h: float, margin: float) -> 
 
 def _place_nfp(
     order: Sequence[NestingShape],
-    rotations_choice: Sequence[float],
+    rotations_choice: Sequence[float | tuple[float, ...]],
     material: Material,
     sheet_h: float,
     nfp_cache: dict[tuple[str, float, str, float], tuple[Polygon, ...]] | None = None,
-) -> list[_Placement]:
+    deadline: float | None = None,
+) -> list[_Placement] | None:
     """Posicionador NFP bottom-left: para cada peca (na ordem e rotacao dadas)
     a regiao valida da referencia = IFP - uniao dos NFPs das pecas ja postas.
+
+    Cada entrada de 'rotations_choice' pode ser UM angulo (comportamento do
+    GA: rotacao fixa pelo gene) ou uma TUPLA de candidatos: a peca testa
+    todos e fica com o ponto mais baixo (min y, depois x) — a busca de
+    rotacao por peca do bottom-left-fill classico (SVGnest/eCut), que
+    entrelaca pecas irregulares. 'deadline' (time.monotonic) aborta a
+    passada devolvendo None — busca com candidatos custa |rotacoes| vezes
+    mais e nao pode passar por cima do orcamento do chamador.
 
     Regra de Ouro n.2 ATRAVES de posicionamentos: _nfp(p, peca) e RELATIVO
     (p na origem); antes de subtrair, cada anel e transladado para a POSICAO
@@ -307,11 +316,13 @@ def _place_nfp(
     placed_raw: list[Polygon] = []   # contorno real posicionado
     # (posicao, contorno+gap/2 na origem, artwork_id, rotacao) das pecas postas
     placed_off: list[tuple[Point2D, Polygon, str, float]] = []
-    for shape, rotation in zip(order, rotations_choice, strict=True):
+    def best_spot(shape: NestingShape, rotation: float) -> tuple[Point2D, Polygon, Polygon] | None:
+        """Melhor referencia (min y, x) para a peca NESTA rotacao, ou None
+        se nao couber. Devolve (ref, contorno posicionado, contorno+gap/2)."""
         norm = _normalized(shape.contour.rotated(rotation))
         ifp = _ifp_rect(norm, sheet_w, sheet_h, margin)
         if ifp is None:
-            continue
+            return None
         norm_off = _offset(norm, gap / 2)
         region = [_to_clipper(ifp)]
         for pos, other_off, other_id, other_rot in placed_off:
@@ -332,22 +343,30 @@ def _place_nfp(
                 pyclipper.CT_DIFFERENCE, pyclipper.PFT_EVENODD, pyclipper.PFT_EVENODD
             )
             if not region:
-                break
-        if not region:
-            continue  # nao coube nesta chapa; fica de fora (chamador compara contagens)
+                return None
         candidates = sorted({(y, x) for path in region for x, y in path})
-        chosen: tuple[Point2D, Polygon] | None = None
         for y_int, x_int in candidates:
             ref = Point2D(x_int / _SCALE, y_int / _SCALE)
             poly = norm.translated(ref.x, ref.y)
             if _inside_sheet(poly, sheet_w, sheet_h, margin) and all(
                 not _overlaps(poly, other, gap) for other in placed_raw
             ):
-                chosen = (ref, poly)
-                break
+                return ref, poly, norm_off
+        return None
+
+    for shape, rot_spec in zip(order, rotations_choice, strict=True):
+        if deadline is not None and time.monotonic() >= deadline:
+            return None  # busca abortada: o chamador fica com o que ja tinha
+        chosen: tuple[float, tuple[Point2D, Polygon, Polygon]] | None = None
+        for rotation in rot_spec if isinstance(rot_spec, tuple) else (rot_spec,):
+            spot = best_spot(shape, rotation)
+            if spot is not None and (
+                chosen is None or (spot[0].y, spot[0].x) < (chosen[1][0].y, chosen[1][0].x)
+            ):
+                chosen = (rotation, spot)
         if chosen is None:
-            continue
-        ref, poly = chosen
+            continue  # nao coube nesta chapa; fica de fora (chamador compara contagens)
+        rotation, (ref, poly, norm_off) = chosen
         placements.append(_Placement(shape.artwork_id, ref, rotation))
         placed_raw.append(poly)
         placed_off.append((ref, norm_off, shape.artwork_id, rotation))
@@ -486,21 +505,61 @@ def _optimize_ga(
         disputa = rng.sample(population, min(tournament_k, len(population)))
         return min(disputa, key=lambda g: fitness_cache.get(g, (float("inf"), []))[0])
 
-    # populacao inicial: semente 2C + individuos aleatorios
+    # populacao inicial: semente 2C + semente "deitada" + individuos aleatorios
     seeded = (
         tuple(sorted(range(n), key=lambda i: shapes[i].contour.area, reverse=True)),
         tuple(0.0 if 0.0 in s.rotations else s.rotations[0] for s in shapes),
     )
-    population = [seeded]
+
+    def _rot_deitada(shape: NestingShape) -> float:
+        """Rotacao permitida que deixa o bbox girado mais BAIXO (deita a
+        peca). Empate fica com a primeira da tupla (deterministico)."""
+        return min(shape.rotations, key=lambda r: shape.contour.rotated(r).bounding_box.height)
+
+    # Em pecas mais altas que largas (letras), deitar encurta as linhas do
+    # bottom-left. Sem esta semente, girar dependia de mutacao peca a peca —
+    # com dezenas de pecas o orcamento de tempo acabava antes de qualquer
+    # rotacao aparecer no resultado (caso real de 21/07, 44 letras).
+    seeded_deitada = (seeded[0], tuple(_rot_deitada(s) for s in shapes))
+    population = [seeded, seeded_deitada]
     while len(population) < population_size:
         population.append((
             tuple(rng.sample(range(n), n)),
             tuple(rng.choice(s.rotations) for s in shapes),
         ))
-    for gene in population:
-        if best_gene is not None and out_of_time():
+    for i, gene in enumerate(population):
+        # As DUAS sementes sempre avaliam — sao o minimo util da busca. Sem
+        # isso, num trabalho pesado o orcamento estoura na 1a avaliacao e a
+        # semente deitada (a unica que gira as pecas nesse cenario) nunca
+        # entra: resultado voltava 100% em pe (caso real de 21/07, 44 letras
+        # de PDF). O 'Tempo de otimizacao' vale do 3o individuo em diante.
+        if i >= 2 and best_gene is not None and out_of_time():
             return list(best[1])
         consider(gene)
+
+    # semente 3, estilo eCut/SVGnest: bottom-left com busca de rotacao POR
+    # PECA (cada uma testa todas as rotacoes permitidas e fica com o ponto
+    # mais baixo) — e o que entrelaca formas irregulares. Custa |rotacoes|
+    # vezes uma avaliacao, entao respeita o relogio: estourou no meio, vale
+    # o melhor das sementes anteriores.
+    if any(len(s.rotations) > 1 for s in shapes) and not out_of_time():
+        order_shapes = [shapes[i] for i in seeded[0]]
+        greedy = _place_nfp(
+            order_shapes,
+            [tuple(s.rotations) for s in order_shapes],
+            material,
+            sheet_h,
+            nfp_cache=nfp_cache,
+            deadline=None if genetics_time is None else start + genetics_time,
+        )
+        if greedy:
+            rot = list(seeded[1])
+            pi = 0
+            for oi in seeded[0]:
+                if pi < len(greedy) and greedy[pi].artwork_id == shapes[oi].artwork_id:
+                    rot[oi] = greedy[pi].rotation
+                    pi += 1
+            consider((seeded[0], tuple(rot)))
 
     gen = 0
     while not out_of_time() and (genetics_time is not None or gen < generations):
@@ -544,17 +603,15 @@ def _simplified(contour: Polygon, tolerance: float) -> Polygon:
     return poly
 
 
-def _to_rotation(angle: float) -> Rotation:
-    """Rotacao float do gene -> enum Rotation. NestingShape.rotations e
-    restrito a {0, 90, 180, 270}; cair fora daqui e bug do chamador, entao
-    erro explicito em vez de arredondar em silencio."""
-    value = int(round(angle)) % 360
-    try:
-        return Rotation(value)
-    except ValueError as exc:
-        raise ValidationError(
-            f"Rotacao {angle} do nesting nao mapeia para o enum Rotation (0/90/180/270)."
-        ) from exc
+def _to_rotation(angle: float) -> Rotation | float:
+    """Rotacao float do gene -> enum Rotation quando cai nos 90 em 90 (os
+    consumidores de impressao comparam com o enum), senao o PROPRIO angulo
+    em graus (giro fino do Modo Corte, estilo 'Fix angle' do eCut). A
+    reconstrucao da Fase 4 usa float(rotation), entao tanto faz o tipo."""
+    value = angle % 360
+    if abs(value - round(value)) < 1e-9 and int(round(value)) % 90 == 0:
+        return Rotation(int(round(value)) % 360)
+    return value
 
 
 class TrueShapePacker:
@@ -608,8 +665,11 @@ class TrueShapePacker:
         uma peca deitada pode ficar de pe) e used_length pelo conteudo."""
         prepared = self._prepared(shapes)
         mat = self._effective_material(material)
+        # teto por peca = diagonal do bbox: com giro LIVRE (45 graus etc.) o
+        # bbox girado passa do maior lado e chega na hipotenusa.
         alturas = (
-            max(s.contour.bounding_box.width, s.contour.bounding_box.height) for s in prepared
+            math.hypot(s.contour.bounding_box.width, s.contour.bounding_box.height)
+            for s in prepared
         )
         sheet_h = 2 * self._margin + sum(a + max(0.0, self._gap) for a in alturas) + 1.0
         placements = self._optimized(prepared, mat, max(sheet_h, 1.0))
