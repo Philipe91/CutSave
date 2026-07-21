@@ -18,6 +18,14 @@ class PdfImportError(PrintNestError):
     """Falha ao importar um arquivo PDF como Artworks."""
 
 
+class VectorImportError(PrintNestError):
+    """Falha ao importar um arquivo vetorial (SVG/PDF) como geometria."""
+
+
+class TextVectorizeError(PrintNestError):
+    """Falha ao vetorizar texto digitado (fonte ilegivel ou caractere sem glifo)."""
+
+
 class ImageImportError(PrintNestError):
     """Falha ao importar uma imagem (PNG/JPG/WEBP) ou gerar sua faca."""
 
