@@ -7,4 +7,6 @@ REM  COMPLETO deste arquivo .bat.
 REM
 REM  Em producao, use o PrintNest.exe gerado pelo build.bat.
 REM ============================================================
-"c:\projetos\Cutph\.venv\Scripts\pythonw.exe" "c:\projetos\Cutph\printnest_main.py" %*
+REM python.exe (nao pythonw) + log: erro de partida fica gravado em vez de
+REM morrer mudo. O console fica oculto porque a macro dispara com vbHide.
+"c:\projetos\Cutph\.venv\Scripts\python.exe" "c:\projetos\Cutph\printnest_main.py" %* >> "%TEMP%\printnest_dev.log" 2>&1

@@ -186,6 +186,34 @@ def test_botao_organizar_roda_em_thread_com_barra_de_carregamento(dialog, tmp_pa
     assert dialog._btn_export.isEnabled()
 
 
+def test_enviar_para_corel_exige_organizar_e_gera_svg(dialog, tmp_path):
+    dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
+    assert not dialog._btn_corel.isEnabled()  # sem Organizar nao envia
+    with pytest.raises(ValidationError):
+        dialog.export_svg(str(tmp_path / "x.svg"))
+    dialog.nest()
+    assert dialog._btn_corel.isEnabled()
+    out = dialog.export_svg(str(tmp_path / "layout.svg"))
+    svg = (tmp_path / "layout.svg").read_text(encoding="utf-8")
+    assert out.endswith("layout.svg")
+    assert svg.count("<path") == 1  # a peca organizada, em curva magenta
+    assert 'stroke="#ff00ff"' in svg
+
+
+def test_open_with_file_importa_e_ja_organiza(dialog, tmp_path, qapp):
+    # fluxo da macro do Corel (--modo-corte): a janela abre ja trabalhando
+    dialog.open_with_file(_rect_svg(tmp_path, 40, 20))
+    assert dialog._list.count() == 1
+    assert dialog._nest_thread is not None  # organizando sozinho
+
+    deadline = time.time() + 30
+    while dialog._nest_thread is not None and time.time() < deadline:
+        qapp.processEvents()
+        time.sleep(0.02)
+    assert dialog._layouts
+    assert dialog._btn_export.isEnabled()
+
+
 def test_varias_folhas_geram_um_dxf_por_folha(dialog, tmp_path):
     piece = dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
     piece.quantity = 2

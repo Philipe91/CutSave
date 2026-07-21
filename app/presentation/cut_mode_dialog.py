@@ -16,6 +16,7 @@ deterministico — recalcular faria o DXF sair diferente do preview.
 from __future__ import annotations
 
 import os
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 
@@ -56,6 +57,8 @@ from app.domain.geometry.polygon_with_holes import PolygonWithHoles
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
 from app.domain.nesting.true_shape import NestingShape, TrueShapePacker
+from app.infrastructure.corel_bridge import send_file_to_corel
+from app.infrastructure.exporters.svg_layout_exporter import write_layout_svg
 from app.infrastructure.importers.pdf_vector_importer import PdfVectorImporter
 from app.infrastructure.importers.svg_vector_importer import SvgVectorImporter
 from app.infrastructure.text.fonttools_text_vectorizer import FontToolsTextVectorizer
@@ -247,6 +250,11 @@ class CutModeDialog(QDialog):
         bar = QDialogButtonBox()
         self._btn_nest = bar.addButton("Organizar", QDialogButtonBox.ActionRole)
         self._btn_nest.clicked.connect(self._on_nest)
+        self._btn_corel = bar.addButton("Enviar p/ Corel", QDialogButtonBox.ActionRole)
+        self._btn_corel.setToolTip(
+            "Joga o arranjo organizado na página do CorelDRAW como curvas editáveis"
+        )
+        self._btn_corel.clicked.connect(self._send_to_corel)
         self._btn_export = bar.addButton("Exportar DXF", QDialogButtonBox.AcceptRole)
         self._btn_export.clicked.connect(self._pick_export_path)
         bar.addButton("Fechar", QDialogButtonBox.RejectRole)
@@ -331,6 +339,15 @@ class CutModeDialog(QDialog):
     @staticmethod
     def _label(piece: CutPiece) -> str:
         return f"{piece.name}  ·  {len(piece.shapes)} corpo(s)  x{piece.quantity}"
+
+    def open_with_file(self, path: str) -> None:
+        """Fluxo da macro do CorelDRAW (--modo-corte): importa o arquivo e JA
+        dispara o Organizar em thread — a janela abre por cima do Corel
+        trabalhando, como o eCut. Erro de importacao vira aviso (a janela
+        abre vazia; o operador tenta pelo botao Arquivo...)."""
+        self._guarded(lambda: self.add_vector_file(path))
+        if self._pieces:
+            self._on_nest()
 
     def _pick_vector_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Importar vetor", "", _VECTOR_FILTER)
@@ -493,6 +510,7 @@ class CutModeDialog(QDialog):
             self._sheet_pick,
             self._btn_nest,
             self._btn_export,
+            self._btn_corel,
         ):
             widget.setEnabled(not busy)
         if busy:
@@ -594,6 +612,34 @@ class CutModeDialog(QDialog):
             per_sheet=len(self._layouts) > 1,
         )
 
+    def export_svg(self, output_path: str, sheet_index: int | None = None) -> str:
+        """SVG do layout organizado (a chapa do preview, ou sheet_index) —
+        mesma reconstrucao do DXF, em curvas magenta, para voltar ao Corel."""
+        if not self._layouts:
+            raise ValidationError("Clique em Organizar antes de enviar.")
+        index = self._sheet_pick.currentIndex() if sheet_index is None else sheet_index
+        index = min(max(index, 0), len(self._layouts) - 1)
+        layout = self._layouts[index]
+        by_id = {s.artwork_id: s for s in self._nested_shapes}
+        pieces = [placed_cut_contours(by_id[item.artwork_id], item) for item in layout.items]
+        height = layout.used_length or self._sheet_len.value() or 1.0
+        return write_layout_svg(pieces, layout.material.width, height, output_path)
+
+    def _send_to_corel(self) -> None:
+        """Botao 'Enviar p/ Corel' (Apply do eCut): grava o SVG do arranjo e
+        a ponte COM importa na pagina ativa do CorelDRAW."""
+
+        def run() -> None:
+            svg = self.export_svg(os.path.join(tempfile.gettempdir(), "printnest_layout.svg"))
+            send_file_to_corel(svg)
+            QMessageBox.information(
+                self,
+                "Modo Corte",
+                "Arranjo enviado para a página do CorelDRAW (curvas magenta).",
+            )
+
+        self._guarded(run)
+
     def _pick_export_path(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Exportar DXF", "corte.dxf", "DXF (*.dxf)")
         if not path:
@@ -645,6 +691,7 @@ class CutModeDialog(QDialog):
             self._qty.blockSignals(False)
         self._btn_nest.setEnabled(bool(self._pieces))
         self._btn_export.setEnabled(bool(self._layouts))
+        self._btn_corel.setEnabled(bool(self._layouts))
         self._status.setText(self._status_text())
 
     def _status_text(self) -> str:

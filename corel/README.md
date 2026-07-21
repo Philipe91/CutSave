@@ -67,6 +67,17 @@ Você desenha no Corel, clica no botão e o arquivo cai no PrintNest já pronto.
 > Macro**, escolher `EnviarParaPrintNest` e clicar Executar.
 
 ## Macros disponíveis
+- **PrintNestMenu** — **botão único com as duas opções** (novidade 21/07):
+  pergunta se é **Importar (impressão/faca)** ou **Modo Corte**. O Modo Corte
+  exporta a seleção (ou a página) **com o texto convertido em curvas** e abre
+  a janela de nesting laser/CNC **por cima do Corel, já organizando**.
+  Processo próprio: não mexe na sessão de impressão aberta.
+- **ModoCorteNoPrintNest** — botão direto do **Modo Corte**, para quem quiser
+  um ícone dedicado (tesoura) na barra.
+- **ImportarDoPrintNest** — *não é botão*: é a função que o botão
+  **"Enviar p/ Corel"** do Modo Corte chama por COM para jogar o arranjo
+  organizado (curvas magenta) na página ativa. Precisa estar no GMS para o
+  Enviar p/ Corel funcionar.
 - **EnviarParaPrintNest** — **botão principal (inteligente)**: com objetos
   selecionados, envia **só a seleção** (recortado); sem seleção, envia a
   **página** inteira. Um clique faz o certo.

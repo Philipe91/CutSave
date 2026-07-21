@@ -66,6 +66,13 @@ Private Function CaminhoTemp(prefixo As String) As String
 End Function
 
 Private Sub Disparar(arquivoPdf As String)
+    DispararCom "", arquivoPdf
+End Sub
+
+' flag = "" (impressao/faca, entra na sessao atual pela instancia unica) ou
+' "--modo-corte" (abre SO a janela do Modo Corte por cima do Corel, processo
+' proprio — nao mexe na sessao de impressao aberta).
+Private Sub DispararCom(flag As String, arquivoPdf As String)
     Dim exe As String
     exe = PrintNestExe()
     If exe = "" Then
@@ -75,13 +82,21 @@ Private Sub Disparar(arquivoPdf As String)
                vbExclamation, "PrintNest"
         Exit Sub
     End If
-    ' aspas para suportar espacos nos caminhos. O PrintNest e instancia unica:
-    ' se ja estiver aberto, o arquivo entra na sessao atual.
-    ' .bat precisa ser disparado via "cmd /c" (Shell nao roda .bat direto).
-    If LCase$(Right$(exe, 4)) = ".bat" Then
-        Shell "cmd /c """ & exe & """ """ & arquivoPdf & """", vbHide
+    Dim args As String
+    If flag <> "" Then
+        args = flag & " """ & arquivoPdf & """"
     Else
-        Shell """" & exe & """ """ & arquivoPdf & """", vbNormalFocus
+        args = """" & arquivoPdf & """"
+    End If
+    ' aspas para suportar espacos nos caminhos.
+    ' .bat precisa de "cmd /c" (Shell nao roda .bat direto) e o comando
+    ' INTEIRO vai entre aspas EXTRAS: com mais de duas aspas o cmd remove a
+    ' primeira e a ultima e quebra tudo (bug real de 21/07 — TEMP do usuario
+    ' tem espaco, o disparo morria mudo com vbHide).
+    If LCase$(Right$(exe, 4)) = ".bat" Then
+        Shell "cmd /c """"" & exe & """ " & args & """", vbHide
+    Else
+        Shell """" & exe & """ " & args, vbNormalFocus
     End If
 End Sub
 
@@ -108,6 +123,65 @@ Private Sub EnviarSelecao()
     tmpDoc.PublishToPDF pdf
     tmpDoc.Close
     Disparar pdf
+End Sub
+
+' Exporta a selecao (ou a pagina, se nada selecionado) para um PDF temporario
+' COM O TEXTO CONVERTIDO EM CURVAS — obrigatorio para o Modo Corte: texto
+' vivo no PDF e ignorado pelo importador de vetores.
+Private Function ExportarParaCorte() As String
+    Dim pdf As String
+    pdf = CaminhoTemp("printnest_corte")
+    If ActiveDocument.Selection.Shapes.Count > 0 Then
+        ActiveDocument.Selection.Copy
+        Dim tmpDoc As Document
+        Set tmpDoc = Application.CreateDocument
+        tmpDoc.ActiveLayer.Paste
+        tmpDoc.PDFSettings.TextAsCurves = True
+        tmpDoc.PublishToPDF pdf
+        tmpDoc.Close
+    Else
+        ActiveDocument.PDFSettings.TextAsCurves = True
+        ActiveDocument.PublishToPDF pdf
+    End If
+    ExportarParaCorte = pdf
+End Function
+
+' ===== BOTAO UNICO com as duas opcoes (pedido de 21/07) =====
+' [Sim] = importar para impressao/faca (sessao do PrintNest, como sempre)
+' [Nao] = MODO CORTE: abre a janela de nesting laser/CNC por cima do Corel,
+'         ja organizando o que estiver selecionado
+Public Sub PrintNestMenu()
+    On Error GoTo erro
+    If ActiveDocument Is Nothing Then
+        MsgBox "Abra um documento no CorelDRAW primeiro.", vbExclamation, "PrintNest"
+        Exit Sub
+    End If
+    Dim escolha As VbMsgBoxResult
+    escolha = MsgBox("Como enviar para o PrintNest?" & vbCrLf & vbCrLf & _
+                     "[Sim]  =  Importar (impressao / faca)" & vbCrLf & _
+                     "[Nao]  =  Modo Corte (nesting para laser/CNC)", _
+                     vbYesNoCancel + vbQuestion, "PrintNest")
+    If escolha = vbYes Then
+        EnviarParaPrintNest
+    ElseIf escolha = vbNo Then
+        ModoCorteNoPrintNest
+    End If
+    Exit Sub
+erro:
+    MsgBox "Erro no PrintNest: " & Err.Description, vbCritical, "PrintNest"
+End Sub
+
+' Botao direto do MODO CORTE (opcional, para quem quiser um icone dedicado).
+Public Sub ModoCorteNoPrintNest()
+    On Error GoTo erro
+    If ActiveDocument Is Nothing Then
+        MsgBox "Abra um documento no CorelDRAW primeiro.", vbExclamation, "PrintNest"
+        Exit Sub
+    End If
+    DispararCom "--modo-corte", ExportarParaCorte()
+    Exit Sub
+erro:
+    MsgBox "Erro ao abrir o Modo Corte: " & Err.Description, vbCritical, "PrintNest"
 End Sub
 
 ' ===== BOTAO PRINCIPAL (inteligente) =====
@@ -151,6 +225,21 @@ Public Sub EnviarPaginaParaPrintNest()
 erro:
     MsgBox "Erro ao enviar a pagina: " & Err.Description, vbCritical, "PrintNest"
 End Sub
+
+' ===== chamada da ponte COM do PrintNest (botao "Enviar p/ Corel") =====
+' O PrintNest roda esta funcao via GMSManager.RunMacro para importar o SVG
+' do arranjo organizado na pagina ATIVA — o Import por COM direto nao aceita
+' os parametros (testado no Corel 2023); daqui de dentro funciona nativo.
+' Funcao (nao Sub): devolve True/False para o PrintNest saber se deu certo.
+Public Function ImportarDoPrintNest(caminho As String) As Boolean
+    On Error GoTo erro
+    If Application.Documents.Count = 0 Then Application.CreateDocument
+    ActiveDocument.ActiveLayer.Import caminho
+    ImportarDoPrintNest = True
+    Exit Function
+erro:
+    ImportarDoPrintNest = False
+End Function
 
 ' Botao "Abrir PrintNest": so abre o programa (ou traz a janela ja aberta para
 ' a frente, por causa da instancia unica). Nao envia nenhum arquivo.

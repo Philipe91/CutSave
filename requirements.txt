@@ -17,5 +17,7 @@ pyclipper>=1.4
 svgelements>=1.9
 # texto digitado -> curvas (Fase 3C): leitura de glifos TTF/OTF (MIT)
 fonttools>=4.63
+# ponte COM com o CorelDRAW (PSF): "Enviar para o Corel" do Modo Corte
+pywin32>=306
 # licenciamento: assinatura Ed25519 das licencas (app carrega so a chave publica)
 cryptography>=42.0

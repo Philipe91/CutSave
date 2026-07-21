@@ -35,6 +35,18 @@ def _file_args(argv: list[str]) -> list[str]:
     ]
 
 
+def _cut_mode_arg(argv: list[str]) -> str | None:
+    """Caminho apos --modo-corte (macro do CorelDRAW), "" se a flag veio sem
+    arquivo, None se a flag nao veio. Distinguir "" de None importa: flag
+    sozinha ainda abre o dialogo do Modo Corte, so que vazio."""
+    if "--modo-corte" not in argv:
+        return None
+    index = argv.index("--modo-corte")
+    if index + 1 < len(argv) and not argv[index + 1].startswith("-"):
+        return argv[index + 1]
+    return ""
+
+
 def main() -> int:
     paths = AppPaths.default().ensure()
     store = SettingsStore(paths.config_file)
@@ -43,10 +55,15 @@ def main() -> int:
 
     app = QApplication(sys.argv)
 
+    # Modo Corte direto (macro do CorelDRAW): processo proprio, FORA da
+    # instancia unica — abre so o dialogo por cima do Corel (como o eCut) e
+    # nao mexe na sessao de impressao que estiver aberta.
+    cut_pdf = _cut_mode_arg(sys.argv)
+
     # instância única: se o PrintNest já estiver aberto, entrega os arquivos
     # (ex.: vindos da macro do CorelDRAW) para a sessao atual e encerra.
     file_args = _file_args(sys.argv)
-    if forward_to_running(file_args):
+    if cut_pdf is None and forward_to_running(file_args):
         return 0
     # "aqui estou": grava o caminho do executavel para integracoes externas
     # (a macro do CorelDRAW le este arquivo — o cliente nunca configura nada)
@@ -84,6 +101,20 @@ def main() -> int:
             dlg.exec()
             if not lic.is_licensed():
                 return 0  # nao ativou -> encerra
+
+    if cut_pdf is not None:
+        # so o dialogo do Modo Corte, sem MainWindow: parte mais rapido e o
+        # operador continua "no Corel" — importa o PDF exportado pela macro
+        # e ja comeca a organizar sozinho.
+        from app.presentation.cut_mode_dialog import CutModeDialog
+
+        dialog = CutModeDialog()
+        if app_icon is not None:
+            dialog.setWindowIcon(app_icon)
+        dialog.show()
+        if cut_pdf:
+            dialog.open_with_file(cut_pdf)
+        return app.exec()
 
     pipeline = RunProductionPipelineUseCase(
         ImportPdfUseCase(PdfiumImporter()),
