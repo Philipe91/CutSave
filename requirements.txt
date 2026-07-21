@@ -11,5 +11,11 @@ opencv-python-headless>=4.9
 Pillow>=10.0
 numpy>=1.26
 ezdxf>=1.1
+# nesting true-shape (Modo Corte): offset + Minkowski/NFP + booleanas (Clipper)
+pyclipper>=1.4
+# importacao de SVG (Fase 3): aplica transforms e resolve unidades (MIT)
+svgelements>=1.9
+# texto digitado -> curvas (Fase 3C): leitura de glifos TTF/OTF (MIT)
+fonttools>=4.63
 # licenciamento: assinatura Ed25519 das licencas (app carrega so a chave publica)
 cryptography>=42.0
