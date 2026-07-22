@@ -1,5 +1,24 @@
 # Fase 6 — Preencher furos (peça dentro de peça / "Allow inside")
 
+> ## ⛔ MOTOR DE NESTING CONGELADO (Philipe, 22/07)
+>
+> **"O aproveitamento do corte ficou da forma que eu queria. Não mexa mais em
+> questão de organizar e aproveitar, assim já está muito bom."**
+>
+> O motor de encaixe está APROVADO pelo dono do produto, validado na tela com
+> trabalho real. **Não otimizar mais** — nem "melhorar o fitness", nem trocar
+> heurística, nem mexer no GA, nem na regra de desempate do bottom-left.
+>
+> Isto vale contra o meu próprio instinto e o de quem vier depois: o motor tem
+> várias frouxidões documentadas neste arquivo (seção 8) que parecem convidar
+> a uma otimização. **São convite recusado.** Otimização de nesting é mudança
+> de saída para TODO trabalho do cliente, e o resultado atual já satisfaz.
+>
+> Só reabrir se o Philipe pedir, ou se aparecer BUG (peça sobreposta, peça
+> perdida, corte errado) — bug é diferente de "dava para encaixar melhor".
+>
+> Correções de interface, exportação e integração seguem liberadas.
+
 Documento de manutenção: o que foi construído, **por que** cada decisão foi
 tomada, o que foi **medido** e onde estão as armadilhas. Escrito para quem for
 tentar melhorar isso depois (inclusive eu mesmo, daqui a seis meses).
