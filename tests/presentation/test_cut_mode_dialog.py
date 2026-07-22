@@ -318,3 +318,38 @@ def test_varias_folhas_geram_um_dxf_por_folha(dialog, tmp_path):
         "nest_folha1.dxf",
         "nest_folha2.dxf",
     ]
+
+
+# -- E4: UX/UI ilustrada ------------------------------------------------------
+
+
+def _has_ink(icon, size: int = 18) -> bool:
+    """True se o QIcon tem algum pixel visivel — icons.icon() devolve icone
+    NAO-nulo porem transparente quando o SVG nao existe (a armadilha da E4)."""
+    img = icon.pixmap(size, size).toImage()
+    return any(
+        img.pixelColor(x, y).alpha() > 0
+        for x in range(img.width())
+        for y in range(img.height())
+    )
+
+
+def test_botoes_do_modo_corte_com_icone(dialog):
+    for name in ("_btn_file", "_btn_text", "_btn_del", "_btn_rotate",
+                 "_btn_nest", "_btn_corel", "_btn_export"):
+        icon = getattr(dialog, name).icon()
+        assert not icon.isNull() and _has_ink(icon), name
+
+
+def test_combo_giro_e_checkbox_furos_ilustrados(dialog):
+    combo = dialog._rotate_mode
+    assert combo.count() == 4
+    for i in range(combo.count()):
+        assert _has_ink(combo.itemIcon(i), 26), combo.itemText(i)
+    assert _has_ink(dialog._inside.icon(), 26)
+
+
+def test_lista_de_pecas_com_miniatura(dialog, tmp_path):
+    dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
+    icon = dialog._list.item(0).icon()
+    assert not icon.isNull() and _has_ink(icon, 32)

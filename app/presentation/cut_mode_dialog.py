@@ -18,20 +18,24 @@ Exportar DXF, Enviar p/ Corel e SVG leem dali, entao nao ha como divergirem.
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 from collections import Counter
 from dataclasses import dataclass, replace
+from functools import lru_cache
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QFont,
+    QIcon,
     QKeySequence,
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QShortcut,
 )
 from PySide6.QtWidgets import (
@@ -79,7 +83,7 @@ from app.infrastructure.exporters.svg_layout_exporter import write_layout_svg
 from app.infrastructure.importers.pdf_vector_importer import PdfVectorImporter
 from app.infrastructure.importers.svg_vector_importer import SvgVectorImporter
 from app.infrastructure.text.fonttools_text_vectorizer import FontToolsTextVectorizer
-from app.presentation import faca_icons, theme
+from app.presentation import faca_icons, icons, theme
 from app.shared.errors import ValidationError
 
 _VECTOR_FILTER = "Vetores (*.svg *.pdf);;SVG (*.svg);;PDF (*.pdf)"
@@ -104,6 +108,55 @@ _NEST_TIPS = (
     "O preview é exatamente o que sai no DXF — o que você vê é o que corta.",
     "Depois de organizar, arraste qualquer peça no preview — e a tecla R gira a selecionada.",
 )
+
+
+# ---------------------------------------------------------------------------
+# Ilustrações locais (receita de faca_icons: QPainter + cores do tema NA
+# CHAMADA + lru_cache). Padrão replicado aqui de propósito — importar
+# main_window traria as ~8 mil linhas junto (ver docstring do _ZoomView).
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=32)
+def _rotate_pixmap(step: int, muted: str, accent: str, size: int = 26) -> QPixmap:
+    """Leque de ângulos do 'Giro das peças': um raio por ângulo permitido no
+    quadrante — passo 0 é um raio só (sem giro), passos finos abrem o leque."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    ox, oy = size * 0.16, size * 0.84  # origem do leque (canto inferior esquerdo)
+    r = size * 0.72
+    arc = QRectF(ox - r * 0.5, oy - r * 0.5, r, r)
+    p.setPen(QPen(QColor(muted), 1.1))
+    p.drawArc(arc, 0, 90 * 16)  # guia do quadrante
+    p.setPen(QPen(QColor(accent), 1.4))
+    for ang in ([0] if step == 0 else range(0, 91, step)):
+        rad = math.radians(ang)
+        p.drawLine(
+            QPointF(ox, oy),
+            QPointF(ox + r * math.cos(rad), oy - r * math.sin(rad)),
+        )
+    p.end()
+    return pm
+
+
+@lru_cache(maxsize=8)
+def _inside_pixmap(cut: str, accent: str, size: int = 26) -> QPixmap:
+    """'Preencher furos': peça pequena aproveitando o miolo de um 'O'."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    c = size / 2.0
+    p.setBrush(Qt.NoBrush)
+    p.setPen(QPen(QColor(cut), 1.3))
+    p.drawEllipse(QPointF(c, c), size * 0.40, size * 0.40)  # contorno do 'O'
+    p.drawEllipse(QPointF(c, c), size * 0.26, size * 0.26)  # furo (miolo)
+    p.setPen(QPen(QColor(accent), 1.3))
+    p.drawEllipse(QPointF(c, c), size * 0.12, size * 0.12)  # peça hospedada
+    p.end()
+    return pm
 
 
 @dataclass
@@ -371,6 +424,7 @@ class CutModeDialog(QDialog):
         col.addWidget(title)
 
         self._list = _HintList("Nenhuma peça ainda.\nUse Arquivo… ou Texto… abaixo.")
+        self._list.setIconSize(QSize(32, 32))  # miniatura da peça por linha
         self._list.setMinimumWidth(260)
         self._list.currentRowChanged.connect(self._sync)
         self._list.currentRowChanged.connect(self._draw_piece_preview)
@@ -397,12 +451,15 @@ class CutModeDialog(QDialog):
 
         btns = QHBoxLayout()
         self._btn_file = QPushButton("Arquivo...")
+        self._btn_file.setIcon(icons.icon("file-plus"))
         self._btn_file.setToolTip("Importar SVG ou PDF vetorial")
         self._btn_file.clicked.connect(self._pick_vector_file)
         self._btn_text = QPushButton("Texto...")
+        self._btn_text.setIcon(icons.icon("file-text"))
         self._btn_text.setToolTip("Digitar um texto e converter em curvas")
         self._btn_text.clicked.connect(self._pick_text)
         self._btn_del = QPushButton("Remover")
+        self._btn_del.setIcon(icons.icon("trash-2"))
         self._btn_del.clicked.connect(self._remove_current)
         for b in (self._btn_file, self._btn_text, self._btn_del):
             btns.addWidget(b)
@@ -432,6 +489,7 @@ class CutModeDialog(QDialog):
         sheet_row.addWidget(QLabel("Chapa"))
         sheet_row.addWidget(self._sheet_pick, 1)
         self._btn_rotate = QPushButton("Girar")
+        self._btn_rotate.setIcon(icons.icon("rotate-cw"))
         self._btn_rotate.clicked.connect(self._rotate_selected)
         sheet_row.addWidget(self._btn_rotate)
         col.addLayout(sheet_row)
@@ -454,13 +512,16 @@ class CutModeDialog(QDialog):
 
         bar = QDialogButtonBox()
         self._btn_nest = bar.addButton("Organizar", QDialogButtonBox.ActionRole)
+        self._btn_nest.setIcon(icons.icon("grid-3x3"))
         self._btn_nest.clicked.connect(self._on_nest)
         self._btn_corel = bar.addButton("Enviar p/ Corel", QDialogButtonBox.ActionRole)
+        self._btn_corel.setIcon(icons.icon("send"))
         self._btn_corel.setToolTip(
             "Joga o arranjo organizado na página do CorelDRAW como curvas editáveis"
         )
         self._btn_corel.clicked.connect(self._send_to_corel)
         self._btn_export = bar.addButton("Exportar DXF", QDialogButtonBox.AcceptRole)
+        self._btn_export.setIcon(icons.icon("download"))
         self._btn_export.clicked.connect(self._pick_export_path)
         bar.addButton("Fechar", QDialogButtonBox.RejectRole)
         bar.rejected.connect(self.reject)
@@ -497,8 +558,11 @@ class CutModeDialog(QDialog):
         # 45°/15° encaixaram PIOR que 90° — mais rotações consomem o orçamento
         # do genético em poucas avaliações. O padrão segue Reto (90°).
         self._rotate_mode = QComboBox()
+        self._rotate_mode.setIconSize(QSize(26, 26))
         for label, step in _ROTATE_MODES:
-            self._rotate_mode.addItem(label, step)
+            self._rotate_mode.addItem(
+                QIcon(_rotate_pixmap(step, theme.TEXT_MUTED, theme.ACCENT)), label, step
+            )
         self._rotate_mode.setCurrentIndex(1)  # Reto (90°)
         self._rotate_mode.setToolTip(
             "Ângulos que o encaixe pode tentar. Reto (90°) costuma render mais:\n"
@@ -521,6 +585,8 @@ class CutModeDialog(QDialog):
         # por padrão — é material que hoje vira sucata. Sai no DXF de dentro
         # para fora (a peça hospedada corta antes do contorno que a envolve).
         self._inside = QCheckBox("Preencher furos (peça dentro de peça)")
+        self._inside.setIcon(QIcon(_inside_pixmap(theme.CUT, theme.ACCENT)))
+        self._inside.setIconSize(QSize(26, 26))
         self._inside.setChecked(True)
         self._inside.setToolTip(
             "Aproveita o vão interno das peças (miolo do 'O') para encaixar peças menores"
@@ -551,7 +617,7 @@ class CutModeDialog(QDialog):
 
     def _add(self, piece: CutPiece) -> CutPiece:
         self._pieces.append(piece)
-        self._list.addItem(QListWidgetItem(self._label(piece)))
+        self._list.addItem(QListWidgetItem(self._piece_icon(piece), self._label(piece)))
         self._list.setCurrentRow(len(self._pieces) - 1)
         self._invalidate()
         return piece
@@ -559,6 +625,35 @@ class CutModeDialog(QDialog):
     @staticmethod
     def _label(piece: CutPiece) -> str:
         return f"{piece.name}  ·  {len(piece.shapes)} corpo(s)  x{piece.quantity}"
+
+    @classmethod
+    def _piece_icon(cls, piece: CutPiece, size: int = 32) -> QIcon:
+        """Miniatura da própria peça para a lista: todos os corpos dentro do
+        quadradinho, furos vazados — mesma receita da prévia grande."""
+        path = QPainterPath()
+        path.setFillRule(Qt.OddEvenFill)
+        for shape in piece.shapes:
+            path.addPath(
+                cls._rings_path([ring.vertices for ring in (shape.outer, *shape.holes)])
+            )
+        pm = QPixmap(size, size)
+        pm.fill(Qt.transparent)
+        rect = path.boundingRect()
+        if rect.width() > 0 and rect.height() > 0:
+            p = QPainter(pm)
+            p.setRenderHint(QPainter.Antialiasing)
+            pad = 3
+            scale = min((size - 2 * pad) / rect.width(), (size - 2 * pad) / rect.height())
+            p.translate(size / 2.0, size / 2.0)
+            p.scale(scale, scale)
+            p.translate(-rect.center().x(), -rect.center().y())
+            pen = QPen(QColor(theme.ACCENT))
+            pen.setCosmetic(True)
+            p.setPen(pen)
+            p.setBrush(QBrush(QColor(theme.ACCENT_SOFT)))
+            p.drawPath(path)
+            p.end()
+        return QIcon(pm)
 
     def open_with_file(self, path: str) -> None:
         """Fluxo da macro do CorelDRAW (--modo-corte): importa o arquivo e JA

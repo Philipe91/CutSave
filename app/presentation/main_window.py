@@ -4736,19 +4736,22 @@ class MainWindow(QMainWindow):
         """Secao 4 - Marcas de registro (recolhida)."""
         card = self._doc_card("Marcas de registro", "registro", collapsed=True)
         self._reg_type = NoWheelComboBox()
-        self._reg_type.addItem("Nenhum", "none")
-        self._reg_type.addItem("IECHO (bolinhas)", "circles")
-        self._reg_type.addItem("Mimaki (marcas em L)", "mimaki")
-        self._reg_type.addItem("Mimaki + IECHO", "both")  # cortar na Mimaki, refilar na IECHO
+        # Rotulos pela FORMA da marca (neutros); a maquina que le cada forma
+        # fica nos tooltips (REG_HINTS). O data e contrato com motor,
+        # exportadores e projeto salvo — NUNCA mudar.
+        self._reg_type.addItem("Nenhuma", "none")
+        self._reg_type.addItem("Círculos", "circles")
+        self._reg_type.addItem("Marcas em L", "mimaki")
+        self._reg_type.addItem("Círculos + L", "both")  # cortar na Mimaki, refilar na IECHO
         self._reg_type.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
         card.body.addWidget(labeled("Tipo de registro", self._reg_type))
         self._reg_margin = LengthSpin(0, 200)
         self._reg_diameter = LengthSpin(1, 50)
         self._grid_fields(card.body, [
-            ("Bolinhas: afastamento", self._reg_margin,
-             "Distância das bolinhas até as bordas da chapa (mm)."),
-            ("Bolinhas: diâmetro", self._reg_diameter,
-             "Diâmetro das bolinhas de registro (mm)."),
+            ("Círculos: afastamento", self._reg_margin,
+             "Distância dos círculos até as bordas da chapa (mm)."),
+            ("Círculos: diâmetro", self._reg_diameter,
+             "Diâmetro dos círculos de registro (mm)."),
         ])
         self._mk_distance = LengthSpin(0, 200)
         self._mk_distance.valueChanged.connect(lambda _: self._relayout(renest=False))

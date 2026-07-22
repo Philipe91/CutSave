@@ -184,7 +184,7 @@ SHARED_HINTS = {
 }
 REG_HINTS = {
     "none": "Sem marcas de registro na chapa.",
-    "circles": "Bolinhas nos cantos da chapa\n(leitura óptica das mesas IECHO).",
+    "circles": "Círculos nos cantos da chapa\n(leitura óptica das mesas IECHO).",
     "mimaki": "Marcas em L nos cantos\n(leitura das plotters Mimaki).",
     "both": "As duas marcas juntas: corta na\nMimaki e refila na IECHO.",
 }

@@ -701,9 +701,100 @@ commitar (checkpoint de commit antes de começar, como sempre).
 
 ---
 
+## TAREFA A2/A3 — novas marcas de registro (formas do mercado) — PROMPT MESTRE
+
+O documento chegou (22/07): pesquisa-registro-automatico.pdf (35+ fabricantes;
+geometrias, tamanhos e cores com etiquetas de confiança CONF/REP/INFER).
+ANEXAR o PDF junto com o prompt. Rodar de preferência DEPOIS da E4 (mesmo
+combo; os rótulos/ícones novos já nascem no padrão sem nome de máquina).
+
+```
+TAREFA (faça SÓ esta, nada além):
+A2/A3 — Novas MARCAS DE REGISTRO (formas das máquinas mais usadas), guiado
+pelo documento em anexo (pesquisa-registro-automatico.pdf). SÓ geração de
+marca na saída do PrintNest — aditivo, sem tocar no que existe.
+
+## Como usar o documento anexo (economize: leia SÓ isto)
+- Parte I, "Os parâmetros que seu módulo precisa expor";
+- Parte V (Graphtec/Mimaki/Roland/Summa — formas e tamanhos);
+- Parte IX, tabela mestre (coluna "tipo de marca");
+- Parte XI, "Recomendações de implementação".
+IGNORE a Parte II (matemática/visão — isso é a MÁQUINA que faz; o
+PrintNest só IMPRIME as marcas) e a arquitetura de QR/barcode (workflow
+grande, fica para outra tarefa).
+
+## O que já existe (não regredir NADA)
+- Combo _reg_type em app/presentation/main_window.py (~L4739):
+  none/circles/mimaki/both. Os data são chaves de CONTRATO (projeto salvo
+  lê por data): item novo = chave nova; NUNCA renomear as antigas.
+- Geradores em app/domain/cut/registration.py (5 bolinhas, estilo IECHO) e
+  app/domain/cut/mimaki.py (quadro + marcas em L); posicionamento em
+  app/application/positioning.py (registration_marks*, mimaki_marks*).
+- As marcas saem em TRÊS lugares que NÃO podem divergir: preview
+  (_draw_marks no main_window), PDF de impressão (export_print_pdf →
+  exporter) e DXF (marks= no _dxf_export.execute). Exportação em preto
+  100%K puro; cor de tema é só no preview.
+- "both" (Mimaki + bolinhas) pertence ao fluxo de cartelas — não mexa.
+
+## O que adicionar (v1 enxuto: 3 formas novas no combo)
+1. data "squares" — QUADRADOS cheios nos 4 cantos do bbox das facas
+   (padrão Summa/OPOS; doc: 3–5 mm típicos). Margem = _reg_margin;
+   tamanho = campo de diâmetro atual.
+2. data "crosses" — CRUZES nos 4 cantos (padrão AOKE/iECHO cruz);
+   comprimento = campo de tamanho; espessura 0,8 mm (doc: 0,3–1,0 mm).
+3. data "corner_l" — L DE CANTO sem moldura (padrão Graphtec ARMS
+   Type 1 / Roland): 4 Ls abraçando os cantos, abertura para fora;
+   comprimento = campo de tamanho; espessura 0,8 mm. (Difere do "mimaki"
+   atual, que tem QUADRO; aqui não há quadro.)
+Cada forma: gerador no padrão dos existentes (domain/cut), posicionamento
+no padrão do positioning.py, presença IGUAL nos 3 lugares. Rótulo/ícone/
+hint no padrão pós-E4: nome pela FORMA no rótulo, máquina só no tooltip
+(ex. "Quadrados" + hint "leitura óptica dos plotters Summa/OPOS");
+ilustração nova por chave em faca_icons.regmark_icon + REG_HINTS.
+
+## PERSONALIZAÇÃO (exigência do Philipe — a dor do cliente manda)
+O cliente TEM que poder ajustar a marca pela necessidade da máquina dele:
+- distância da arte: o campo _reg_margin atual vale para TODAS as formas;
+- tamanho: o campo de diâmetro atual vira "tamanho da marca" (vale para
+  círculo, quadrado, cruz e L — atualize rótulo/tooltip sem quebrar nada);
+- espessura do traço: campo NOVO (spin, default 0,8 mm, faixa 0,3–2,0),
+  visível/aplicável só para cruz e L — some ou desabilita nas formas
+  cheias, com tooltip explicando.
+Persistência: os dois campos atuais já entram em PROJECT_SETTING_KEYS e
+no _SESSION_WIDGETS (abas); o campo novo entra nos DOIS, de forma aditiva
+(projeto antigo sem a chave abre com o default). Mudou parâmetro →
+relayout ao vivo, como os campos atuais já fazem.
+
+## Armadilhas
+- Projeto antigo/desconhecido: chave ausente no combo cai em "Nenhum"
+  (findData → max(0, ...)); TESTE isso nos dois sentidos.
+- O DXF hoje só conhece marca-círculo (marks=). Verifique a API do
+  ExportDxfUseCase/DxfExporter e estenda de forma ADITIVA (ex.: segmentos
+  para cruz/L, polilinha fechada para quadrado) sem alterar a saída dos
+  tipos atuais — teste de não-regressão por entidades.
+- O pad da página (_faca_pad) soma margem+tamanho para a marca caber na
+  folha — as formas novas entram na MESMA conta.
+- O doc marca os OEMs chineses como INFER/REP (spec não publicada): não
+  invente "modo JWEI/RUK"; as 3 formas + o círculo atual cobrem o que é
+  confirmado. Nada de módulo de visão/QR.
+
+## Testes
+- cada forma nova: 4 marcas nas coordenadas certas dos cantos; presentes
+  no PDF exportado E no DXF (entidades); preto puro na exportação;
+- tipos antigos (none/circles/mimaki/both): saída IDÊNTICA à de hoje
+  (não-regressão explícita);
+- projeto salvo com forma nova reabre nela; chave desconhecida cai em
+  "Nenhum" sem quebrar.
+Entregue: combo + geradores + 3 saídas + ilustrações + testes; suíte
+inteira UMA vez no fim. Peça aprovação antes de commitar (checkpoint de
+commit antes de começar, como sempre).
+```
+
+---
+
 ## Ondas 2 e 3 (depois)
-- A2 (marca personalizável) + A3 (novos tipos) — só após o Philipe enviar o
-  documento com a pesquisa das marcas do mercado.
+- QR/barcode de recuperação de job (Parte VIII do doc de registro): valioso,
+  mas envolve RIP/pasta observada — tarefa própria, depois da A2/A3.
 - C1 (testar barra superior: organizar/nesting, alinhar, distribuir).
 - C2 (nesting): eCut SÓ como benchmark, nunca copiar código. Técnicas públicas
   (Skyline, Simulated Annealing). Ver [[printnest-backlog-lancamento]].

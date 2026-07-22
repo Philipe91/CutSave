@@ -2750,3 +2750,16 @@ def test_seletor_nos_da_faca_fino_medio_leve(qapp, tmp_path):
     assert contagens["fino"] >= contagens["medio"] >= contagens["leve"] >= 6
     # mesma forma: larguras variam menos de 1mm entre os níveis
     assert max(larguras.values()) - min(larguras.values()) < 1.0
+
+
+def test_registro_rotulos_neutros_pela_forma(qapp, tmp_path):
+    """E4: rotulos do combo de registro sem nome de maquina; o data (contrato
+    com motor/exportadores/projeto salvo) segue identico e na mesma ordem."""
+    window = _window(tmp_path)
+    combo = window._reg_type
+    assert [combo.itemData(i) for i in range(combo.count())] == [
+        "none", "circles", "mimaki", "both",
+    ]
+    for i in range(combo.count()):
+        text = combo.itemText(i)
+        assert "Mimaki" not in text and "IECHO" not in text, text
