@@ -6,11 +6,14 @@ precisa mostrar o CONTORNO real encaixado, entao tem cena propria aqui e nao
 encosta em nada do fluxo de impressao.
 
 Fluxo: importar SVG/PDF/texto (Fase 3) -> lista de pecas com quantidade ->
-Organizar (TrueShapePacker, Fase 2) -> preview -> Exportar DXF (Fase 4).
+Organizar (TrueShapePacker, Fase 2) -> preview -> retoque manual (arrastar /
+girar a peca, TAREFA E3) -> Exportar DXF (Fase 4).
 
 CRITICO: Organizar guarda os Layouts e Exportar grava ESSES layouts
 (export_layouts), nunca recalcula. Com genetics_time o genetico nao e
-deterministico — recalcular faria o DXF sair diferente do preview.
+deterministico — recalcular faria o DXF sair diferente do preview. O retoque
+manual (E3) escreve DIRETO em self._layouts pela mesma razao: preview,
+Exportar DXF, Enviar p/ Corel e SVG leem dali, entao nao ha como divergirem.
 """
 
 from __future__ import annotations
@@ -18,10 +21,19 @@ from __future__ import annotations
 import os
 import tempfile
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from PySide6.QtCore import QRectF, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QKeySequence,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -30,6 +42,8 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGraphicsItem,
+    QGraphicsPathItem,
     QGraphicsScene,
     QGraphicsView,
     QGroupBox,
@@ -54,16 +68,18 @@ from app.application.use_cases.run_true_shape_nesting import (
     placed_cut_contours,
     to_nesting_shapes,
 )
+from app.domain.geometry import Point2D
 from app.domain.geometry.polygon_with_holes import PolygonWithHoles
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
+from app.domain.model.placement import PlacedItem
 from app.domain.nesting.true_shape import NestingShape, TrueShapePacker
 from app.infrastructure.corel_bridge import send_file_to_corel
 from app.infrastructure.exporters.svg_layout_exporter import write_layout_svg
 from app.infrastructure.importers.pdf_vector_importer import PdfVectorImporter
 from app.infrastructure.importers.svg_vector_importer import SvgVectorImporter
 from app.infrastructure.text.fonttools_text_vectorizer import FontToolsTextVectorizer
-from app.presentation import theme
+from app.presentation import faca_icons, theme
 from app.shared.errors import ValidationError
 
 _VECTOR_FILTER = "Vetores (*.svg *.pdf);;SVG (*.svg);;PDF (*.pdf)"
@@ -86,6 +102,7 @@ _NEST_TIPS = (
     "As peças giram sozinhas quando isso economiza material — às vezes ficar em pé vence.",
     "Dica: 'Altura da folha' 0 = bobina/chapa corrida; acima de 0, divide em folhas numeradas.",
     "O preview é exatamente o que sai no DXF — o que você vê é o que corta.",
+    "Depois de organizar, arraste qualquer peça no preview — e a tecla R gira a selecionada.",
 )
 
 
@@ -104,15 +121,104 @@ class CutPiece:
         return len(self.shapes) * self.quantity
 
 
+class _CutPieceItem(QGraphicsPathItem):
+    """Peca do arranjo no preview: selecionavel e arrastavel (retoque manual
+    pos-nesting, TAREFA E3).
+
+    O caminho fica em coordenadas da CENA (mm do layout) e pos() carrega so o
+    DELTA do arrasto em andamento — ao soltar, o dialogo grava a posicao nova
+    no PlacedItem e o caminho e reconstruido com pos() de volta a zero, entao
+    cena e self._layouts nunca divergem. 'bounds' e o retangulo vermelho da
+    chapa configurada: a peca nao sai dele durante o arrasto.
+    """
+
+    def __init__(self, path: QPainterPath, index: int, bounds: QRectF, on_moved) -> None:
+        super().__init__(path)
+        self.index = index  # posicao do PlacedItem em layout.items
+        self.bounds = bounds
+        self._on_moved = on_moved
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        self.setCursor(Qt.SizeAllCursor)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemPositionChange:
+            value = self._clamped(value)
+        return super().itemChange(change, value)
+
+    def _clamped(self, pos: QPointF) -> QPointF:
+        """Empurra o delta de volta para dentro da chapa configurada.
+        Sobreposicao entre pecas e permitida de proposito (o operador pode
+        querer); sair da chapa nao — viraria corte no vazio."""
+        br = self.path().boundingRect().translated(pos)
+        dx = dy = 0.0
+        if br.left() < self.bounds.left():
+            dx = self.bounds.left() - br.left()
+        elif br.right() > self.bounds.right():
+            dx = self.bounds.right() - br.right()
+        if br.top() < self.bounds.top():
+            dy = self.bounds.top() - br.top()
+        elif br.bottom() > self.bounds.bottom():
+            dy = self.bounds.bottom() - br.bottom()
+        return QPointF(pos.x() + dx, pos.y() + dy)
+
+    def mouseReleaseEvent(self, event) -> None:
+        super().mouseReleaseEvent(event)
+        if not self.pos().isNull():
+            self._on_moved(self)
+
+
+class _HintList(QListWidget):
+    """Lista com texto de estado vazio — caixa branca muda parece software
+    travado (Missao 2 da E3)."""
+
+    def __init__(self, hint: str) -> None:
+        super().__init__()
+        self._hint = hint
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self.count() == 0:
+            p = QPainter(self.viewport())
+            p.setPen(QColor(theme.TEXT_SECONDARY))
+            p.drawText(
+                self.viewport().rect().adjusted(12, 12, -12, -12),
+                Qt.AlignCenter | Qt.TextWordWrap,
+                self._hint,
+            )
+
+
+class _HintView(QGraphicsView):
+    """Previa (janelinha da biblioteca) com texto de estado vazio — mesma
+    razao da _HintList."""
+
+    def __init__(self, scene, hint: str) -> None:
+        super().__init__(scene)
+        self._hint = hint
+
+    def drawForeground(self, painter, rect) -> None:  # noqa: N802
+        super().drawForeground(painter, rect)
+        if self.scene().items():
+            return
+        painter.save()
+        painter.resetTransform()  # coordenadas do viewport, nao da cena
+        painter.setPen(QColor(theme.TEXT_SECONDARY))
+        painter.drawText(self.viewport().rect(), Qt.AlignCenter, self._hint)
+        painter.restore()
+
+
 class _ZoomView(QGraphicsView):
     """QGraphicsView com zoom pela roda do mouse, arrasto para deslocar e
-    duplo clique para "ajustar a janela".
+    duplo clique para "ajustar a janela". Clique numa peca seleciona e
+    arrasta a peca (E3); em area vazia, a maozinha desloca a vista.
 
     NAO reaproveita o ZoomableGraphicsView da MainWindow de proposito:
     importa-lo aqui traria as ~8 mil linhas do main_window junto, so por
-    causa de 15 linhas de zoom. Quando o canvas virar componente
-    compartilhado (ver TAREFA E1 em docs/produto/PROMPTS-BACKLOG.md), os dois
-    devem convergir — ate la, esta e a duplicacao barata e consciente.
+    causa de 15 linhas de zoom. Se o canvas um dia virar componente
+    compartilhado, os dois devem convergir — ate la, esta e a duplicacao
+    barata e consciente (o estado vazio abaixo espelha o drawForeground de
+    la pela mesma razao).
     """
 
     _MIN, _MAX = 0.02, 60.0
@@ -122,6 +228,36 @@ class _ZoomView(QGraphicsView):
         # zoom no ponto do cursor (e o que o operador espera do Corel)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
+        # texto-guia do estado vazio ("" = sem guia) + passo ativo na faixa
+        # ilustrada (0=Adicionar, 1=Organizar). O dialogo define no _sync.
+        self.empty_hint = ""
+        self.empty_step = 0
+
+    def drawForeground(self, painter, rect) -> None:  # noqa: N802
+        super().drawForeground(painter, rect)
+        # estado vazio orientando: sem isto a primeira tela era uma caixa
+        # branca muda apontando para um botao desabilitado.
+        if not self.empty_hint:
+            return
+        painter.save()
+        painter.resetTransform()  # desenha em coordenadas do viewport
+        painter.setPen(QColor(theme.TEXT_MUTED))
+        f = painter.font()
+        f.setPointSizeF(f.pointSizeF() + 4)
+        f.setWeight(QFont.DemiBold)
+        painter.setFont(f)
+        vr = self.viewport().rect()
+        painter.drawText(vr, Qt.AlignCenter, self.empty_hint)
+        # os 3 passos do fluxo ilustrados acima do texto, com o atual em
+        # destaque (Adicionar -> Organizar -> Exportar)
+        strip = faca_icons.cut_steps_pixmap(self.empty_step)
+        tr = painter.fontMetrics().boundingRect(vr, Qt.AlignCenter, self.empty_hint)
+        painter.drawPixmap(
+            int(vr.center().x() - strip.width() / 2),
+            max(8, int(tr.top() - strip.height() - 24)),
+            strip,
+        )
+        painter.restore()
 
     def wheelEvent(self, event) -> None:
         passo = 1.25 if event.angleDelta().y() > 0 else 1 / 1.25
@@ -129,6 +265,18 @@ class _ZoomView(QGraphicsView):
         if self._MIN <= escala <= self._MAX:
             self.scale(passo, passo)
         event.accept()
+
+    def mousePressEvent(self, event) -> None:
+        # clique numa peca: solta a maozinha para o item receber o arrasto
+        if event.button() == Qt.LeftButton and isinstance(
+            self.itemAt(event.position().toPoint()), _CutPieceItem
+        ):
+            self.setDragMode(QGraphicsView.NoDrag)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        super().mouseReleaseEvent(event)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
 
     def mouseDoubleClickEvent(self, event) -> None:
         self.fit()
@@ -194,12 +342,22 @@ class CutModeDialog(QDialog):
         self._tip_timer = QTimer(self)
         self._tip_timer.setInterval(4000)
         self._tip_timer.timeout.connect(self._next_tip)
+        # retoque manual (E3): item grafico por indice do PlacedItem na chapa
+        # mostrada, e a pilha de desfazer (chapa, indice, PlacedItem antigo)
+        self._gfx_by_index: dict[int, _CutPieceItem] = {}
+        self._undo: list[tuple[int, int, PlacedItem]] = []
 
         root = QHBoxLayout(self)
         root.setContentsMargins(theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD)
         root.setSpacing(theme.SPACE_MD)
         root.addLayout(self._build_left(), 0)
         root.addLayout(self._build_right(), 1)
+
+        # R gira a peca selecionada; Ctrl+Z desfaz o ultimo arrasto/giro.
+        # Tecla solta nao rouba digitacao: campos de texto consomem o
+        # ShortcutOverride antes de o atalho disparar.
+        QShortcut(QKeySequence("R"), self, activated=self._rotate_selected)
+        QShortcut(QKeySequence.Undo, self, activated=self._undo_manip)
         self._sync()
 
     # -- construcao da UI --------------------------------------------------------
@@ -212,7 +370,7 @@ class CutModeDialog(QDialog):
         title.setProperty("role", "cardTitle")
         col.addWidget(title)
 
-        self._list = QListWidget()
+        self._list = _HintList("Nenhuma peça ainda.\nUse Arquivo… ou Texto… abaixo.")
         self._list.setMinimumWidth(260)
         self._list.currentRowChanged.connect(self._sync)
         self._list.currentRowChanged.connect(self._draw_piece_preview)
@@ -221,7 +379,7 @@ class CutModeDialog(QDialog):
         # janelinha da biblioteca: previa dos corpos do arquivo selecionado,
         # independente do nesting — pedido do Philipe em 21/07.
         self._piece_scene = QGraphicsScene(self)
-        self._piece_view = QGraphicsView(self._piece_scene)
+        self._piece_view = _HintView(self._piece_scene, "Prévia da peça selecionada")
         self._piece_view.setRenderHint(QPainter.Antialiasing)
         self._piece_view.setBackgroundBrush(QBrush(QColor(theme.SURFACE_ALT)))
         self._piece_view.setFixedHeight(150)
@@ -261,7 +419,8 @@ class CutModeDialog(QDialog):
         self._view.setBackgroundBrush(QBrush(QColor(theme.SURFACE_ALT)))
         self._view.setMinimumHeight(280)
         self._view.setToolTip(
-            "Roda do mouse: zoom · arrastar: deslocar · duplo clique: ajustar à janela"
+            "Roda do mouse: zoom · arrastar no vazio: deslocar · duplo clique: ajustar\n"
+            "Clique numa peça: seleciona e arrasta · R: gira a selecionada · Ctrl+Z: desfaz"
         )
         col.addWidget(self._view, 1)
 
@@ -272,6 +431,9 @@ class CutModeDialog(QDialog):
         sheet_row = QHBoxLayout()
         sheet_row.addWidget(QLabel("Chapa"))
         sheet_row.addWidget(self._sheet_pick, 1)
+        self._btn_rotate = QPushButton("Girar")
+        self._btn_rotate.clicked.connect(self._rotate_selected)
+        sheet_row.addWidget(self._btn_rotate)
         col.addLayout(sheet_row)
 
         self._params = self._build_params()
@@ -330,14 +492,18 @@ class CutModeDialog(QDialog):
         form.addRow("Folga entre peças", self._gap)
         form.addRow("Margem da chapa", self._margin)
 
-        # giro estilo 'Fix angle' do eCut: quanto mais fino o passo, melhor o
-        # entrelacamento das pecas — e mais demorado o calculo.
+        # giro estilo 'Fix angle' do eCut. CUIDADO com o instinto "mais fino
+        # encaixa melhor": medido em 22/07 (trabalho 150mm, chapa 600, 10s),
+        # 45°/15° encaixaram PIOR que 90° — mais rotações consomem o orçamento
+        # do genético em poucas avaliações. O padrão segue Reto (90°).
         self._rotate_mode = QComboBox()
         for label, step in _ROTATE_MODES:
             self._rotate_mode.addItem(label, step)
         self._rotate_mode.setCurrentIndex(1)  # Reto (90°)
         self._rotate_mode.setToolTip(
-            "Passo do giro das peças: mais fino encaixa melhor, porém demora mais"
+            "Ângulos que o encaixe pode tentar. Reto (90°) costuma render mais:\n"
+            "passos finos multiplicam as rotações e, no tempo padrão, encaixam\n"
+            "pior — se usar, aumente também o 'Tempo de otimização'."
         )
         self._rotate_mode.currentIndexChanged.connect(self._invalidate)
         form.addRow("Giro das peças", self._rotate_mode)
@@ -528,6 +694,7 @@ class CutModeDialog(QDialog):
     def _apply_nest(self, shapes: list[NestingShape], layouts: tuple[Layout, ...]) -> None:
         self._nested_shapes = shapes
         self._layouts = layouts
+        self._undo.clear()  # arranjo novo: retoques antigos nao fazem sentido
         # multiset, nao set: copias compartilham o id, entao "1 de 3 copias
         # colocada" precisa contar as outras 2 como fora.
         placed = Counter(item.artwork_id for layout in self._layouts for item in layout.items)
@@ -563,6 +730,7 @@ class CutModeDialog(QDialog):
             self._btn_del,
             self._params,
             self._sheet_pick,
+            self._btn_rotate,
             self._btn_nest,
             self._btn_export,
             self._btn_corel,
@@ -573,6 +741,9 @@ class CutModeDialog(QDialog):
             self._status.setText(
                 f"Organizando {bodies} corpo(s)… a janela continua respondendo."
             )
+            # o guia "Clique em Organizar" sairia por cima do calculo em curso
+            self._view.empty_hint = ""
+            self._view.viewport().update()
             self._tip_index = 0
             self._tip_timer.start()
         else:
@@ -589,14 +760,19 @@ class CutModeDialog(QDialog):
         self._layouts = ()
         self._nested_shapes = []
         self._unplaced = ()
+        self._undo.clear()
+        self._gfx_by_index = {}
         self._sheet_pick.clear()
         self._scene.clear()
         self._sync()
 
     # -- preview -----------------------------------------------------------------
 
-    def _draw_preview(self) -> None:
+    def _draw_preview(self, *_, fit: bool = True) -> None:
+        """Redesenha a chapa mostrada. 'fit' falso preserva o zoom do
+        operador (usado no desfazer, que so move uma peca)."""
         self._scene.clear()
+        self._gfx_by_index = {}
         index = self._sheet_pick.currentIndex()
         if not self._layouts or not 0 <= index < len(self._layouts):
             return
@@ -612,10 +788,114 @@ class CutModeDialog(QDialog):
         pen = QPen(QColor(theme.ACCENT))
         pen.setCosmetic(True)  # espessura constante em qualquer zoom
         fill = QBrush(QColor(theme.ACCENT_SOFT))
-        for item in layout.items:
-            self._scene.addPath(self._path(by_id[item.artwork_id], item), pen, fill)
+        # mesmo retangulo vermelho do _draw_sheet_limits: e o limite do arrasto
+        bounds = QRectF(0, 0, layout.material.width, self._sheet_len.value() or length)
+        for i, item in enumerate(layout.items):
+            gfx = _CutPieceItem(
+                self._path(by_id[item.artwork_id], item), i, bounds, self._on_piece_moved
+            )
+            gfx.setPen(pen)
+            gfx.setBrush(fill)
+            self._scene.addItem(gfx)
+            self._gfx_by_index[i] = gfx
         self._scene.setSceneRect(self._scene.itemsBoundingRect())
-        self._view.fit()
+        if fit:
+            self._view.fit()
+
+    # -- retoque manual (E3): mover/girar escrevem em self._layouts --------------
+
+    def _shape(self, artwork_id: str) -> NestingShape:
+        return next(s for s in self._nested_shapes if s.artwork_id == artwork_id)
+
+    def _sheet_index(self) -> int:
+        return min(max(self._sheet_pick.currentIndex(), 0), len(self._layouts) - 1)
+
+    def _commit_item(self, sheet: int, index: int, new_item: PlacedItem) -> None:
+        """PONTO CENTRAL da E3: grava o PlacedItem manipulado em
+        self._layouts. Preview, Exportar DXF, Enviar p/ Corel e SVG leem
+        daqui, entao todos enxergam o retoque sem caminho novo de
+        exportacao."""
+        layout = self._layouts[sheet]
+        self._undo.append((sheet, index, layout.items[index]))
+        items = list(layout.items)
+        items[index] = new_item
+        self._layouts = (
+            *self._layouts[:sheet],
+            replace(layout, items=tuple(items)),
+            *self._layouts[sheet + 1 :],
+        )
+        self._sync()  # stats da chapa (bloco/aproveitamento) mudam junto
+
+    def _refresh_gfx(self, gfx: _CutPieceItem, item: PlacedItem) -> None:
+        """Reconstroi o caminho na posicao gravada e zera o delta — a cena
+        volta a ser espelho fiel de self._layouts."""
+        gfx.setPath(self._path(self._shape(item.artwork_id), item))
+        gfx.setPos(QPointF(0, 0))
+
+    def _on_piece_moved(self, gfx: _CutPieceItem) -> None:
+        """Soltou o arrasto: pos() e o delta em mm (cena e layout compartilham
+        a escala)."""
+        sheet = self._sheet_index()
+        old = self._layouts[sheet].items[gfx.index]
+        delta = gfx.pos()
+        new_item = replace(
+            old,
+            position=Point2D(old.position.x + delta.x(), old.position.y + delta.y()),
+            rotation=float(old.rotation),
+        )
+        self._commit_item(sheet, gfx.index, new_item)
+        self._refresh_gfx(gfx, new_item)
+
+    def _rotate_selected(self) -> None:
+        """Tecla R / botao Girar: gira a(s) peca(s) selecionada(s) no passo do
+        combo 'Giro das peças' (90° quando o combo esta em 'Sem giro' — o
+        giro manual nao pode ficar refem do parametro do nesting)."""
+        if not self._layouts:
+            return
+        for gfx in self._scene.selectedItems():
+            if isinstance(gfx, _CutPieceItem):
+                self._rotate_piece(gfx)
+
+    def _rotate_piece(self, gfx: _CutPieceItem) -> None:
+        sheet = self._sheet_index()
+        old = self._layouts[sheet].items[gfx.index]
+        step = self._rotate_mode.currentData() or 90
+        degrees = (float(old.rotation) + step) % 360.0
+        shape = self._shape(old.artwork_id)
+        # gira em torno do CENTRO atual da peca (o que o operador espera);
+        # position e o canto min do bbox girado (convencao do placed_cut_contours)
+        outer = placed_cut_contours(shape, old)[0]
+        cx = outer.origin.x + outer.size.width / 2
+        cy = outer.origin.y + outer.size.height / 2
+        bb = shape.contour.rotated(degrees).bounding_box
+        b = gfx.bounds
+        x = min(max(cx - bb.width / 2, b.left()), max(b.left(), b.right() - bb.width))
+        y = min(max(cy - bb.height / 2, b.top()), max(b.top(), b.bottom() - bb.height))
+        new_item = replace(old, position=Point2D(x, y), rotation=degrees)
+        self._commit_item(sheet, gfx.index, new_item)
+        self._refresh_gfx(gfx, new_item)
+
+    def _undo_manip(self) -> None:
+        """Ctrl+Z do retoque manual. So do retoque: o Organizar recomeca a
+        historia (a pilha e limpa junto com os layouts)."""
+        if not self._undo or not self._layouts:
+            return
+        sheet, index, old_item = self._undo.pop()
+        layout = self._layouts[sheet]
+        items = list(layout.items)
+        items[index] = old_item
+        self._layouts = (
+            *self._layouts[:sheet],
+            replace(layout, items=tuple(items)),
+            *self._layouts[sheet + 1 :],
+        )
+        if sheet == self._sheet_index():
+            gfx = self._gfx_by_index.get(index)
+            if gfx is not None:
+                self._refresh_gfx(gfx, old_item)
+        else:
+            self._sheet_pick.setCurrentIndex(sheet)  # redesenha a chapa certa
+        self._sync()
 
     def _draw_sheet_limits(self, layout: Layout, length: float) -> None:
         """Linha VERMELHA da area configurada + tracejada da margem.
@@ -772,17 +1052,69 @@ class CutModeDialog(QDialog):
         has_piece = row >= 0
         self._qty.setEnabled(has_piece)
         self._btn_del.setEnabled(has_piece)
+        self._btn_del.setToolTip(
+            "Tira a peça selecionada da lista"
+            if has_piece
+            else "Disponível com uma peça selecionada na lista"
+        )
         if has_piece:
             self._qty.blockSignals(True)
             self._qty.setValue(self._pieces[row].quantity)
             self._qty.blockSignals(False)
+        organized = bool(self._layouts)
         self._btn_nest.setEnabled(bool(self._pieces))
-        self._btn_export.setEnabled(bool(self._layouts))
-        self._btn_corel.setEnabled(bool(self._layouts))
+        # botao apagado e MUDO faz o usuario achar que travou: o tooltip do
+        # desabilitado sempre diz o que o destrava.
+        self._btn_nest.setToolTip(
+            "Encaixa as peças na chapa (nesting)"
+            if self._pieces
+            else "Disponível depois de adicionar uma peça (arquivo ou texto)"
+        )
+        for btn, hint in (
+            (self._btn_export, "Grava o arranjo organizado em DXF"),
+            (
+                self._btn_corel,
+                "Joga o arranjo organizado na página do CorelDRAW como curvas editáveis",
+            ),
+            (self._btn_rotate, "Gira a peça selecionada no preview (tecla R)"),
+        ):
+            btn.setEnabled(organized)
+            btn.setToolTip(hint if organized else "Disponível depois de Organizar")
+        self._sync_primary()
+        self._sync_empty_hint()
         self._status.setText(self._status_text())
+
+    def _sync_primary(self) -> None:
+        """Enfase de acao PRIMARIA no botao do passo atual: Organizar quando
+        ha peca solta, Exportar quando ja organizou. Token accent do
+        theme.qss — trocar a property exige repolir o estilo."""
+        primary = self._btn_export if self._layouts else self._btn_nest
+        for btn in (self._btn_nest, self._btn_export):
+            accent = "true" if btn is primary else "false"
+            if btn.property("accent") != accent:
+                btn.setProperty("accent", accent)
+                btn.style().unpolish(btn)
+                btn.style().polish(btn)
+
+    def _sync_empty_hint(self) -> None:
+        """Texto-guia do preview vazio: sempre o proximo passo POSSIVEL,
+        nunca um botao desabilitado."""
+        if not self._pieces:
+            hint, step = "Adicione um arquivo (SVG/PDF) ou um texto", 0
+        elif not self._layouts:
+            hint, step = "Clique em Organizar", 1
+        else:
+            hint, step = "", 0  # organizado: o arranjo fala por si
+        if (hint, step) != (self._view.empty_hint, self._view.empty_step):
+            self._view.empty_hint = hint
+            self._view.empty_step = step
+            self._view.viewport().update()
 
     def _status_text(self) -> str:
         bodies = sum(piece.body_count for piece in self._pieces)
+        if not self._pieces:
+            # NAO dizer "clique em Organizar" aqui: o botao esta desabilitado
+            return "Adicione um arquivo (SVG/PDF) ou um texto para começar."
         if not self._layouts:
             return f"{bodies} corpo(s) na lista. Clique em Organizar."
         placed = sum(layout.item_count for layout in self._layouts)
@@ -793,7 +1125,7 @@ class CutModeDialog(QDialog):
         )
         if self._unplaced:
             text += f" {len(self._unplaced)} não coube(ram) — aumente a chapa ou a folha."
-        return text
+        return text + " Arraste peças para ajustar; R gira a selecionada."
 
     def _sheet_stats(self, layout: Layout) -> str:
         """Numeros da chapa mostrada, estilo eCut ('993 x 635 mm 75% /

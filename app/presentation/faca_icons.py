@@ -412,10 +412,14 @@ def corner_radius_pixmap(size: int = 22) -> QPixmap:
 # ---------------------------------------------------------------------------
 
 _STEPS = ("Adicionar", "Gerar Faca", "Exportar")
+# Mesmos glifos, rótulos do MODO CORTE (o passo 2 é o nesting, não a faca).
+_CUT_STEPS = ("Adicionar", "Organizar", "Exportar")
 
 
 @lru_cache(maxsize=16)
-def _steps_pixmap(active: int, cut: str, muted: str, accent: str) -> QPixmap:
+def _steps_pixmap(
+    active: int, cut: str, muted: str, accent: str, steps: tuple[str, str, str] = _STEPS
+) -> QPixmap:
     col_w, glyph, label_h, arrow_w = 96, 44, 20, 26
     w = 3 * col_w + 2 * arrow_w
     h = glyph + 8 + label_h
@@ -481,7 +485,7 @@ def _steps_pixmap(active: int, cut: str, muted: str, accent: str) -> QPixmap:
         p.setFont(f)
         p.setPen(QColor(color))
         p.drawText(x0, glyph + 8, col_w, label_h, Qt.AlignHCenter | Qt.AlignTop,
-                   f"{i + 1}. {_STEPS[i]}")
+                   f"{i + 1}. {steps[i]}")
 
         if i < 2:  # seta entre os passos
             axc = x0 + col_w + arrow_w / 2
@@ -498,6 +502,12 @@ def empty_steps_pixmap(active: int = 0) -> QPixmap:
     """Faixa com os 3 passos do fluxo para o canvas vazio; o passo ativo sai
     na cor de destaque do tema."""
     return _steps_pixmap(active, theme.CUT, theme.TEXT_MUTED, theme.ACCENT)
+
+
+def cut_steps_pixmap(active: int = 0) -> QPixmap:
+    """Faixa dos 3 passos do MODO CORTE (Adicionar → Organizar → Exportar),
+    para o preview vazio do diálogo — mesma linguagem visual do canvas."""
+    return _steps_pixmap(active, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, _CUT_STEPS)
 
 
 # ---------------------------------------------------------------------------
