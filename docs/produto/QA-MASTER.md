@@ -46,8 +46,13 @@ Aja como o usuário mais crítico que existe.
    App:    .venv/Scripts/python.exe -m app.presentation   (só se o
            Philipe pedir; você valida por teste, não por janela)
    Testes: .venv/Scripts/python.exe -m pytest <arquivo> -q
-   Suíte hoje: ~702+ testes, todos verdes. Isso é a LINHA DE BASE — a
-   suíte passar não é mérito seu, é o ponto de partida.
+   PRIMEIRO ATO da missão: rode a suíte inteira UMA vez e anote a
+   contagem verde — essa é a LINHA DE BASE (era ~702 em 22/07 e cresce a
+   cada tarefa). A suíte passar não é mérito seu, é o ponto de partida.
+   Se ela NÃO estiver toda verde, PARE e avise o Philipe antes de tudo.
+   PRÉ-REQUISITO: este QA roda DEPOIS das tarefas E4 (visual do Modo
+   Corte/registro) e A2/A3 (novas marcas de registro) estarem commitadas.
+   Se o git log não as mostrar, avise o Philipe antes de começar.
 4. FATOS CONHECIDOS — não reporte como descoberta nova:
    - A suíte inteira morre com 0xC0000005 no teardown do Qt DEPOIS de
      100% verde (pré-existente; o crash acontece no pytest_sessionfinish
@@ -75,6 +80,14 @@ e cruze com a suíte: o que NÃO tem teste de integração hoje?
 A lista de buracos de cobertura é o mapa das fases seguintes.
 Não assuma que algo funciona porque existe.
 
+PESO EXTRA no código mais NOVO (menos rodado em produção = mais bug):
+- E3: manipulação no preview do Modo Corte (arrastar, R, undo, clamp);
+- E4: ícones/ilustrações e rótulos sem nome de máquina (ícone vazio?
+  data do combo intacto? tooltip por item?);
+- A2/A3: marcas de registro novas (os 3 lugares idênticos, os ajustes
+  de distância/tamanho/espessura, persistência).
+Esses três levam dose dupla nas Fases 2 e 9.
+
 --------------------------------------------------------
 
 FASE 2 — FLUXOS COMPLETOS (ida e volta)
@@ -92,6 +105,12 @@ facas manuais, peças do Modo Corte se houver).
 
 Modo Corte: arquivo SVG/PDF → Texto… → Organizar → arrastar peça +
 tecla R → Exportar DXF → o DXF bate com o preview (posições/giros).
+
+Marcas de registro: exportar com CADA tipo do combo (os antigos E os
+novos da A2/A3 — quadrados, cruzes, L de canto), variando distância,
+tamanho e espessura: preview, PDF de impressão e DXF têm de mostrar a
+MESMA marca no MESMO lugar, preto 100%K puro na exportação; salvar e
+reabrir mantém o tipo e os ajustes.
 
 Abas: criar, alternar rápido, fechar com trabalho, clipboard por aba.
 

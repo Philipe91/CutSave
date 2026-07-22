@@ -259,3 +259,27 @@ def test_paridade_pixel_com_motor_antigo_em_todas_rotacoes(tmp_path, rotate):
     cand.close()
     ref.close()
     assert diverge / total < 0.002, f"{diverge}/{total} pixels divergem (rot={rotate})"
+
+
+def test_marca_quadrada_e_desenhada_preta_e_preenchida(tmp_path):
+    from app.application.dto.print_placement import PrintRect
+
+    src = _source_pdf(tmp_path)
+    out = tmp_path / "QUADRADOS.pdf"
+    sheet = PrintSheet(
+        (PrintPlacement(src, 0, Point2D(0, 0), Size(144 / MM2PT, 72 / MM2PT)),),
+        Size(200, 100),
+        rects=(PrintRect(Point2D(150, 50), 6.0),),
+    )
+    PikePdfPrintExporter().export([sheet], str(out))
+    doc = fitz.open(str(out))
+    quadrados = [
+        item[1]
+        for d in doc[0].get_drawings()
+        if d.get("fill") is not None and max(d["fill"]) == 0.0  # preto 100%
+        for item in d["items"]
+        if item[0] == "re" and round(item[1].width / MM2PT, 1) == 6.0
+    ]
+    doc.close()
+    assert quadrados  # quadrado preto solido de 6mm no PDF
+    assert round(quadrados[0].height / MM2PT, 1) == 6.0

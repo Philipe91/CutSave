@@ -135,3 +135,46 @@ def test_marcas_de_registro_geram_circulos_na_layer_regmark(tmp_path):
     assert "REGMARK" in doc.layers
     assert all(c.dxf.layer == "REGMARK" for c in circles)
     assert round(circles[0].dxf.radius, 3) == 3.0
+
+
+def test_quadrado_de_registro_sai_como_polilinha_fechada_na_regmark(tmp_path):
+    # quadrado 6mm centrado em (10,10): polilinha FECHADA no layer REGMARK
+    out = tmp_path / "quadrados.dxf"
+    poly = [Point2D(7, 7), Point2D(13, 7), Point2D(13, 13), Point2D(7, 13)]
+    DxfExporter().export([_rect_contour()], str(out), mark_polylines=[poly])
+    doc = ezdxf.readfile(str(out))
+    regs = [
+        p for p in doc.modelspace().query("LWPOLYLINE") if p.dxf.layer == "REGMARK"
+    ]
+    assert len(regs) == 1
+    assert regs[0].closed
+    # espelhamento vertical: contorno vai ate y=92 -> (7,7) vira (7,85)
+    pts = {(round(x, 6), round(y, 6)) for x, y, *_ in regs[0].get_points()}
+    assert (7.0, 85.0) in pts and (13.0, 79.0) in pts
+
+
+def test_cruz_de_registro_sai_como_linhas_na_regmark(tmp_path):
+    from app.domain.cut.shared import Segment
+
+    out = tmp_path / "cruzes.dxf"
+    segs = [
+        Segment(Point2D(7, 10), Point2D(13, 10)),
+        Segment(Point2D(10, 7), Point2D(10, 13)),
+    ]
+    DxfExporter().export([_rect_contour()], str(out), mark_segments=segs)
+    doc = ezdxf.readfile(str(out))
+    lines = doc.modelspace().query("LINE")
+    assert len(lines) == 2
+    assert all(ln.dxf.layer == "REGMARK" for ln in lines)
+
+
+def test_sem_marcas_novas_saida_identica(tmp_path):
+    # nao-regressao: a chamada antiga (sem mark_polylines) nao muda entidades
+    out = tmp_path / "regressao.dxf"
+    DxfExporter().export([_rect_contour()], str(out))
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    assert len(msp.query("LWPOLYLINE")) == 1
+    assert len(msp.query("LINE")) == 0
+    assert len(msp.query("CIRCLE")) == 0
+    assert "REGMARK" not in doc.layers

@@ -158,6 +158,61 @@ def test_execute_image_repassa_dpi_formato_e_chapas():
     assert len(fake.image_sheets) == 1
 
 
+def test_quadrados_geram_rects_e_padding():
+    # faca 100x50 em (0,0); margem 15 -> quadro (-15,-15)-(115,65); pad 21
+    art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    ExportPrintPdfUseCase(fake).execute(
+        [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf",
+        reg_type="squares", reg_margin_mm=15.0, reg_diameter_mm=6.0,
+    )
+    sheet = fake.sheets[0]
+    pad = 15.0 + 6.0
+    assert sheet.size == Size(1300 + 2 * pad, 50 + 2 * pad)
+    assert len(sheet.rects) == 4
+    assert all(r.size == 6.0 for r in sheet.rects)
+    centers = {(r.center.x, r.center.y) for r in sheet.rects}
+    assert centers == {(6.0, 6.0), (136.0, 6.0), (6.0, 86.0), (136.0, 86.0)}
+    assert sheet.circles == () and sheet.lines == ()
+
+
+def test_cruzes_geram_linhas_com_espessura():
+    art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    ExportPrintPdfUseCase(fake).execute(
+        [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf",
+        reg_type="crosses", reg_margin_mm=15.0, reg_diameter_mm=6.0,
+        reg_thickness_mm=0.8,
+    )
+    sheet = fake.sheets[0]
+    assert len(sheet.lines) == 8  # 2 segmentos por canto
+    assert all(line.width == 0.8 for line in sheet.lines)
+    assert sheet.circles == () and sheet.rects == ()
+
+
+def test_l_de_canto_gera_linhas_e_padding_com_espessura():
+    art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
+    layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)
+    fake = _FakeExporter()
+    ExportPrintPdfUseCase(fake).execute(
+        [layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf",
+        reg_type="corner_l", reg_margin_mm=15.0, reg_diameter_mm=6.0,
+        reg_thickness_mm=0.8,
+    )
+    sheet = fake.sheets[0]
+    pad = 15.0 + 6.0 + 0.8  # bracos do L crescem para fora do quadro
+    assert sheet.size == Size(1300 + 2 * pad, 50 + 2 * pad)
+    assert len(sheet.lines) == 8
+    # braco horizontal do topo-esquerdo: do vertice para FORA (esquerda)
+    starts = {(line.start.x, line.start.y) for line in sheet.lines}
+    ends = {(line.end.x, line.end.y) for line in sheet.lines}
+    vert = (-15.0 + pad, -15.0 + pad)
+    assert vert in starts
+    assert (vert[0] - 6.0, vert[1]) in ends  # 6mm para a esquerda do vertice
+
+
 def test_sem_marcas_nao_aplica_padding():
     art = _artwork("a0", 100, 50, faca=_rect_faca(100, 50))
     layout = _layout([PlacedItem("a0", Point2D(0, 0))], used_length=50.0)

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from app.application.ports.dxf_exporter import IDxfExporter
 from app.domain.cut.registration import RegistrationMark
 from app.domain.cut.shared import Segment
+from app.domain.geometry import Point2D
 from app.domain.model.cut_contour import CutContour
 from app.shared.errors import ValidationError
 
@@ -23,6 +24,7 @@ class ExportDxfUseCase:
         segments: Sequence[Segment] = (),
         marks: Sequence[RegistrationMark] = (),
         mark_segments: Sequence[Segment] = (),
+        mark_polylines: Sequence[Sequence[Point2D]] = (),
     ) -> str:
         if isinstance(contours, CutContour):
             contours = [contours]
@@ -31,6 +33,7 @@ class ExportDxfUseCase:
         if not contours and not segments:
             raise ValidationError("Nenhuma faca para exportar.")
         self._exporter.export(
-            contours, output_path, segments=segments, marks=marks, mark_segments=mark_segments
+            contours, output_path, segments=segments, marks=marks,
+            mark_segments=mark_segments, mark_polylines=mark_polylines,
         )
         return output_path

@@ -39,6 +39,14 @@ class PrintLine:
 
 
 @dataclass(frozen=True, slots=True)
+class PrintRect:
+    """Quadrado preenchido impresso (marca de registro). center/size em mm."""
+
+    center: Point2D
+    size: float
+
+
+@dataclass(frozen=True, slots=True)
 class PrintSheet:
     """Uma pagina do PDF de impressao: carimbos + marcas + tamanho da folha (mm)."""
 
@@ -46,3 +54,4 @@ class PrintSheet:
     size: Size
     circles: tuple[PrintCircle, ...] = ()
     lines: tuple[PrintLine, ...] = ()
+    rects: tuple[PrintRect, ...] = ()

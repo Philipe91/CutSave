@@ -27,9 +27,10 @@ class AppSettings:
     crop: float = 0.0
     rotation: int = 0
     shared_faca: bool = False
-    reg_type: str = "none"  # none | circles | mimaki
+    reg_type: str = "none"  # none | circles | mimaki | both | squares | crosses | corner_l
     reg_margin: float = 15.0
-    reg_diameter: float = 6.0
+    reg_diameter: float = 6.0  # tamanho da marca: diametro/lado/comprimento (mm)
+    reg_thickness: float = 0.8  # espessura do traco das cruzes e Ls de canto (mm)
     mimaki_distance: float = 15.0
     mimaki_size: float = 15.0
     mimaki_thickness: float = 1.0

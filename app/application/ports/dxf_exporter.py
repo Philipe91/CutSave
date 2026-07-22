@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from app.domain.cut.registration import RegistrationMark
 from app.domain.cut.shared import Segment
+from app.domain.geometry import Point2D
 from app.domain.model.cut_contour import CutContour
 
 
@@ -12,7 +13,8 @@ class IDxfExporter(ABC):
     """Porta de exportacao de facas para DXF.
 
     Suporta contornos fechados (faca de quadrados), segmentos abertos (faca
-    compartilhada) e marcas de registro (circulos).
+    compartilhada) e marcas de registro (circulos, segmentos de cruz/L e
+    polilinhas fechadas de quadrado).
     """
 
     @abstractmethod
@@ -24,5 +26,6 @@ class IDxfExporter(ABC):
         segments: Sequence[Segment] = (),
         marks: Sequence[RegistrationMark] = (),
         mark_segments: Sequence[Segment] = (),
+        mark_polylines: Sequence[Sequence[Point2D]] = (),
     ) -> None:
         raise NotImplementedError

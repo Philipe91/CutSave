@@ -68,6 +68,12 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                         width_pt=line.width * MM2PT,
                         color=(0, 0, 0),
                     )
+                for rect in sheet.rects:  # quadrados de registro: PRETO solido
+                    half = rect.size / 2
+                    writer.draw_rect_filled(
+                        rect.center.x - half, rect.center.y - half,
+                        rect.size, rect.size, color=(0, 0, 0),
+                    )
         except Exception as exc:
             writer.close()
             if isinstance(exc, PrintExportError):

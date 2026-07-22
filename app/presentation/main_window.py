@@ -92,6 +92,10 @@ from app.application.ports.page_renderer import IPageRenderer
 from app.application.positioning import (
     SHEET_GAP_MM,
     cartela_cut_frames,
+    corner_l_segments,
+    corner_l_segments_sheets,
+    cross_mark_segments,
+    cross_mark_segments_sheets,
     mimaki_frame_contours,
     mimaki_marks,
     mimaki_marks_for_frames,
@@ -102,6 +106,8 @@ from app.application.positioning import (
     registration_marks_sheets,
     shared_cut_segments,
     shared_cut_segments_sheets,
+    square_marks,
+    square_marks_sheets,
 )
 from app.application.project_io import (
     PROJECT_EXTENSION,
@@ -3259,6 +3265,7 @@ class MainWindow(QMainWindow):
         ("_ct_radius", "spin"),  # raio dos cantos (barra Faca) e por sessão
         ("_auto_offset", "spin"), ("_auto_ignore_white", "check"),
         ("_reg_type", "combo"), ("_reg_margin", "spin"), ("_reg_diameter", "spin"),
+        ("_reg_thickness", "spin"),
         ("_mk_distance", "spin"), ("_mk_size", "spin"), ("_mk_thickness", "spin"),
         ("_import_box", "combo"), ("_view_mode", "combo"), ("_center_check", "check"),
         ("_cart_on", "check"), ("_cart_w", "spin"), ("_cart_h", "spin"),
@@ -4743,16 +4750,32 @@ class MainWindow(QMainWindow):
         self._reg_type.addItem("Círculos", "circles")
         self._reg_type.addItem("Marcas em L", "mimaki")
         self._reg_type.addItem("Círculos + L", "both")  # cortar na Mimaki, refilar na IECHO
+        self._reg_type.addItem("Quadrados", "squares")
+        self._reg_type.addItem("Cruzes", "crosses")
+        self._reg_type.addItem("L de canto", "corner_l")  # sem quadro (difere da Mimaki)
         self._reg_type.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
+        self._reg_type.currentIndexChanged.connect(
+            lambda _: self._update_reg_thickness_state()
+        )
         card.body.addWidget(labeled("Tipo de registro", self._reg_type))
         self._reg_margin = LengthSpin(0, 200)
         self._reg_diameter = LengthSpin(1, 50)
         self._grid_fields(card.body, [
-            ("Círculos: afastamento", self._reg_margin,
-             "Distância dos círculos até as bordas da chapa (mm)."),
-            ("Círculos: diâmetro", self._reg_diameter,
-             "Diâmetro dos círculos de registro (mm)."),
+            ("Marcas: afastamento", self._reg_margin,
+             "Distância das marcas até a arte (mm).\n"
+             "Vale para círculos, quadrados, cruzes e L de canto."),
+            ("Marcas: tamanho", self._reg_diameter,
+             "Tamanho da marca (mm): diâmetro do círculo, lado do\n"
+             "quadrado, comprimento da cruz e dos braços do L."),
         ])
+        self._reg_thickness = LengthSpin(0.3, 2.0)
+        self._reg_thickness.valueChanged.connect(lambda _: self._relayout(renest=False))
+        card.body.addWidget(self._labeled_tip(
+            "Marcas: espessura do traço", self._reg_thickness,
+            "Espessura do traço (mm) das cruzes e dos Ls de canto.\n"
+            "Formas cheias (círculo/quadrado) não usam espessura."
+        ))
+        self._update_reg_thickness_state()
         self._mk_distance = LengthSpin(0, 200)
         self._mk_distance.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._mk_size = LengthSpin(1, 100)
@@ -5094,6 +5117,7 @@ class MainWindow(QMainWindow):
         self._reg_type.setCurrentIndex(idx)
         self._reg_margin.setValue(s.reg_margin)
         self._reg_diameter.setValue(s.reg_diameter)
+        self._reg_thickness.setValue(s.reg_thickness)
         self._mk_distance.setValue(s.mimaki_distance)
         self._mk_size.setValue(s.mimaki_size)
         self._mk_thickness.setValue(s.mimaki_thickness)
@@ -5128,6 +5152,7 @@ class MainWindow(QMainWindow):
         s.reg_type = self._reg_type.currentData()
         s.reg_margin = float(self._reg_margin.value())
         s.reg_diameter = float(self._reg_diameter.value())
+        s.reg_thickness = float(self._reg_thickness.value())
         s.mimaki_distance = float(self._mk_distance.value())
         s.mimaki_size = float(self._mk_size.value())
         s.mimaki_thickness = float(self._mk_thickness.value())
@@ -5149,6 +5174,12 @@ class MainWindow(QMainWindow):
 
     def _reg(self) -> str:
         return self._reg_type.currentData()
+
+    def _update_reg_thickness_state(self) -> None:
+        """Espessura do traço só se aplica às marcas de linha (cruz / L de
+        canto); nas formas cheias o campo fica desabilitado."""
+        if hasattr(self, "_reg_thickness"):
+            self._reg_thickness.setEnabled(self._reg() in ("crosses", "corner_l"))
 
     def _effective_offset(self) -> float:
         # campo único com sinal: +fora (sangria), -dentro (recuo)
@@ -7486,6 +7517,27 @@ class MainWindow(QMainWindow):
                     dx + mark.center.x - mark.radius, dy + mark.center.y - mark.radius,
                     mark.diameter, mark.diameter, mark_pen, mark_brush,
                 ))
+        if reg == "squares":
+            for mark in square_marks(
+                layout, artworks,
+                margin_mm=float(self._reg_margin.value()),
+                size_mm=float(self._reg_diameter.value()),
+            ):
+                self._keep(self._scene.addRect(
+                    dx + mark.center.x - mark.half, dy + mark.center.y - mark.half,
+                    mark.size, mark.size, mark_pen, mark_brush,
+                ))
+        if reg in ("crosses", "corner_l"):
+            fn = cross_mark_segments if reg == "crosses" else corner_l_segments
+            for seg in fn(
+                layout, artworks,
+                margin_mm=float(self._reg_margin.value()),
+                size_mm=float(self._reg_diameter.value()),
+            ):
+                self._keep(self._scene.addLine(
+                    dx + seg.start.x, dy + seg.start.y,
+                    dx + seg.end.x, dy + seg.end.y, mark_pen,
+                ))
         if reg in ("mimaki", "both"):
             # cartelas identicas: um quadro de marcas em L POR cartela (a
             # Mimaki le cada uma depois do refile); senao, o quadro unico
@@ -7549,6 +7601,7 @@ class MainWindow(QMainWindow):
             "reg_type": self._reg(),
             "reg_margin_mm": float(self._reg_margin.value()),
             "reg_diameter_mm": float(self._reg_diameter.value()),
+            "reg_thickness_mm": float(self._reg_thickness.value()),
             "mimaki_distance_mm": float(self._mk_distance.value()),
             "mimaki_size_mm": float(self._mk_size.value()),
             "mimaki_thickness_mm": float(self._mk_thickness.value()),
@@ -7791,7 +7844,8 @@ class MainWindow(QMainWindow):
         return [sheets_all[i] for i in idxs]
 
     def _dxf_payload(self, sheets):
-        """Monta (contornos, segmentos, marcas, marcas-em-L) de um conjunto de chapas."""
+        """Monta (contornos, segmentos, marcas-circulo, marcas-segmento,
+        marcas-polilinha) de um conjunto de chapas."""
         artworks = self._result.artworks
         sheet_width = sheets[0].material.width
         reg = self._reg()
@@ -7829,7 +7883,24 @@ class MainWindow(QMainWindow):
                 mark_size_mm=float(self._mk_size.value()),
             )
             contours = list(contours) + mimaki_frame_contours(mk_list)
-        return contours, segments, marks, mark_segments
+        mark_polylines = []
+        if reg == "squares":
+            # quadrado cheio vira polilinha FECHADA no layer de registro
+            mark_polylines = [
+                list(m.corners()) for m in square_marks_sheets(
+                    sheets, artworks, sheet_width,
+                    margin_mm=float(self._reg_margin.value()),
+                    size_mm=float(self._reg_diameter.value()),
+                )
+            ]
+        if reg in ("crosses", "corner_l"):
+            fn = cross_mark_segments_sheets if reg == "crosses" else corner_l_segments_sheets
+            mark_segments = fn(
+                sheets, artworks, sheet_width,
+                margin_mm=float(self._reg_margin.value()),
+                size_mm=float(self._reg_diameter.value()),
+            )
+        return contours, segments, marks, mark_segments, mark_polylines
 
     @_guard_export
     def export_dxf(self, path: str | None = None, pages=None, sheets_override=None) -> None:
@@ -7853,9 +7924,10 @@ class MainWindow(QMainWindow):
             if not path:
                 return
         with _wait_cursor():
-            contours, segments, marks, mark_segments = self._dxf_payload(sheets)
+            contours, segments, marks, mark_segments, mark_polys = self._dxf_payload(sheets)
             self._dxf_export.execute(
-                contours, path, segments=segments, marks=marks, mark_segments=mark_segments
+                contours, path, segments=segments, marks=marks,
+                mark_segments=mark_segments, mark_polylines=mark_polys,
             )
         if interactive:
             self._toasts.success("DXF de corte exportado")
@@ -7879,11 +7951,11 @@ class MainWindow(QMainWindow):
         gerados = []
         with _wait_cursor():
             for i, sheet in enumerate(sheets, start=1):
-                contours, segments, marks, mark_segments = self._dxf_payload([sheet])
+                contours, segments, marks, mark_segments, mark_polys = self._dxf_payload([sheet])
                 out = f"{stem}_{i:02d}{ext}"
                 self._dxf_export.execute(
                     contours, out, segments=segments, marks=marks,
-                    mark_segments=mark_segments,
+                    mark_segments=mark_segments, mark_polylines=mark_polys,
                 )
                 gerados.append(out)
         if interactive:
@@ -7898,6 +7970,12 @@ class MainWindow(QMainWindow):
             pad = max(pad, float(self._reg_margin.value()) + float(self._reg_diameter.value()))
         if reg in ("mimaki", "both"):
             pad = max(pad, float(self._mk_distance.value()) + float(self._mk_thickness.value()))
+        if reg in ("squares", "crosses"):
+            pad = max(pad, float(self._reg_margin.value()) + float(self._reg_diameter.value()))
+        if reg == "corner_l":  # os bracos do L crescem PARA FORA do quadro
+            pad = max(pad, float(self._reg_margin.value())
+                      + float(self._reg_diameter.value())
+                      + float(self._reg_thickness.value()))
         return pad
 
     @_guard_export
@@ -7923,7 +8001,7 @@ class MainWindow(QMainWindow):
             return
         # faca vazia = PDF em branco indo para a máquina de corte (bug QA-03):
         # valida ANTES de pedir o nome do arquivo e NUNCA grava sem linhas.
-        contours_all, segments_all, _mk, _ln = self._dxf_payload(sheets)
+        contours_all, segments_all, _mk, _ln, _pl = self._dxf_payload(sheets)
         if not contours_all and not segments_all:
             if interactive:
                 QMessageBox.warning(
@@ -7951,7 +8029,7 @@ class MainWindow(QMainWindow):
                     sheet.material.width + 2 * pad,
                     sheet.used_length + 2 * pad,
                 )
-                contours, segments, marks, _mk = self._dxf_payload([sheet])
+                contours, segments, marks, mark_segs, mark_polys = self._dxf_payload([sheet])
                 for contour in contours:
                     # contorno curvo sai como Bezier NATIVO do PDF e agora em
                     # UM caminho FECHADO por contorno (QAX-06: antes eram
@@ -7985,6 +8063,20 @@ class MainWindow(QMainWindow):
                         writer.draw_circle(
                             (mark.center.x + pad, mark.center.y + pad),
                             mark.radius, color=(0, 0, 0), fill=(0, 0, 0),
+                        )
+                    for poly in mark_polys:  # quadrados de registro: PRETO solido
+                        xs = [p.x for p in poly]
+                        ys = [p.y for p in poly]
+                        writer.draw_rect_filled(
+                            min(xs) + pad, min(ys) + pad,
+                            max(xs) - min(xs), max(ys) - min(ys),
+                        )
+                    for seg in mark_segs:  # cruz / L de canto: traço preto
+                        writer.draw_line(
+                            (seg.start.x + pad, seg.start.y + pad),
+                            (seg.end.x + pad, seg.end.y + pad),
+                            width_pt=float(self._reg_thickness.value()) * 72.0 / 25.4,
+                            color=(0, 0, 0),
                         )
             writer.save(path)
         finally:

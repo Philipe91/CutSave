@@ -6,14 +6,18 @@ from app.application.dto.print_placement import (
     PrintCircle,
     PrintLine,
     PrintPlacement,
+    PrintRect,
     PrintSheet,
 )
 from app.application.footprint import artwork_footprint
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
 from app.application.positioning import (
+    corner_l_segments,
+    cross_mark_segments,
     mimaki_marks,
     mimaki_marks_for_frames,
     registration_marks,
+    square_marks,
 )
 from app.domain.geometry import BoundingBox, Point2D, Size
 from app.domain.model.artwork import Artwork
@@ -25,9 +29,12 @@ class ExportPrintPdfUseCase:
     """Gera um PDF de impressao com uma pagina por chapa do nesting.
 
     Tipos de registro ('reg_type'):
-      - 'none'    : sem marcas.
-      - 'circles' : 5 bolinhas ao redor (padding = margem + diametro).
-      - 'mimaki'  : marcas em L nos cantos de um quadro (padding = distancia).
+      - 'none'     : sem marcas.
+      - 'circles'  : 5 bolinhas ao redor (padding = margem + diametro).
+      - 'mimaki'   : marcas em L nos cantos de um quadro (padding = distancia).
+      - 'squares'  : 4 quadrados cheios nos cantos (Summa/OPOS).
+      - 'crosses'  : 4 cruzes nos cantos (AOKE/iECHO).
+      - 'corner_l' : 4 Ls de canto sem quadro, abrindo para fora (Graphtec/Roland).
     A pagina ganha 'padding' para as marcas caberem; o conteudo e deslocado.
     """
 
@@ -43,6 +50,7 @@ class ExportPrintPdfUseCase:
         reg_type: str = "none",
         reg_margin_mm: float = 15.0,
         reg_diameter_mm: float = 6.0,
+        reg_thickness_mm: float = 0.8,
         mimaki_distance_mm: float = 15.0,
         mimaki_size_mm: float = 15.0,
         mimaki_thickness_mm: float = 1.0,
@@ -68,6 +76,11 @@ class ExportPrintPdfUseCase:
             pad = max(pad, reg_margin_mm + reg_diameter_mm)
         if reg_type in ("mimaki", "both"):
             pad = max(pad, mimaki_distance_mm + mimaki_thickness_mm)
+        if reg_type in ("squares", "crosses"):
+            pad = max(pad, reg_margin_mm + reg_diameter_mm)
+        if reg_type == "corner_l":
+            # os bracos do L crescem PARA FORA do quadro afastado
+            pad = max(pad, reg_margin_mm + reg_diameter_mm + reg_thickness_mm)
 
         print_sheets: list[PrintSheet] = []
         for layout in layouts:
@@ -89,14 +102,16 @@ class ExportPrintPdfUseCase:
                     PrintPlacement(source[0], source[1], position, art.size, crop_mm, rot, box)
                 )
 
-            circles, lines = self._marks(
+            circles, lines, rects = self._marks(
                 layout, artworks, reg_type, pad,
-                reg_margin_mm, reg_diameter_mm,
+                reg_margin_mm, reg_diameter_mm, reg_thickness_mm,
                 mimaki_distance_mm, mimaki_size_mm, mimaki_thickness_mm,
                 mimaki_frames_for=mimaki_frames_for,
             )
             sheet_size = Size(layout.material.width + 2 * pad, layout.used_length + 2 * pad)
-            print_sheets.append(PrintSheet(tuple(placements), sheet_size, circles, lines))
+            print_sheets.append(
+                PrintSheet(tuple(placements), sheet_size, circles, lines, rects)
+            )
         return print_sheets
 
     def execute(
@@ -131,12 +146,13 @@ class ExportPrintPdfUseCase:
     @staticmethod
     def _marks(
         layout, artworks, reg_type, pad,
-        reg_margin_mm, reg_diameter_mm,
+        reg_margin_mm, reg_diameter_mm, reg_thickness_mm,
         mimaki_distance_mm, mimaki_size_mm, mimaki_thickness_mm,
         mimaki_frames_for=None,
     ):
         circles: tuple[PrintCircle, ...] = ()
         lines: tuple[PrintLine, ...] = ()
+        rects: tuple[PrintRect, ...] = ()
         if reg_type in ("circles", "both"):
             marks = registration_marks(
                 layout, artworks, margin_mm=reg_margin_mm, diameter_mm=reg_diameter_mm
@@ -172,4 +188,23 @@ class ExportPrintPdfUseCase:
                 )
                 for s in segments
             )
-        return circles, lines
+        if reg_type == "squares":
+            rects = tuple(
+                PrintRect(m.center.translated(pad, pad), m.size)
+                for m in square_marks(
+                    layout, artworks, margin_mm=reg_margin_mm, size_mm=reg_diameter_mm
+                )
+            )
+        if reg_type in ("crosses", "corner_l"):
+            fn = cross_mark_segments if reg_type == "crosses" else corner_l_segments
+            lines = lines + tuple(
+                PrintLine(
+                    s.start.translated(pad, pad),
+                    s.end.translated(pad, pad),
+                    reg_thickness_mm,
+                )
+                for s in fn(
+                    layout, artworks, margin_mm=reg_margin_mm, size_mm=reg_diameter_mm
+                )
+            )
+        return circles, lines, rects

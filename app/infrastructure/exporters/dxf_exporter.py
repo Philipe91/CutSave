@@ -32,6 +32,7 @@ class DxfExporter(IDxfExporter):
         segments: Sequence[Segment] = (),
         marks: Sequence[RegistrationMark] = (),
         mark_segments: Sequence[Segment] = (),
+        mark_polylines: Sequence[Sequence[Point2D]] = (),
     ) -> None:
         # ESPELHAMENTO (beta 09/07): o modelo do PrintNest usa Y-para-BAIXO
         # (convencao de tela/PDF); CAD/CorelDRAW leem DXF com Y-para-CIMA.
@@ -39,7 +40,7 @@ class DxfExporter(IDxfExporter):
         # geometria (facas, grade, marcas) e refletida junto — y' = H - y —
         # entao o alinhamento impressao x corte permanece exato e as
         # coordenadas continuam positivas.
-        flip_h = self._extent_y(contours, segments, marks, mark_segments)
+        flip_h = self._extent_y(contours, segments, marks, mark_segments, mark_polylines)
 
         def fy(y: float) -> float:
             return flip_h - y
@@ -75,7 +76,7 @@ class DxfExporter(IDxfExporter):
                 dxfattribs={"layer": CUT_LAYER},
             )
 
-        if marks or mark_segments:
+        if marks or mark_segments or mark_polylines:
             doc.layers.add(REGMARK_LAYER, color=REGMARK_COLOR)
             for mark in marks:
                 msp.add_circle(
@@ -89,6 +90,12 @@ class DxfExporter(IDxfExporter):
                     (segment.end.x, fy(segment.end.y)),
                     dxfattribs={"layer": REGMARK_LAYER},
                 )
+            for poly in mark_polylines:  # quadrado de registro: polilinha fechada
+                msp.add_lwpolyline(
+                    [(p.x, fy(p.y)) for p in poly],
+                    close=True,
+                    dxfattribs={"layer": REGMARK_LAYER},
+                )
 
         try:
             doc.saveas(output_path)
@@ -96,7 +103,7 @@ class DxfExporter(IDxfExporter):
             raise DxfExportError(f"Falha ao gravar DXF: {output_path}") from exc
 
     @staticmethod
-    def _extent_y(contours, segments, marks, mark_segments) -> float:
+    def _extent_y(contours, segments, marks, mark_segments, mark_polylines=()) -> float:
         """Maior Y da geometria — referencia da reflexao (y' = H - y)."""
         ys: list[float] = []
         for c in contours:
@@ -105,4 +112,6 @@ class DxfExporter(IDxfExporter):
             ys += [s.start.y, s.end.y]
         for m in marks:
             ys.append(m.center.y + m.radius)
+        for poly in mark_polylines:
+            ys += [p.y for p in poly]
         return max(ys) if ys else 0.0

@@ -35,6 +35,7 @@ PROJECT_SETTING_KEYS = (
     "reg_type",
     "reg_margin",
     "reg_diameter",
+    "reg_thickness",
     "mimaki_distance",
     "mimaki_size",
     "mimaki_thickness",

@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from functools import lru_cache
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -187,6 +187,9 @@ REG_HINTS = {
     "circles": "Círculos nos cantos da chapa\n(leitura óptica das mesas IECHO).",
     "mimaki": "Marcas em L nos cantos\n(leitura das plotters Mimaki).",
     "both": "As duas marcas juntas: corta na\nMimaki e refila na IECHO.",
+    "squares": "Quadrados cheios nos cantos\n(leitura óptica dos plotters Summa/OPOS).",
+    "crosses": "Cruzes nos cantos\n(padrão das mesas AOKE/iECHO).",
+    "corner_l": "Ls soltos abraçando os cantos, sem quadro\n(plotters Graphtec ARMS e Roland).",
 }
 BOX_HINTS = {
     "media": "Usa a página inteira do PDF,\nincluindo a sangria (arte vaza).",
@@ -290,6 +293,36 @@ def _glyph_pixmap(kind: str, key: str, cut: str, muted: str, accent: str, size: 
                 ax, ay = px + sx * off, py + sy * off
                 p.drawLine(QPointF(ax, ay), QPointF(ax + sx * arm, ay))
                 p.drawLine(QPointF(ax, ay), QPointF(ax, ay + sy * arm))
+        if key == "squares":  # quadrados cheios nos 4 cantos (Summa/OPOS)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QBrush(ink))
+            d = size * 0.14
+            inset = size * 0.10
+            for px, py in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)):
+                cx = px + (inset if px == x0 else -inset)
+                cy = py + (inset if py == y0 else -inset)
+                p.drawRect(QRectF(cx - d / 2, cy - d / 2, d, d))
+        if key == "crosses":  # cruzes centradas nos 4 cantos (AOKE/iECHO)
+            p.setPen(QPen(ink, 1.4))
+            p.setBrush(Qt.NoBrush)
+            arm = size * 0.09
+            inset = size * 0.11
+            for px, py in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)):
+                cx = px + (inset if px == x0 else -inset)
+                cy = py + (inset if py == y0 else -inset)
+                p.drawLine(QPointF(cx - arm, cy), QPointF(cx + arm, cy))
+                p.drawLine(QPointF(cx, cy - arm), QPointF(cx, cy + arm))
+        if key == "corner_l":  # Ls abraçando os cantos, abertura para fora
+            p.setPen(QPen(ink, 1.6))
+            p.setBrush(Qt.NoBrush)
+            arm = size * 0.15
+            off = size * 0.18
+            for px, py in ((x0, y0), (x1, y0), (x0, y1), (x1, y1)):
+                sx = 1 if px == x0 else -1  # direcao PARA DENTRO da chapinha
+                sy = 1 if py == y0 else -1
+                ax, ay = px + sx * off, py + sy * off  # vertice do L
+                p.drawLine(QPointF(ax, ay), QPointF(ax - sx * arm, ay))
+                p.drawLine(QPointF(ax, ay), QPointF(ax, ay - sy * arm))
 
     elif kind == "importbox":
         m = size * 0.12

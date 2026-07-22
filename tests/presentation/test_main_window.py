@@ -532,7 +532,7 @@ def test_registro_ambos_bolinhas_e_mimaki(qapp, tmp_path):
     assert any(s.circles for s in ps)  # bolinhas no PDF de impressao
     assert any(s.lines for s in ps)    # marcas Mimaki (linhas) no PDF de impressao
 
-    contours, _segments, marks, _mk = window._dxf_payload(sheets)
+    contours, _segments, marks, _mk, _pl = window._dxf_payload(sheets)
     assert marks  # bolinhas tambem no DXF
 
 
@@ -2758,8 +2758,127 @@ def test_registro_rotulos_neutros_pela_forma(qapp, tmp_path):
     window = _window(tmp_path)
     combo = window._reg_type
     assert [combo.itemData(i) for i in range(combo.count())] == [
-        "none", "circles", "mimaki", "both",
+        "none", "circles", "mimaki", "both", "squares", "crosses", "corner_l",
     ]
     for i in range(combo.count()):
         text = combo.itemText(i)
         assert "Mimaki" not in text and "IECHO" not in text, text
+        assert "Summa" not in text and "Graphtec" not in text, text
+
+
+def test_registro_quadrados_dxf_e_impressao(qapp, tmp_path):
+    # "Quadrados" (Summa/OPOS): 4 polilinhas fechadas no REGMARK do DXF e
+    # 4 rects pretos no PDF de impressao
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._reg_type.setCurrentIndex(window._reg_type.findData("squares"))
+    window.generate(blocking=True)
+    out = tmp_path / "CORTE_SQ.dxf"
+    window.export_dxf(str(out))
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    regs = [p for p in msp.query("LWPOLYLINE") if p.dxf.layer == "REGMARK"]
+    assert len(regs) == 4 and all(p.closed for p in regs)
+    assert len(msp.query("LINE")) == 0
+
+    sheets = window._effective_sheets()
+    ps = window._print_export.build_print_sheets(
+        sheets, window._result.artworks, window._result.sources, **window._print_kwargs()
+    )
+    assert sum(len(s.rects) for s in ps) == 4
+    assert all(r.size == float(window._reg_diameter.value()) for s in ps for r in s.rects)
+
+
+def test_registro_cruzes_dxf_e_impressao(qapp, tmp_path):
+    # "Cruzes" (AOKE/iECHO): 8 linhas no REGMARK e 8 linhas com a espessura
+    # escolhida no PDF de impressao
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._reg_type.setCurrentIndex(window._reg_type.findData("crosses"))
+    window.generate(blocking=True)
+    out = tmp_path / "CORTE_CR.dxf"
+    window.export_dxf(str(out))
+    doc = ezdxf.readfile(str(out))
+    lines = doc.modelspace().query("LINE")
+    assert len(lines) == 8
+    assert all(ln.dxf.layer == "REGMARK" for ln in lines)
+
+    sheets = window._effective_sheets()
+    ps = window._print_export.build_print_sheets(
+        sheets, window._result.artworks, window._result.sources, **window._print_kwargs()
+    )
+    esp = float(window._reg_thickness.value())
+    assert sum(len(s.lines) for s in ps) == 8
+    assert all(line.width == esp for s in ps for line in s.lines)
+
+
+def test_registro_l_de_canto_dxf_e_pad(qapp, tmp_path):
+    # "L de canto" (Graphtec/Roland): 8 linhas no REGMARK, sem quadro extra;
+    # o pad da faca soma margem + tamanho + espessura (bracos para fora)
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._reg_type.setCurrentIndex(window._reg_type.findData("corner_l"))
+    window.generate(blocking=True)
+    out = tmp_path / "CORTE_L.dxf"
+    window.export_dxf(str(out))
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    lines = msp.query("LINE")
+    assert len(lines) == 8
+    assert all(ln.dxf.layer == "REGMARK" for ln in lines)
+    # sem quadro: so as facas das pecas nas polilinhas (nenhuma no REGMARK)
+    assert all(p.dxf.layer == "CUT" for p in msp.query("LWPOLYLINE"))
+    esperado = (float(window._reg_margin.value())
+                + float(window._reg_diameter.value())
+                + float(window._reg_thickness.value()))
+    assert window._faca_pad() == esperado
+
+
+def test_registro_tipos_antigos_sem_regressao_no_dxf(qapp, tmp_path):
+    # nao-regressao explicita: circles segue igual (5 circulos, sem linha nem
+    # polilinha de registro)
+    src = _two_page_pdf(tmp_path)
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window._reg_type.setCurrentIndex(window._reg_type.findData("circles"))
+    window.generate(blocking=True)
+    out = tmp_path / "CORTE_REGR.dxf"
+    window.export_dxf(str(out))
+    doc = ezdxf.readfile(str(out))
+    msp = doc.modelspace()
+    assert len(msp.query("CIRCLE")) == 5
+    assert len(msp.query("LINE")) == 0
+    assert all(p.dxf.layer == "CUT" for p in msp.query("LWPOLYLINE"))
+
+
+def test_reg_type_desconhecido_cai_em_nenhum(qapp, tmp_path):
+    # projeto antigo/desconhecido: chave ausente no combo -> "Nenhuma"
+    window = _window(tmp_path)
+    window._settings.reg_type = "marca_futurista"
+    window._load_settings()
+    assert window._reg() == "none"
+
+
+def test_reg_type_novo_persiste_e_reabre(qapp, tmp_path):
+    # projeto salvo com forma nova reabre nela (roundtrip via settings)
+    window = _window(tmp_path)
+    window._reg_type.setCurrentIndex(window._reg_type.findData("squares"))
+    window._reg_thickness.setValue(1.2)
+    window._save_settings()
+    window2 = _window(tmp_path)
+    assert window2._reg() == "squares"
+    assert float(window2._reg_thickness.value()) == 1.2
+
+
+def test_espessura_habilita_so_para_cruz_e_l(qapp, tmp_path):
+    window = _window(tmp_path)
+    combo = window._reg_type
+    for data, enabled in (
+        ("none", False), ("circles", False), ("squares", False),
+        ("crosses", True), ("corner_l", True), ("mimaki", False),
+    ):
+        combo.setCurrentIndex(combo.findData(data))
+        assert window._reg_thickness.isEnabled() is enabled, data

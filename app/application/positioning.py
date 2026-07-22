@@ -3,6 +3,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from app.application.footprint import artwork_footprint
+from app.domain.cut.corner_marks import (
+    CornerLMarkGenerator,
+    CrossMarkGenerator,
+    SquareMark,
+    SquareMarkGenerator,
+)
 from app.domain.cut.mimaki import MimakiMarkGenerator, MimakiMarks
 from app.domain.cut.registration import RegistrationMark, RegistrationMarkGenerator
 from app.domain.cut.shared import Segment, build_shared_grid
@@ -16,6 +22,9 @@ SHEET_GAP_MM = 50.0
 
 _REG_GENERATOR = RegistrationMarkGenerator()
 _MIMAKI_GENERATOR = MimakiMarkGenerator()
+_SQUARE_GENERATOR = SquareMarkGenerator()
+_CROSS_GENERATOR = CrossMarkGenerator()
+_CORNER_L_GENERATOR = CornerLMarkGenerator()
 
 
 def _contours_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list[CutContour]:
@@ -155,6 +164,115 @@ def registration_marks_sheets(
             _REG_GENERATOR.generate(bbox, margin_mm=margin_mm, diameter_mm=diameter_mm)
         )
     return marks
+
+
+def _sheet_bboxes(
+    sheets: Sequence[Layout],
+    artworks: Sequence[Artwork],
+    sheet_width: float,
+    gap: float,
+) -> list[BoundingBox]:
+    """Bbox das facas de cada chapa, lado a lado (pula chapas sem faca)."""
+    by_id = {art.id: art for art in artworks}
+    boxes: list[BoundingBox] = []
+    for index, layout in enumerate(sheets):
+        bbox = _union_bbox(_faca_rects_of(layout, by_id, dx=index * (sheet_width + gap)))
+        if bbox is not None:
+            boxes.append(bbox)
+    return boxes
+
+
+def square_marks(
+    layout: Layout,
+    artworks: Sequence[Artwork],
+    *,
+    margin_mm: float,
+    size_mm: float,
+) -> list[SquareMark]:
+    """4 quadrados cheios nos cantos das facas de uma chapa (vazio se sem faca)."""
+    bbox = cuts_bounding_box(layout, artworks)
+    if bbox is None:
+        return []
+    return _SQUARE_GENERATOR.generate(bbox, margin_mm=margin_mm, size_mm=size_mm)
+
+
+def square_marks_sheets(
+    sheets: Sequence[Layout],
+    artworks: Sequence[Artwork],
+    sheet_width: float,
+    *,
+    margin_mm: float,
+    size_mm: float,
+    gap: float = SHEET_GAP_MM,
+) -> list[SquareMark]:
+    """Quadrados de registro de varias chapas, lado a lado."""
+    return [
+        mark
+        for bbox in _sheet_bboxes(sheets, artworks, sheet_width, gap)
+        for mark in _SQUARE_GENERATOR.generate(bbox, margin_mm=margin_mm, size_mm=size_mm)
+    ]
+
+
+def cross_mark_segments(
+    layout: Layout,
+    artworks: Sequence[Artwork],
+    *,
+    margin_mm: float,
+    size_mm: float,
+) -> list[Segment]:
+    """4 cruzes (2 segmentos por canto) de uma chapa (vazio se sem faca)."""
+    bbox = cuts_bounding_box(layout, artworks)
+    if bbox is None:
+        return []
+    return _CROSS_GENERATOR.generate(bbox, margin_mm=margin_mm, size_mm=size_mm)
+
+
+def cross_mark_segments_sheets(
+    sheets: Sequence[Layout],
+    artworks: Sequence[Artwork],
+    sheet_width: float,
+    *,
+    margin_mm: float,
+    size_mm: float,
+    gap: float = SHEET_GAP_MM,
+) -> list[Segment]:
+    """Cruzes de registro de varias chapas, lado a lado."""
+    return [
+        seg
+        for bbox in _sheet_bboxes(sheets, artworks, sheet_width, gap)
+        for seg in _CROSS_GENERATOR.generate(bbox, margin_mm=margin_mm, size_mm=size_mm)
+    ]
+
+
+def corner_l_segments(
+    layout: Layout,
+    artworks: Sequence[Artwork],
+    *,
+    margin_mm: float,
+    size_mm: float,
+) -> list[Segment]:
+    """4 Ls de canto (sem quadro) de uma chapa (vazio se sem faca)."""
+    bbox = cuts_bounding_box(layout, artworks)
+    if bbox is None:
+        return []
+    return _CORNER_L_GENERATOR.generate(bbox, margin_mm=margin_mm, size_mm=size_mm)
+
+
+def corner_l_segments_sheets(
+    sheets: Sequence[Layout],
+    artworks: Sequence[Artwork],
+    sheet_width: float,
+    *,
+    margin_mm: float,
+    size_mm: float,
+    gap: float = SHEET_GAP_MM,
+) -> list[Segment]:
+    """Ls de canto de varias chapas, lado a lado."""
+    return [
+        seg
+        for bbox in _sheet_bboxes(sheets, artworks, sheet_width, gap)
+        for seg in _CORNER_L_GENERATOR.generate(bbox, margin_mm=margin_mm, size_mm=size_mm)
+    ]
 
 
 def mimaki_marks(
