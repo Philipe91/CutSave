@@ -26,7 +26,7 @@ const features = [
   {
     icon: Layers3,
     title: "Nesting automático",
-    text: "Centenas de peças encaixadas no material em segundos, com rotação e alta densidade.",
+    text: "Centenas de peças encaixadas em segundos — inclusive pelo contorno real de letras e formas, com giro automático, no Modo Corte para laser e CNC.",
   },
   {
     icon: Scissors,
@@ -85,7 +85,7 @@ const plans = [
     title: "PrintNest Pro",
     price: "R$ 397",
     text: "Licença vitalícia para automatizar o preparo da produção.",
-    items: ["Nesting automático", "Faca DXF + sangria", "Registro IECHO, Mimaki e Laser", "PDF + DXF + imagem"],
+    items: ["Nesting automático", "Modo Corte pelo contorno real (laser/CNC)", "Faca DXF + sangria", "Registro IECHO, Mimaki e Laser", "PDF + DXF + imagem"],
     featured: true,
   },
   {
@@ -365,7 +365,8 @@ export function Landing() {
               <h2>Capturas reais, direto da produção.</h2>
               <p>
                 Sem mockup e sem montagem: nesting de 479 peças em 5 chapas com 94% de
-                aproveitamento, faca gerada por contorno e exportação em PDF + DXF.
+                aproveitamento, faca gerada por contorno, exportação em PDF + DXF e o
+                Modo Corte encaixando letras pelo contorno real, com giro automático.
               </p>
             </div>
 
@@ -376,7 +377,7 @@ export function Landing() {
               <div className="ap-screen-strip">
                 <img src="/assets/prints/p3-faca-stickers.jpg" alt="Faca de corte gerada automaticamente ao redor de cada adesivo" />
                 <img src="/assets/prints/p5-exportacao.jpg" alt="Centro de Exportação: PDF de impressão, DXF de corte e faca em PDF" />
-                <img src="/assets/app-producao.jpg" alt="Visão geral da produção no PrintNest" />
+                <img src="/assets/prints/p6-modo-corte.jpg" alt="Modo Corte: letras encaixadas pelo contorno real com giro automático e aproveitamento na tela" />
               </div>
             </div>
           </div>
