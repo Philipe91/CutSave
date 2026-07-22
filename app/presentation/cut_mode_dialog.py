@@ -104,6 +104,45 @@ class CutPiece:
         return len(self.shapes) * self.quantity
 
 
+class _ZoomView(QGraphicsView):
+    """QGraphicsView com zoom pela roda do mouse, arrasto para deslocar e
+    duplo clique para "ajustar a janela".
+
+    NAO reaproveita o ZoomableGraphicsView da MainWindow de proposito:
+    importa-lo aqui traria as ~8 mil linhas do main_window junto, so por
+    causa de 15 linhas de zoom. Quando o canvas virar componente
+    compartilhado (ver TAREFA E1 em docs/produto/PROMPTS-BACKLOG.md), os dois
+    devem convergir — ate la, esta e a duplicacao barata e consciente.
+    """
+
+    _MIN, _MAX = 0.02, 60.0
+
+    def __init__(self, scene) -> None:
+        super().__init__(scene)
+        # zoom no ponto do cursor (e o que o operador espera do Corel)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+
+    def wheelEvent(self, event) -> None:
+        passo = 1.25 if event.angleDelta().y() > 0 else 1 / 1.25
+        escala = self.transform().m11() * passo
+        if self._MIN <= escala <= self._MAX:
+            self.scale(passo, passo)
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        self.fit()
+        super().mouseDoubleClickEvent(event)
+
+    def fit(self) -> None:
+        """Enquadra a cena inteira. Chamado a cada redesenho — arranjo novo
+        volta enquadrado, e o zoom do operador nao sobrevive de proposito
+        (o desenho mudou embaixo dele)."""
+        rect = self.scene().sceneRect()
+        if not rect.isEmpty():
+            self.fitInView(rect, Qt.KeepAspectRatio)
+
+
 class _NestThread(QThread):
     """Roda o packer FORA da thread da UI. O NFP de dezenas de letras leva
     minutos e o 'Tempo de otimizacao' nao limita essa etapa — na thread da
@@ -217,10 +256,13 @@ class CutModeDialog(QDialog):
         col.setSpacing(theme.SPACE_SM)
 
         self._scene = QGraphicsScene(self)
-        self._view = QGraphicsView(self._scene)
+        self._view = _ZoomView(self._scene)
         self._view.setRenderHint(QPainter.Antialiasing)
         self._view.setBackgroundBrush(QBrush(QColor(theme.SURFACE_ALT)))
         self._view.setMinimumHeight(280)
+        self._view.setToolTip(
+            "Roda do mouse: zoom · arrastar: deslocar · duplo clique: ajustar à janela"
+        )
         col.addWidget(self._view, 1)
 
         self._sheet_pick = QComboBox()
@@ -565,6 +607,7 @@ class CutModeDialog(QDialog):
             QPen(QColor(theme.BORDER_STRONG)),
             QBrush(QColor(theme.SURFACE)),
         )
+        self._draw_sheet_limits(layout, length)
         by_id = {s.artwork_id: s for s in self._nested_shapes}
         pen = QPen(QColor(theme.ACCENT))
         pen.setCosmetic(True)  # espessura constante em qualquer zoom
@@ -572,7 +615,38 @@ class CutModeDialog(QDialog):
         for item in layout.items:
             self._scene.addPath(self._path(by_id[item.artwork_id], item), pen, fill)
         self._scene.setSceneRect(self._scene.itemsBoundingRect())
-        self._view.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
+        self._view.fit()
+
+    def _draw_sheet_limits(self, layout: Layout, length: float) -> None:
+        """Linha VERMELHA da area configurada + tracejada da margem.
+
+        Sem isso o operador nao tem como saber se o arranjo cabe no que ele
+        pediu: o retangulo branco mostra o comprimento USADO, e com "Altura da
+        folha" 0 (bobina) esse comprimento nao tem nada a ver com o
+        configurado. Pedido do Philipe em 22/07, depois de olhar um preview e
+        nao saber onde ficava a chapa dele.
+
+        Em bobina (altura 0) o que esta configurado e SO a largura, entao o
+        retangulo vermelho acompanha o comprimento usado — quem manda ali e a
+        largura, e as duas linhas verticais mostram o limite.
+        """
+        altura = self._sheet_len.value() or length
+        vermelho = QPen(QColor(theme.ERROR))
+        vermelho.setCosmetic(True)
+        self._scene.addRect(
+            QRectF(0, 0, layout.material.width, altura), vermelho, QBrush(Qt.NoBrush)
+        )
+
+        margem = self._margin.value()
+        util_w = layout.material.width - 2 * margem
+        util_h = altura - 2 * margem
+        if margem > 0 and util_w > 0 and util_h > 0:
+            tracejada = QPen(QColor(theme.ERROR))
+            tracejada.setCosmetic(True)
+            tracejada.setStyle(Qt.DashLine)
+            self._scene.addRect(
+                QRectF(margem, margem, util_w, util_h), tracejada, QBrush(Qt.NoBrush)
+            )
 
     @staticmethod
     def _path(shape: NestingShape, item) -> QPainterPath:

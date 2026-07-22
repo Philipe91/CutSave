@@ -9,6 +9,7 @@ from app.application.use_cases.export_dxf import ExportDxfUseCase  # noqa: E402
 from app.infrastructure.exporters.dxf_exporter import DxfExporter  # noqa: E402
 from app.presentation.cut_mode_dialog import CutModeDialog  # noqa: E402
 from app.shared.errors import ValidationError  # noqa: E402
+from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 _XMLNS = 'xmlns="http://www.w3.org/2000/svg"'
@@ -173,6 +174,50 @@ def test_preencher_furos_enche_o_miolo_do_O(dialog, tmp_path):
 
     assert com_furo == pytest.approx(100.0)
     assert sem_furo == pytest.approx(122.0)  # 100 + gap 2 + quadrado 20
+
+
+def test_preview_desenha_o_limite_da_chapa_configurada(dialog, tmp_path):
+    # Linha VERMELHA da área configurada: sem ela o operador não sabe se o
+    # arranjo cabe no que ele pediu — o retângulo branco mostra o comprimento
+    # USADO, que em bobina não tem relação com o configurado.
+    from app.presentation import theme
+    from PySide6.QtGui import QColor
+
+    dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
+    dialog._width.setValue(300.0)
+    dialog._sheet_len.setValue(200.0)
+    dialog._margin.setValue(10.0)
+    dialog.nest()
+
+    vermelhos = [
+        it for it in dialog._scene.items()
+        if hasattr(it, "pen") and it.pen().color() == QColor(theme.ERROR)
+    ]
+    # contorno da chapa + tracejado da margem
+    assert len(vermelhos) == 2
+    caixas = sorted((it.rect().width(), it.rect().height()) for it in vermelhos)
+    assert caixas[1] == pytest.approx((300.0, 200.0))   # chapa configurada
+    assert caixas[0] == pytest.approx((280.0, 180.0))   # área útil (margem 10)
+
+
+def test_preview_tem_zoom_pela_roda(dialog, tmp_path):
+    # o preview do arranjo precisa de zoom: peça pequena em chapa grande fica
+    # ilegível enquadrada (o Philipe leu um arranjo afastado como peças
+    # sobrepostas em 22/07).
+    from PySide6.QtGui import QWheelEvent
+
+    dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
+    dialog.nest()
+    antes = dialog._view.transform().m11()
+    dialog._view.wheelEvent(
+        QWheelEvent(
+            QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(0, 120),
+            Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False,
+        )
+    )
+    assert dialog._view.transform().m11() > antes  # aproximou
+    dialog._view.fit()  # duplo clique volta a enquadrar
+    assert dialog._view.transform().m11() == pytest.approx(antes, rel=1e-6)
 
 
 def test_peca_maior_que_a_chapa_aparece_em_nao_coube(dialog, tmp_path):
