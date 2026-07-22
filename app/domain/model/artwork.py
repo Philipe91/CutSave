@@ -54,6 +54,11 @@ class Artwork:
     # separados (ex.: folha com 6 adesivos) -> uma linha de corte para cada.
     # A peca segue sendo UMA so (bounding box); estas sao cortes internos.
     extra_cuts: tuple[CutContour, ...] = ()
+    # Peca vinda do MODO CORTE (letras/formas true-shape, tarefa E1). Campo
+    # ADITIVO com default False: toda arte de IMPRESSAO (mesmo com faca)
+    # continua no comportamento de sempre; so quem nasce no Modo Corte liga
+    # isto — e ganha, por exemplo, hit-test pelo contorno real no canvas.
+    from_cut_mode: bool = False
 
     def __post_init__(self) -> None:
         if not self.id:
