@@ -252,6 +252,31 @@ em ~37-38% com o benchmark, mas os vãos ficam vazios.
 
 ---
 
+## TAREFA E1 — ❌ CANCELADA (22/07). Substituída pela E3, abaixo.
+
+> **Decisão do Philipe:** *"Estamos deixando complexo demais. Já quero lançar
+> pra venda e precisamos ser rápidos."*
+>
+> A integração chegou a ser implementada (etapas 1 e 2, pelo Fable) e
+> **descartada**: commit local `1395e83` apagado, alterações do working tree
+> revertidas. Não foi problema de qualidade — a Etapa 1 passou na revisão. Foi
+> escopo.
+>
+> **Por que caiu:** a necessidade real era pequena — mover e girar uma letra —
+> e cabe dentro da própria janela do Modo Corte, sem encostar no fluxo de
+> impressão. O que a integração dava a mais (misturar corte e impressão na
+> MESMA chapa) o Philipe não usa. O custo permanente era alto: campo novo no
+> `.printnest`, reanexar peças no `_relayout`, ordem de corte no caminho do
+> canvas, `PieceItem` polimórfico — e uma limitação que o próprio autor
+> documentou: *"o nesting de impressão não conhece essas peças, então um
+> re-encaixe pode sobrepor"*. Em 5 minutos de uso real apareceram 3 bugs de UX.
+>
+> **Se um dia voltar:** o texto original segue abaixo, com o terreno mapeado
+> (linhas reais do main_window.py) e as armadilhas — não precisa redescobrir.
+> Gatilho para reabrir: querer corte e impressão na mesma chapa.
+
+### Texto original (mantido para referência)
+
 ## TAREFA E1 — Peças do Modo Corte na ÁREA DE TRABALHO — PROMPT MESTRE
 
 Objetivo do Philipe: parar de tratar o Modo Corte como uma janela à parte —
@@ -481,6 +506,105 @@ substituindo o MaxRects sem o Philipe pedir.
 O custo do GA passou a ser (chapa consumida, compacidade) em vez de área do
 bounding box — ver `docs/produto/FASE6-PRENCHER-FUROS.md` seção 4. Isso vale
 para qualquer uso futuro do `TrueShapePacker`, inclusive este.
+
+---
+
+## TAREFA E3 — Manipular na PRÓPRIA janela do Modo Corte + UI/UX — PROMPT MESTRE
+
+Substitui a E1. Prioridade de LANÇAMENTO: o Philipe quer vender em breve, então
+o critério é entregar a necessidade real (mover e girar uma letra) sem encostar
+no fluxo de impressão, e deixar a janela com cara de software profissional —
+ela é a que vai ser vendida.
+
+Tudo em `app/presentation/cut_mode_dialog.py`. **Zero contato** com
+`main_window.py`, `PieceItem`, `Artwork` ou o fluxo de impressão.
+
+```
+# PrintNest — E3: manipulação e UI/UX na janela do Modo Corte
+
+Você está em C:\projetos\Cutph (Python, PySide6, Clean Architecture,
+ruff + pytest, venv em .venv). Responda e comente em português, no estilo
+dos arquivos vizinhos. NÃO commite — eu commito após revisão.
+
+## Contexto obrigatório antes de codar
+- docs/produto/FASE6-PRENCHER-FUROS.md — leia o aviso do topo: o MOTOR DE
+  NESTING ESTÁ CONGELADO (commit f43d924). Nada desta tarefa pode mudar
+  resultado de encaixe. É interface, texto e manipulação MANUAL.
+- A TAREFA E1 deste mesmo arquivo foi CANCELADA — não tente integrar com a
+  área de trabalho da impressão.
+- app/presentation/cut_mode_dialog.py: leia a docstring do topo. O diálogo
+  tem cena PRÓPRIA e não encosta no fluxo de impressão — mantenha assim.
+  Já existem: _ZoomView (zoom/pan/duplo-clique), limite vermelho da chapa
+  (_draw_sheet_limits) e o checkbox de preencher furos.
+
+## Missão 1 — manipular a peça no preview
+Hoje o preview desenha os contornos com addPath: itens anônimos, nada
+selecionável. Precisa virar:
+1. Peça selecionável e ARRASTÁVEL na cena do diálogo.
+2. GIRAR a peça selecionada (tecla R e/ou botão). 90° resolve; se for
+   barato, use o passo do combo "Giro das peças".
+3. Ao soltar/girar, atualizar o PlacedItem correspondente em self._layouts
+   (posição e rotação). ESTE É O PONTO CENTRAL: preview, Exportar DXF,
+   Enviar p/ Corel e o SVG já leem de self._layouts, então todos seguem de
+   graça. NÃO escreva caminho novo de exportação — se preview e arquivo
+   divergirem, é exatamente o pesadelo que a docstring do módulo avisa em
+   maiúsculas.
+4. Não deixar a peça sair da chapa configurada (o retângulo vermelho que já
+   existe). Sobreposição entre peças: NÃO bloqueie — o operador pode querer.
+5. Ctrl+Z do arrasto/giro se sair barato. Se complicar, deixe fora —
+   prioridade é lançar.
+
+NÃO PRECISA: alinhar, distribuir, guias, snap, duplicar, step-repeat. O
+nesting já posiciona; isto é retoque.
+
+## Missão 2 — UI/UX da janela
+Aberta e vazia, hoje são TRÊS caixas brancas mudas (lista de peças, prévia da
+peça, prévia do arranjo), botões desabilitados sem explicação, e a linha de
+status diz "0 corpo(s) na lista. Clique em Organizar." — com o Organizar
+DESABILITADO. A primeira instrução do software é impossível de seguir.
+
+1. ILUSTRAÇÃO / ESTADO VAZIO na prévia do arranjo. Reaproveite o que a janela
+   principal já faz: _steps_pixmap em app/presentation/faca_icons.py (módulo
+   separado, importável sem puxar o main_window). Adicione lá um
+   cut_steps_pixmap(active) com o fluxo do corte:
+   1. Adicionar -> 2. Organizar -> 3. Exportar.
+   Pinte no drawForeground do _ZoomView, espelhando o ZoomableGraphicsView
+   (main_window.py:264). NÃO duplique os glifos — parametrize em faca_icons.
+2. O texto-guia diz o PRÓXIMO passo POSSÍVEL, nunca um botão desabilitado:
+     sem peça   -> "Adicione um arquivo (SVG/PDF) ou um texto"
+     com peça   -> "Clique em Organizar"
+     organizado -> sem texto
+3. Estado vazio nas outras duas caixas: uma linha curta cada, no tom
+   secundário do tema, em vez de branco mudo.
+4. Hierarquia: ênfase de ação PRIMÁRIA no botão do passo atual (Organizar
+   quando há peça; Exportar depois). Tokens do theme.py, nada de cor fixa.
+5. Tooltip em botão desabilitado dizendo o que o destrava ("Disponível depois
+   de Organizar"). Botão apagado e mudo faz o usuário achar que travou.
+6. CORRIGIR TEXTO ERRADO — o tooltip de "Giro das peças" diz "mais fino
+   encaixa melhor, porém demora mais". Medido em 22/07, é FALSO no orçamento
+   padrão de 10s (trabalho "PRINTNEST PRO" 150mm, chapa 600):
+     Reto (90°)       4 rot. | 204,0mm | 49,06% | 10,0s
+     Fino (45°)       8 rot. | 226,1mm | 44,27% | 10,1s
+     Muito fino (15°) 24 rot.| 226,7mm | 44,14% | 15,3s
+   Mais fino encaixa PIOR: 24 rotações consomem a busca em poucas avaliações.
+   Reescreva para a verdade. NÃO mude o padrão do combo (segue "Reto (90°)").
+
+## Regras de sempre
+- Motor de nesting CONGELADO — não se toca.
+- Não encostar em main_window.py, artwork.py nem no fluxo de impressão.
+- ruff limpo, suíte verde, nenhum teste antigo editado.
+- Ao terminar, PARE e entregue resumo para revisão.
+
+## Testes
+- arrastar peça atualiza a posição em self._layouts
+- girar atualiza a rotação em self._layouts
+- DXF exportado DEPOIS de arrastar reflete a nova posição (prova que
+  exportação e preview não divergiram)
+- peça não sai da chapa configurada
+- diálogo vazio -> texto-guia do passo 0 e faixa dos 3 passos
+- com peça na lista -> texto-guia vira passo 1
+- o texto-guia NUNCA aponta para um botão desabilitado
+```
 
 ---
 
