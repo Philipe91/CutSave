@@ -371,11 +371,26 @@ impressão precisar mudar, PARE e me pergunte antes.
 
 ---
 
-## TAREFA E2 — nesting true-shape no modo IMPRESSÃO (a visão do Philipe)
+## TAREFA E2 — nesting true-shape no modo IMPRESSÃO — PAUSADO
 
-**Só depois do E1 estar de pé e aprovado.** Registrado agora para não se
-perder — a ideia é do Philipe (21/07): usar a lógica de encaixe do Modo Corte
-(a mesma linha do eCut) para economizar material também na impressão.
+> **DECISÃO DO PHILIPE (22/07): não fazer por enquanto.** O modo Impressão
+> fica como está. Não retomar sem ele pedir.
+>
+> **Motivo dele:** não quer peça impressa girada em ângulo torto (37°, 45°).
+>
+> **Nuance importante para quem retomar:** o ganho do true-shape NÃO vinha
+> principalmente do giro fino — vinha do ENTRELAÇAMENTO das formas (um "C"
+> entrando na barriga do outro), que funciona girando só de 90 em 90, como a
+> impressão já faz hoje. Então a restrição de giro sozinha não invalida a
+> ideia.
+>
+> O que realmente pesa contra são os outros quatro itens da lista abaixo
+> (sangria, marcas de registro, tempo de resposta, faca compartilhada) somados
+> a um ganho que só aparece em trabalho COM FACA DE CONTORNO. Se algum dia
+> retomar, retome por aí — e meça com trabalho real antes de prometer economia.
+
+Registrado em 21/07: usar a lógica de encaixe do Modo Corte (a mesma linha do
+eCut) para economizar material também na impressão.
 
 ### Por que o E1 vem antes (não é desvio)
 Os dois consertos do E1 são exatamente os pré-requisitos:
