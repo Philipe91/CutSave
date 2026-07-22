@@ -252,6 +252,125 @@ em ~37-38% com o benchmark, mas os vãos ficam vazios.
 
 ---
 
+## TAREFA E1 — Peças do Modo Corte na ÁREA DE TRABALHO — PROMPT MESTRE
+
+Objetivo do Philipe: parar de tratar o Modo Corte como uma janela à parte —
+poder jogar as peças de corte no canvas do PrintNest e manipulá-las lá, com as
+mesmas ferramentas do modo Impressão (mover, girar, duplicar, alinhar, guias,
+desfazer).
+
+É a maior mudança estrutural desde a Fase 2: hoje os dois mundos são separados
+*de propósito*, e a separação está escrita na docstring do `cut_mode_dialog.py`.
+Por isso o prompt manda entregar em **duas etapas com parada obrigatória** — a
+primeira mexe no fluxo de impressão que já funciona e já vende.
+
+```
+# PrintNest — E1: peças de corte manipuláveis na área de trabalho
+
+Você está em C:\projetos\Cutph (Python, PySide6, Clean Architecture,
+ruff + pytest, venv em .venv). Responda e comente em português, no estilo
+dos arquivos vizinhos. NÃO commite — eu commito após revisão.
+
+## Missão
+Levar as peças do Modo Corte (contorno REAL, com furos) para o canvas
+principal e deixá-las manipuláveis com as ferramentas que já existem
+(mover, girar, duplicar, alinhar, distribuir, guias, snap, desfazer).
+
+Hoje são dois mundos separados de propósito. A docstring do
+app/presentation/cut_mode_dialog.py explica por quê: "O canvas do modo
+Impressao desenha PieceItem, que e um QGraphicsRectItem — so sabe
+retangulo." Esta tarefa é justamente derrubar essa limitação SEM quebrar o
+modo Impressão.
+
+## Contexto (leia antes de codar — os números são reais)
+- app/presentation/main_window.py (~8175 linhas) tem TODO o canvas:
+  - PieceItem(QGraphicsRectItem) na linha ~478, construído com
+    super().__init__(0, 0, width, height) do BOUNDING BOX
+    (artwork_footprint). paint() só desenha drawRect quando selecionado.
+    A arte e a faca são FILHOS criados em _draw_sheets (~6631/6665).
+  - PieceItem NÃO guarda rotação. Ela vive em self._piece_rotations
+    (~1493) e é assada na geometria durante o _relayout.
+  - Estado canônico = self._result (ProductionResult): sheets (Layout),
+    artworks (Artwork), sources. A geometria real do polígono mora em
+    Artwork.cut_contour (CutContour).
+  - CANVAS -> MODELO passa por UM único método: _effective_sheets()
+    (~7249), que relê piece.scenePos() e monta PlacedItem(artwork_id, pos)
+    com DOIS argumentos — descartando rotação.
+  - Undo = SnapshotCommand (~430) + _state_snapshot (~7276) /
+    _apply_state (~7288).
+- app/presentation/cut_mode_dialog.py: cena PRÓPRIA (~219), desenha com
+  addPath/QPainterPath (~573) via placed_cut_contours, OddEvenFill para
+  vazar furo (~590). Nada é selecionável nem movível. Ponto de contato
+  único com a MainWindow: _open_cut_mode (~7466).
+- app/application/use_cases/run_true_shape_nesting.py: placed_cut_contours
+  reconstrói a peça posicionada; _cut_order define a ordem de corte (Fase
+  6). Leia docs/produto/FASE6-PRENCHER-FUROS.md antes de mexer em corte.
+
+## ETAPA 1 (entregue e PARE para revisão)
+Fundação, sem UI nova. Estas duas mudanças tocam o fluxo de impressão que
+já está em produção, então merecem revisão isolada:
+
+1. PieceItem deixa de ser retângulo. Passe a QGraphicsPathItem (ou
+   mantenha a classe e sobrescreva shape()/boundingRect()) para que:
+   - o hit-test respeite o CONTORNO real e os FUROS — clicar no miolo do
+     "O" NÃO pode selecionar a letra;
+   - peça sem cut_contour continue se comportando exatamente como hoje
+     (o retângulo do footprint vira o path; zero mudança visível).
+2. A rotação passa a sobreviver ao canvas. Hoje _effective_sheets monta
+   PlacedItem com 2 args e o primeiro arraste APAGA o giro. Faça a rotação
+   viajar de ponta a ponta: _effective_sheets, _arr_key (~6809),
+   _piece_sel_key (~6449) e o SnapshotCommand.
+
+Critério de aceite da etapa 1: suíte inteira verde SEM editar teste antigo
+(hoje 684), e o modo Impressão pixel-a-pixel igual — se um teste de
+impressão precisar mudar, PARE e me pergunte antes.
+
+## ETAPA 2 (só depois do meu ok)
+3. Botão "Enviar para a área de trabalho" no CutModeDialog: converte cada
+   PolygonWithHoles/NestingShape em Artwork + CutContour e injeta no
+   _result, preservando posição e rotação do nesting true-shape.
+4. As ferramentas do canvas passando a ler o bbox do POLÍGONO em vez do
+   rect(): alças de resize (~2908), barra de propriedades (~2870),
+   overlay (~3693), alinhar (~6894), distribuir (~6927), zoom-seleção
+   (~6763), fantasmas/step-repeat (~3956/7218).
+5. Exportação DXF a partir do canvas respeitando a ordem de corte da
+   Fase 6 (de dentro para fora).
+
+## Armadilhas
+- NÃO quebre o modo Impressão. Ele é o produto que já vende. Peça sem
+  cut_contour tem de continuar idêntica.
+- _effective_sheets é o ÚNICO caminho canvas->modelo. Toda mudança de
+  estado do canvas passa por ele; esquecer um campo lá = perder o dado no
+  primeiro arraste.
+- Snap (_snapped, ~541) usa rect() e sceneBoundingRect(). Com contorno
+  real ele encaixa na CAIXA, não na forma — decida e documente se nesta
+  etapa o snap continua por caixa (aceitável) ou passa a ser por contorno.
+- merge_touching_rect_cuts (~7803) só reconhece retângulo. Com contorno
+  real ele fica inerte em silêncio — não deixe isso virar bug mudo.
+- A ferramenta Pontos (~2962) ancora os nós em -fp.min_x/-fp.min_y, ou
+  seja, no bounding box. Com polígono, confira se o sistema local bate.
+- Rotação livre (giro fino do Modo Corte, ex. 45°) NÃO é o enum Rotation.
+  PlacedItem.rotation aceita float; o canvas precisa aguentar os dois.
+- main_window.py tem ~8175 linhas. Se a etapa 2 crescer demais, proponha
+  extrair um módulo ANTES de escrever, não depois.
+
+## Testes
+- Hit-test: clique no furo de uma peça com contorno NÃO seleciona.
+- Peça sem cut_contour: comportamento idêntico ao de hoje (teste de
+  não-regressão explícito).
+- Rotação sobrevive a: arrastar, desfazer/refazer, redesenhar a cena.
+- Etapa 2: peça enviada do Modo Corte chega ao canvas na mesma posição e
+  rotação do preview; o DXF exportado do canvas bate com o do diálogo.
+
+## Regras de sempre
+- ruff limpo nos arquivos tocados; suíte inteira verde (hoje 684).
+- Motor de nesting validado contra o oráculo; não regredir os benchmarks.
+- Ao terminar a ETAPA 1, PARE e entregue resumo (decisões, arquivos,
+  testes, o que mudou no fluxo de impressão) para revisão.
+```
+
+---
+
 ## Ondas 2 e 3 (depois)
 - A2 (marca personalizável) + A3 (novos tipos) — só após o Philipe enviar o
   documento com a pesquisa das marcas do mercado.
