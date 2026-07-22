@@ -371,6 +371,58 @@ impressão precisar mudar, PARE e me pergunte antes.
 
 ---
 
+## TAREFA E2 — nesting true-shape no modo IMPRESSÃO (a visão do Philipe)
+
+**Só depois do E1 estar de pé e aprovado.** Registrado agora para não se
+perder — a ideia é do Philipe (21/07): usar a lógica de encaixe do Modo Corte
+(a mesma linha do eCut) para economizar material também na impressão.
+
+### Por que o E1 vem antes (não é desvio)
+Os dois consertos do E1 são exatamente os pré-requisitos:
+- `PieceItem` deixar de ser retângulo = poder encaixar pela FORMA real.
+- rotação sobreviver ao canvas = o true-shape gira em ângulo fino (45°, 15°)
+  e sem isso o ganho evapora no primeiro arraste.
+
+### O que existe hoje
+- Impressão usa `MaxRectsPacker` (`app/domain/nesting/max_rects.py`), ligado em
+  `main_window.py:1534` via `RunGridNestingUseCase`. Empacota **retângulos**.
+- Corte usa `TrueShapePacker` (`app/domain/nesting/true_shape.py`), NFP/IFP +
+  genético. Já sabe contorno real, furos (Fase 6) e giro livre.
+- A geometria real da peça de impressão já existe: `Artwork.cut_contour`.
+
+### Onde está o ganho de verdade
+**Não é em qualquer trabalho.** Arte retangular encaixada por true-shape dá
+exatamente o mesmo que MaxRects — retângulo é retângulo. O ganho aparece em
+**impressão com faca de contorno** (adesivo recortado, letra, peça vazada), que
+é justamente o forte do PrintNest. Antes de prometer economia, medir com
+trabalho REAL do Philipe, não com sintético.
+
+### Perguntas a resolver ANTES de codar
+1. **Rotação é livre na impressão?** No corte, girar 45° é de graça. Na
+   impressão pode haver restrição (sentido do material, bobina, consistência
+   de cor entre peças iguais). Perguntar ao Philipe antes de assumir.
+2. **Sangria/bleed**: o encaixe tem de respeitar a sangria da arte, não só o
+   contorno da faca. Decidir qual polígono entra no NFP.
+3. **Marcas de registro** precisam de área livre — o true-shape não sabe disso
+   hoje.
+4. **Tempo**: MaxRects é instantâneo; o true-shape custa segundos a minutos.
+   Na impressão o operador espera resposta rápida. Provavelmente vira opção
+   ("Encaixe inteligente"), não o padrão.
+5. **Faca compartilhada**: o modo grade existe porque peças que dividem faca
+   precisam ficar alinhadas. True-shape quebraria isso — tem de continuar
+   sendo um modo à parte.
+
+### Não regredir
+O motor de impressão é o que já vende. Isto entra como MODO ADICIONAL, nunca
+substituindo o MaxRects sem o Philipe pedir.
+
+### Já resolvido pela Fase 6 (aproveitar)
+O custo do GA passou a ser (chapa consumida, compacidade) em vez de área do
+bounding box — ver `docs/produto/FASE6-PRENCHER-FUROS.md` seção 4. Isso vale
+para qualquer uso futuro do `TrueShapePacker`, inclusive este.
+
+---
+
 ## Ondas 2 e 3 (depois)
 - A2 (marca personalizável) + A3 (novos tipos) — só após o Philipe enviar o
   documento com a pesquisa das marcas do mercado.
