@@ -135,7 +135,7 @@ from app.domain.model.cut_contour import CutContour
 from app.domain.model.image_artwork import ImageArtwork, ImageKind
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
-from app.domain.model.placement import PlacedItem, Rotation
+from app.domain.model.placement import PlacedItem
 from app.domain.nesting.max_rects import MaxRectsPacker
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.infrastructure.importers.pdfium_vector_extractor import PdfiumVectorExtractor
@@ -443,10 +443,7 @@ class SnapshotCommand(QUndoCommand):
     def __init__(self, window, before, after, text: str, merge_id: int = -1) -> None:
         super().__init__(text)
         self._window = window
-        # (sheets, artworks[, giros por peça, facas manuais]) — ver
-        # _state_snapshot/_apply_state. Os PlacedItems dentro de 'sheets'
-        # carregam posição E rotação (E1): desfazer/refazer restaura o giro.
-        self._before = before
+        self._before = before  # (sheets, artworks)
         self._after = after
         self._applied = True
         self._merge_id = merge_id
@@ -478,66 +475,10 @@ class SnapshotCommand(QUndoCommand):
         self._window._apply_state(self._after)
 
 
-def _piece_hit_path(art, fp) -> QPainterPath | None:
-    """Caminho de HIT-TEST da peça (coordenadas locais do PieceItem), ou None.
-
-    EXCLUSIVO de peça vinda do MODO CORTE (art.from_cut_mode): arte de
-    IMPRESSÃO — com ou sem faca — devolve None e o PieceItem segue o
-    retângulo de sempre, no MESMO caminho de código de antes do E1. O modo
-    Impressão é o produto que já vende; o hit preciso é só para as
-    letras/formas true-shape que a Etapa 2 vai injetar no canvas.
-
-    Para peça de corte: contorno REAL da faca (+ facas adicionais) com
-    OddEvenFill — o mesmo fill rule do preview do Modo Corte: anel dentro de
-    anel vira FURO (clicar no miolo do "O" não seleciona a letra) e desenhos
-    separados da mesma peça continuam clicáveis um a um. Curvas usam as
-    MESMAS Beziers do desenho (cubic_segments), então o clique bate com o
-    que está na tela.
-    """
-    if not art.from_cut_mode or not art.has_cut:
-        return None
-    ax, ay = -fp.min_x, -fp.min_y  # mesma origem local dos filhos (arte/faca)
-    path = QPainterPath()
-    path.setFillRule(Qt.OddEvenFill)
-    for faca in (art.cut_contour, *art.extra_cuts):
-        segs = cubic_segments(faca.points)
-        if segs and has_curves(segs):
-            path.moveTo(ax + segs[0].p0.x, ay + segs[0].p0.y)
-            for s in segs:
-                path.cubicTo(
-                    ax + s.c1.x, ay + s.c1.y,
-                    ax + s.c2.x, ay + s.c2.y,
-                    ax + s.p1.x, ay + s.p1.y,
-                )
-        else:
-            pts = faca.points
-            path.moveTo(ax + pts[0].x, ay + pts[0].y)
-            for p in pts[1:]:
-                path.lineTo(ax + p.x, ay + p.y)
-        path.closeSubpath()
-    return path
-
-
 class PieceItem(QGraphicsRectItem):
-    """Peça na área de trabalho: selecionavel e movel (arte + faca como filhos).
+    """Peça na área de trabalho: selecionavel e movel (arte + faca como filhos)."""
 
-    O retângulo-base segue sendo o BOUNDING BOX do footprint — rect(),
-    boundingRect(), snap e alças continuam por caixa (Etapa 2 do E1 muda as
-    ferramentas). O que muda aqui (E1/Etapa 1) é o HIT-TEST: com hit_path
-    (contorno real da faca), clicar fora do contorno ou no furo NÃO seleciona.
-
-    placed_rotation transporta a rotação do PlacedItem de origem (enum ou
-    float, ver docstring de PlacedItem) para o caminho de volta canvas->modelo
-    (_effective_sheets). Nesta etapa é SÓ transporte: o desenho ainda não gira
-    — quem injeta peça girada no canvas é a Etapa 2, junto com a convenção
-    visual (position = canto mínimo do bbox do contorno JÁ girado).
-    """
-
-    def __init__(
-        self, width, height, *, artwork_id, name, art_size, sheet_index, dx, dy,
-        placed_rotation: Rotation | float = Rotation.NONE,
-        hit_path: QPainterPath | None = None,
-    ):
+    def __init__(self, width, height, *, artwork_id, name, art_size, sheet_index, dx, dy):
         super().__init__(0.0, 0.0, width, height)
         self.artwork_id = artwork_id
         self.piece_name = name
@@ -545,28 +486,12 @@ class PieceItem(QGraphicsRectItem):
         self.sheet_index = sheet_index
         self.dx = dx
         self.dy = dy
-        self.placed_rotation = placed_rotation
-        self._hit_path = hit_path
         self.snap: SnapConfig | None = None
         self.sheet_rect: tuple[float, float, float, float] | None = None
         self.setPen(QPen(Qt.NoPen))
         # maozinha estilo Corel/Photoshop: aberta ao pairar, fechada movendo
         # (so faz sentido quando a peça e movel — ver mousePress/Release).
         self.setCursor(Qt.OpenHandCursor)
-
-    def shape(self) -> QPainterPath:
-        # seleção por clique/laço respeita o contorno real e os furos
-        if self._hit_path is not None:
-            return self._hit_path
-        return super().shape()
-
-    def contains(self, point) -> bool:
-        # QGraphicsRectItem responde pelo rect(); com contorno real o teste de
-        # ponto TEM que seguir o mesmo path do shape(), senão o clique no furo
-        # selecionaria por aqui.
-        if self._hit_path is not None:
-            return self._hit_path.contains(point)
-        return super().contains(point)
 
     def mousePressEvent(self, event) -> None:
         if self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable:
@@ -614,10 +539,6 @@ class PieceItem(QGraphicsRectItem):
         return super().itemChange(change, value)
 
     def _snapped(self, pos: QPointF) -> QPointF:
-        # DECISÃO E1/Etapa 1: o snap segue pela CAIXA (rect/sceneBoundingRect),
-        # mesmo quando a peça tem contorno real — encaixar caixa é previsível e
-        # barato; encaixe por contorno (tangenciar formas) fica para a Etapa 2
-        # se fizer falta na prática.
         rect = self.rect()
         width, height = rect.width(), rect.height()
         xlines: list[float] = []
@@ -4089,7 +4010,7 @@ class MainWindow(QMainWindow):
                 else:
                     px, py = dx, dy
                 add.setdefault(piece.sheet_index, []).append(
-                    PlacedItem(piece.artwork_id, Point2D(px, py), piece.placed_rotation)
+                    PlacedItem(piece.artwork_id, Point2D(px, py))
                 )
         self._clear_ghost()
         self._suppress_ghost = True
@@ -4121,11 +4042,7 @@ class MainWindow(QMainWindow):
                     if c == 0 and r == 0:
                         continue
                     add.setdefault(piece.sheet_index, []).append(
-                        PlacedItem(
-                            piece.artwork_id,
-                            Point2D(bx + c * (w + sh), by + r * (h + sv)),
-                            piece.placed_rotation,
-                        )
+                        PlacedItem(piece.artwork_id, Point2D(bx + c * (w + sh), by + r * (h + sv)))
                     )
         self._clear_ghost()
         self._suppress_ghost = True
@@ -6530,16 +6447,11 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _piece_sel_key(p) -> tuple:
-        """Identidade estavel de uma peça (chapa, arte, posição, rotação) para
-        reencontrar a seleção após um redesenho (desfazer/refazer não perdem a
-        seleção). A rotação entra na chave (E1): duas cópias sobrepostas com
-        giros diferentes são peças diferentes."""
+        """Identidade estavel de uma peça (chapa, arte, posição) para reencontrar
+        a seleção após um redesenho (desfazer/refazer não perdem a seleção)."""
         x = p.scenePos().x() - p.dx
         y = p.scenePos().y() - p.dy
-        return (
-            p.sheet_index, p.artwork_id, round(x, 1), round(y, 1),
-            round(float(p.placed_rotation), 1),
-        )
+        return (p.sheet_index, p.artwork_id, round(x, 1), round(y, 1))
 
     def _draw_preview(self) -> None:
         # guarda a seleção para restaurar após o redesenho (continuar empurrando
@@ -6651,15 +6563,6 @@ class MainWindow(QMainWindow):
                 fp = fp_cache[art.id] = artwork_footprint(art)
             return fp
 
-        # hit path por id (copias compartilham o mesmo path local); None e
-        # valor valido (peça sem faca), por isso o teste e por chave.
-        hit_cache: dict = {}
-
-        def hit_of(art, fp):
-            if art.id not in hit_cache:
-                hit_cache[art.id] = _piece_hit_path(art, fp)
-            return hit_cache[art.id]
-
         def params_of(art_id):
             p = params_cache.get(art_id)
             if p is None:
@@ -6700,7 +6603,6 @@ class MainWindow(QMainWindow):
                     fp.max_x - fp.min_x, fp.max_y - fp.min_y,
                     artwork_id=item.artwork_id, name=art.name, art_size=art.size,
                     sheet_index=index, dx=dx, dy=dy,
-                    placed_rotation=item.rotation, hit_path=hit_of(art, fp),
                 )
                 piece.setPos(dx + item.position.x, dy + item.position.y)
                 # selecionavel em QUALQUER modo (inclusive tela dividida/só-corte):
@@ -6903,14 +6805,9 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _arr_key(sheets) -> list:
-        """Chave comparavel do arranjo (posição E rotação das peças), para
-        detectar mudanca. float(rotation) cobre enum e giro livre (E1)."""
+        """Chave comparavel do arranjo (posições das peças), para detectar mudanca."""
         return [
-            (
-                i, it.artwork_id,
-                round(it.position.x, 3), round(it.position.y, 3),
-                round(float(it.rotation), 3),
-            )
+            (i, it.artwork_id, round(it.position.x, 3), round(it.position.y, 3))
             for i, layout in enumerate(sheets)
             for it in layout.items
         ]
@@ -7220,7 +7117,7 @@ class MainWindow(QMainWindow):
             px = piece.scenePos().x() - piece.dx + off
             py = piece.scenePos().y() - piece.dy + off
             add.setdefault(piece.sheet_index, []).append(
-                PlacedItem(piece.artwork_id, Point2D(px, py), piece.placed_rotation)
+                PlacedItem(piece.artwork_id, Point2D(px, py))
             )
         self._add_placed(add)
 
@@ -7233,7 +7130,7 @@ class MainWindow(QMainWindow):
             return
         self._piece_clipboard = [
             (p.sheet_index, p.artwork_id,
-             p.scenePos().x() - p.dx, p.scenePos().y() - p.dy, p.placed_rotation)
+             p.scenePos().x() - p.dx, p.scenePos().y() - p.dy)
             for p in sel
         ]
         self._paste_count = 0
@@ -7248,14 +7145,11 @@ class MainWindow(QMainWindow):
         off = NUDGE_SUPER_MM * self._paste_count
         valid_ids = {a.id for a in self._result.artworks}
         add: dict[int, list] = {}
-        # *rest: tolera entrada de 4 campos (clipboard sem rotação, formato
-        # anterior ao E1) — colar nunca pode estourar por causa do giro.
-        for sheet_index, art_id, x, y, *rest in self._piece_clipboard:
+        for sheet_index, art_id, x, y in self._piece_clipboard:
             if art_id not in valid_ids:
                 continue  # a peça copiada já saiu desta produção
-            rot = rest[0] if rest else Rotation.NONE
             add.setdefault(sheet_index, []).append(
-                PlacedItem(art_id, Point2D(x + off, y + off), rot)
+                PlacedItem(art_id, Point2D(x + off, y + off))
             )
         if add:
             self._add_placed(add, text="colar")
@@ -7331,7 +7225,7 @@ class MainWindow(QMainWindow):
                     px = bx + col * (width + gap)
                     py = by + row * (height + gap)
                     add.setdefault(piece.sheet_index, []).append(
-                        PlacedItem(piece.artwork_id, Point2D(px, py), piece.placed_rotation)
+                        PlacedItem(piece.artwork_id, Point2D(px, py))
                     )
         self._add_placed(add, text="repetir em grade")
 
@@ -7353,20 +7247,14 @@ class MainWindow(QMainWindow):
         self._step_repeat(cols, rows, gap)
 
     def _effective_sheets(self) -> list:
-        """Sheets refletindo movimentos manuais das peças (ou o nesting original).
-
-        E o ÚNICO caminho canvas->modelo: todo campo do PlacedItem tem que
-        voltar por aqui. A rotação viaja junto (E1) — antes o PlacedItem era
-        remontado com 2 argumentos e o primeiro arraste APAGAVA o giro."""
+        """Sheets refletindo movimentos manuais das peças (ou o nesting original)."""
         if not self._piece_items:
             return self._result.sheets
         moved: dict[int, list] = {}
         for piece in self._piece_items:
             # scenePos funciona mesmo se a peça estiver dentro de um grupo
             pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
-            moved.setdefault(piece.sheet_index, []).append(
-                PlacedItem(piece.artwork_id, pos, piece.placed_rotation)
-            )
+            moved.setdefault(piece.sheet_index, []).append(PlacedItem(piece.artwork_id, pos))
         sheets = []
         for index, layout in enumerate(self._result.sheets):
             items = moved.get(index, [])  # vazio = todas as peças excluidas
@@ -7449,7 +7337,6 @@ class MainWindow(QMainWindow):
                 PlacedItem(
                     i.artwork_id,
                     Point2D(i.position.x - minx, i.position.y - miny),
-                    i.rotation,
                 )
                 for i in layout.items
             ]
@@ -7502,7 +7389,7 @@ class MainWindow(QMainWindow):
         for piece in self._piece_items:
             pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
             moved.setdefault(piece.sheet_index, []).append(
-                PlacedItem(piece.artwork_id, pos, piece.placed_rotation)
+                PlacedItem(piece.artwork_id, pos)
             )
         after = [
             Layout(layout.material, moved.get(i, []), layout.used_length)
@@ -7730,7 +7617,6 @@ class MainWindow(QMainWindow):
             PlacedItem(
                 p.artwork_id,
                 Point2D(p.scenePos().x() - box.x(), p.scenePos().y() - box.y()),
-                p.placed_rotation,
             )
             for p in pieces
         ]
