@@ -18,8 +18,13 @@ from __future__ import annotations
 
 from app.shared.errors import PrintNestError
 
-# ProgIDs por ordem de preferencia: versionado (2023 = .25) e generico.
+# ProgIDs por ordem de preferencia: versionado (2024 = .25) e generico.
 _PROGIDS = ("CorelDRAW.Application.25", "CorelDRAW.Application")
+
+# Onde a macro PrintNest pode morar: no CLIENTE o instalador poe o
+# PrintNest.gms na pasta GMS (projeto "PrintNest"); na maquina de
+# desenvolvimento o modulo vive no GlobalMacros.
+_GMS_PROJECTS = ("PrintNest", "GlobalMacros")
 
 
 class CorelBridgeError(PrintNestError):
@@ -48,17 +53,22 @@ def send_file_to_corel(path: str) -> None:
     Lanca CorelBridgeError com mensagem amigavel se o Corel nao estiver
     acessivel ou a macro nao estiver instalada/atualizada."""
     app = _connect()
-    try:
-        ok = app.GMSManager.RunMacro(
-            "GlobalMacros", "PrintNest.ImportarDoPrintNest", path
-        )
-    except Exception as exc:
+    ok = False
+    erro: Exception | None = None
+    for project in _GMS_PROJECTS:
+        try:
+            ok = app.GMSManager.RunMacro(project, "PrintNest.ImportarDoPrintNest", path)
+        except Exception as exc:  # projeto ausente nesta instalacao: tenta o outro
+            erro = exc
+            continue
+        if ok:
+            return
+    if erro is not None and not ok:
         raise CorelBridgeError(
-            "A macro do PrintNest nao respondeu no CorelDRAW — importe o "
-            "PrintNest.bas atualizado (corel/README.md) e tente de novo."
-        ) from exc
-    if not ok:
-        raise CorelBridgeError(
-            "O CorelDRAW nao conseguiu importar o arranjo (macro PrintNest "
-            "desatualizada? Importe o PrintNest.bas mais novo)."
-        )
+            "A macro do PrintNest nao respondeu no CorelDRAW — rode o "
+            "instalador do plugin (ou importe o PrintNest.bas) e tente de novo."
+        ) from erro
+    raise CorelBridgeError(
+        "O CorelDRAW nao conseguiu importar o arranjo (plugin PrintNest "
+        "desatualizado? Reinstale o plugin)."
+    )
