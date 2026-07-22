@@ -336,6 +336,29 @@ impressão precisar mudar, PARE e me pergunte antes.
 5. Exportação DXF a partir do canvas respeitando a ordem de corte da
    Fase 6 (de dentro para fora).
 
+## DECISÃO DE DESENHO obrigatória antes de escrever a etapa 2
+**Peça de corte no canvas NÃO sobrevive a salvar/reabrir hoje.** Verificado
+em 22/07 (project_io.py + _capture_project, main_window.py:2180):
+
+- O `.printnest` salva CAMINHOS DE ARQUIVO + parâmetros + file_overrides +
+  faca_manual. NÃO salva Layout/PlacedItem — ao abrir, reimporta e
+  re-organiza do zero. (Por isso não há buraco de rotação na etapa 1: o
+  arranjo inteiro já não é persistido.)
+- Consequência para as peças de corte:
+  - vinda de arquivo: para sobreviver teria de entrar em `self._paths`, mas
+    aí volta pelo importador da IMPRESSÃO — sem o contorno true-shape.
+  - vinda do botão **Texto…**: não tem caminho nenhum. **Sumiria por
+    completo** ao reabrir. Silencioso.
+
+Escolher UMA saída antes de codar:
+(a) persistir as peças de corte de verdade no `.printnest`, em campo ADITIVO
+    novo (mesmo padrão do `faca_manual`, criado na varredura de 09/07 — ver
+    docstring do `ProjectDocument`); ou
+(b) avisar no botão que peça de corte não sobrevive ao salvar (ruim — o
+    cliente monta o arranjo com letras, salva, reabre e não está lá).
+
+Isto muda o FORMATO do arquivo, então não dá para deixar para depois.
+
 ## Armadilhas
 - NÃO quebre o modo Impressão. Ele é o produto que já vende. Peça sem
   cut_contour tem de continuar idêntica.
