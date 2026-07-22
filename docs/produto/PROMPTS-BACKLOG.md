@@ -82,7 +82,7 @@ toolTip não-vazio). Peça aprovação antes de commitar.
 
 ---
 
-## TAREFA A1 — limpar os nomes das marcas de registro
+## TAREFA A1 — ⤵ ABSORVIDA pela E4 (22/07) — usar o prompt da E4
 
 ```
 TAREFA (faça SÓ esta, nada além):
@@ -604,6 +604,99 @@ DESABILITADO. A primeira instrução do software é impossível de seguir.
 - diálogo vazio -> texto-guia do passo 0 e faixa dos 3 passos
 - com peça na lista -> texto-guia vira passo 1
 - o texto-guia NUNCA aponta para um botão desabilitado
+```
+
+---
+
+## TAREFA E4 — Modo Corte ilustrado + registro sem nome de máquina — PROMPT MESTRE
+
+Pedido do Philipe (22/07, com print do diálogo): o Modo Corte está funcional
+mas "cru" — precisa de ícone/ilustração pensando no usuário. E no fluxo de
+produção (Gerar Faca), o combo de registro ainda fala "Mimaki" e "IECHO" —
+o cliente de gráfica não sabe o que é isso; a MARCA (bolinha, L) ele reconhece.
+Absorve a antiga TAREFA A1. 100% visual: zero comportamento novo.
+
+```
+TAREFA (faça SÓ esta, nada além):
+E4 — UX/UI visual em duas frentes. Nenhuma linha fora da camada de
+apresentação; motor de nesting CONGELADO (topo de
+docs/produto/FASE6-PRENCHER-FUROS.md) — esta tarefa nem chega perto dele.
+
+## FRENTE 1 — registro sem nome de máquina (produção / Gerar Faca)
+- app/presentation/main_window.py ~L4739–4742: o combo _reg_type exibe
+  "IECHO (bolinhas)", "Mimaki (marcas em L)", "Mimaki + IECHO". Trocar os
+  RÓTULOS por nomes pela FORMA, neutros: "Nenhuma", "Bolinhas",
+  "Marcas em L", "Bolinhas + L" (ou melhor que isso — proponha).
+- NUNCA mudar o data dos itens ("none"/"circles"/"mimaki"/"both"): motor,
+  exportadores e projeto salvo leem o data (~L5208 grava currentData; abrir
+  projeto antigo tem de cair no item certo).
+- O combo JÁ tem ilustração + dica por item (_ILLUSTRATED_COMBOS ~L3219 →
+  regmark_icon em faca_icons.py ~L394 + REG_HINTS ~L185). Os tooltips de
+  REG_HINTS podem CONTINUAR citando IECHO/Mimaki — é ali que quem conhece a
+  máquina se encontra; o rótulo visível é que fica limpo. Se ajudar a
+  leitura, aumente o iconSize só deste combo (hoje 26px).
+- Onde o TEXTO do combo vaza (conferir depois da troca):
+  - resumo lateral: _sum_reg.set_value(currentText) ~L5037;
+  - tooltip do combo ~L4490 ("mesa de corte" — ok, neutro).
+- FORA DO ESCOPO: menus/botões "Exportar Faca Mimaki (PDF)" e "Exportar
+  Faca IECHO (DXF)" e a aba Cartelas. São FLUXOS por máquina — renomear
+  muda significado. Não tocar sem o Philipe decidir.
+
+## FRENTE 2 — Modo Corte ilustrado (app/presentation/cut_mode_dialog.py)
+O diálogo pós-E3 JÁ tem: faixa de passos (cut_steps_pixmap, uso ~L253),
+estados vazios com texto-guia (_HintList ~L172 / _HintView ~L192), arrastar
+peça + tecla R/botão Girar. NADA disso pode regredir. O que falta:
+
+1. Ícones nos botões — via icons.icon("nome") (Lucide de assets/icons,
+   recoloridos pelo tema; ver docstring de app/presentation/icons.py).
+   ARMADILHA: SVG inexistente vira ícone VAZIO em silêncio — use só nomes
+   que existem em assets/icons ou ADICIONE o SVG do Lucide junto (a pasta
+   já tem LICENSE.txt; mesmo padrão dos existentes, traço 'currentColor').
+   Sugestão com o que JÁ existe: _btn_file ~L399 "file-plus";
+   _btn_text ~L402 "file-text"; _btn_del ~L405 "trash-2";
+   _btn_rotate ~L434 "rotate-cw"; _btn_export ~L463 "download";
+   _btn_nest ~L456 e _btn_corel ~L458 não têm SVG óbvio na pasta — baixe
+   do Lucide (ex. "layout-grid"/"wand-sparkles" e "send") ou proponha.
+
+2. Formulário "Material e nesting" (_build_params ~L470) ganhando
+   ilustração no estilo dos combos da produção (receita: faca_icons.py,
+   QPainter + cores do tema na chamada + lru_cache — ver _glyph_pixmap
+   ~L215). Prioridade nesta ordem; menos é mais, não vire árvore de Natal:
+   a) combo "Giro das peças": ilustrar cada item (0/90/45/15 — leque de
+      ângulos crescente) + manter os tooltips por item que já existem;
+      replicar LOCALMENTE o padrão _illustrate_combo (~L3208 do
+      main_window) — NÃO importar main_window no diálogo (traria as ~8 mil
+      linhas junto; o aviso está na docstring do _ZoomView ~L107).
+   b) checkbox "Preencher furos": mini-ilustração ao lado (peça pequena no
+      miolo de um "O" — regmark do próprio produto).
+   c) Largura/Altura/Folga/Margem/Tempo: ícone pequeno por linha SÓ se
+      ficar limpo; na dúvida, deixe sem.
+
+3. Lista de peças (_build_left ~L365): cada linha com MINIATURA da própria
+   peça (corpos com furos vazados). A receita do desenho já existe em
+   _draw_piece_preview (~L672 na versão anterior; procure) — transformar
+   em pixmap pequeno (ex. 32px) por QListWidgetItem.setIcon. Peça com
+   muitos corpos: desenhar todos dentro do quadradinho, como a prévia faz.
+
+## Armadilhas gerais
+- Filosofia da casa: REFINAR, não reinventar (memória printnest-v13-estado).
+  Nada de mover painel, trocar layout ou reescrever o diálogo.
+- faca_icons desenha com as cores do tema NO MOMENTO da chamada; o diálogo
+  é recriado a cada abertura, então basta desenhar na construção (não
+  precisa do redesenho ao vivo do _illustrate_all).
+- Testes existentes verdes SEM edição: test_cut_mode_dialog.py e
+  test_cut_mode_manip.py (12 testes da E3).
+
+## Testes novos
+- _reg_type: nenhum rótulo visível contém "Mimaki"/"IECHO"; os data
+  continuam ("none","circles","mimaki","both") e na MESMA ordem.
+- botões do Modo Corte com ícone não-vazio (icon.isNull() == False nos que
+  ganharam ícone).
+- itens da lista de peças com miniatura (icon não-vazio) após adicionar.
+
+Entregue as duas frentes + testes, suíte inteira UMA vez no fim, e me
+mostre o ANTES/DEPOIS dos rótulos em texto. Peça aprovação antes de
+commitar (checkpoint de commit antes de começar, como sempre).
 ```
 
 ---
