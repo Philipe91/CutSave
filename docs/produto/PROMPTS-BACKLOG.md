@@ -336,6 +336,29 @@ impressão precisar mudar, PARE e me pergunte antes.
 5. Exportação DXF a partir do canvas respeitando a ordem de corte da
    Fase 6 (de dentro para fora).
 
+## DECISÃO DE ARQUITETURA (Philipe, 22/07) — canvas ÚNICO, não área separada
+Cogitou-se criar uma área de trabalho SEPARADA só para corte. **Decidido:
+não.** Um canvas só, com modo de corte (mesma cena, mesmas ferramentas, mesmo
+desfazer; muda a barra, o nesting e a exportação).
+
+- **Motivo:** o que falta ao Modo Corte não é um canvas — ele já tem cena
+  própria. Faltam as FERRAMENTAS (mover, girar, duplicar, alinhar, distribuir,
+  guias, snap, desfazer): ~30 métodos da MainWindow, todos amarrados ao
+  `ProductionResult`. Área separada = reescrever os 30 e manter DOIS conjuntos
+  em sincronia para sempre. Cada bug de alinhamento viraria dois.
+- **O que decidiu:** Philipe confirmou que NÃO vai vender o Modo Corte
+  separado — é sempre o mesmo cliente fazendo impressão e corte. Se algum dia
+  quiser vender separado (versão só para quem tem laser), reabrir esta
+  decisão: aí a duplicação passaria a se pagar como estratégia de produto.
+- **Se apertar no futuro:** o caminho NÃO é duplicar, é EXTRAIR o canvas para
+  um componente reutilizável e instanciar duas vezes (impressão e corte).
+  Código compartilhado, espaços separados. O `main_window.py` (~8175 linhas)
+  já precisa disso de qualquer forma.
+- **Risco conhecido e aceito:** os conceitos não se misturam (impressão tem
+  sangria/marcas/DPI; corte tem folga/ordem de corte/giro fino), então as
+  barras e diálogos vão precisar mostrar/esconder por modo. Vigiar para não
+  apodrecer — é o sintoma que dispara a extração do componente.
+
 ## DECISÃO DE DESENHO obrigatória antes de escrever a etapa 2
 **Peça de corte no canvas NÃO sobrevive a salvar/reabrir hoje.** Verificado
 em 22/07 (project_io.py + _capture_project, main_window.py:2180):
