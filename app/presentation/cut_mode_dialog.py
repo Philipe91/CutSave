@@ -96,6 +96,10 @@ _ROTATE_MODES = (
     ("Muito fino (15°)", 15),
 )
 
+# Vao entre as chapas no preview (mm) — as chapas ficam lado a lado, como a
+# maquina recebe folha por folha (estilo eCut).
+_PREVIEW_SHEET_GAP_MM = 30.0
+
 # Mensagens rotativas do carregamento (estilo dica de video game): espera com
 # contexto em vez de barra muda — pedido do Philipe em 21/07.
 _NEST_TIPS = (
@@ -185,10 +189,13 @@ class _CutPieceItem(QGraphicsPathItem):
     chapa configurada: a peca nao sai dele durante o arrasto.
     """
 
-    def __init__(self, path: QPainterPath, index: int, bounds: QRectF, on_moved) -> None:
+    def __init__(self, path: QPainterPath, index: int, bounds: QRectF, on_moved,
+                 sheet: int = 0, dx: float = 0.0) -> None:
         super().__init__(path)
         self.index = index  # posicao do PlacedItem em layout.items
         self.bounds = bounds
+        self.sheet = sheet  # qual chapa (as chapas ficam lado a lado na cena)
+        self.dx = dx        # deslocamento da chapa na cena (mm)
         self._on_moved = on_moved
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
@@ -397,7 +404,7 @@ class CutModeDialog(QDialog):
         self._tip_timer.timeout.connect(self._next_tip)
         # retoque manual (E3): item grafico por indice do PlacedItem na chapa
         # mostrada, e a pilha de desfazer (chapa, indice, PlacedItem antigo)
-        self._gfx_by_index: dict[int, _CutPieceItem] = {}
+        self._gfx_by_index: dict[tuple[int, int], _CutPieceItem] = {}
         self._undo: list[tuple[int, int, PlacedItem]] = []
 
         root = QHBoxLayout(self)
@@ -482,7 +489,9 @@ class CutModeDialog(QDialog):
         col.addWidget(self._view, 1)
 
         self._sheet_pick = QComboBox()
-        self._sheet_pick.setToolTip("Chapa mostrada no preview")
+        self._sheet_pick.setToolTip(
+            "Chapa das estatísticas (todas aparecem lado a lado no preview)"
+        )
         self._sheet_pick.currentIndexChanged.connect(self._draw_preview)
         self._sheet_pick.currentIndexChanged.connect(self._sync)  # stats da chapa
         sheet_row = QHBoxLayout()
@@ -864,35 +873,43 @@ class CutModeDialog(QDialog):
     # -- preview -----------------------------------------------------------------
 
     def _draw_preview(self, *_, fit: bool = True) -> None:
-        """Redesenha a chapa mostrada. 'fit' falso preserva o zoom do
-        operador (usado no desfazer, que so move uma peca)."""
+        """Redesenha TODAS as chapas, lado a lado (estilo eCut) — o que nao
+        coube na Chapa 1 aparece na Chapa 2 ao lado, nunca escondido atras do
+        combo (trabalho real de 23/07: as letras grandes 'sumiam' porque
+        estavam na chapa 2 e o preview mostrava so uma chapa por vez). 'fit'
+        falso preserva o zoom do operador (usado no desfazer, que so move
+        uma peca)."""
         self._scene.clear()
         self._gfx_by_index = {}
-        index = self._sheet_pick.currentIndex()
-        if not self._layouts or not 0 <= index < len(self._layouts):
+        if not self._layouts:
             return
-        layout = self._layouts[index]
-        length = layout.used_length or self._sheet_len.value() or 1.0
-        self._scene.addRect(
-            QRectF(0, 0, layout.material.width, length),
-            QPen(QColor(theme.BORDER_STRONG)),
-            QBrush(QColor(theme.SURFACE)),
-        )
-        self._draw_sheet_limits(layout, length)
         by_id = {s.artwork_id: s for s in self._nested_shapes}
         pen = QPen(QColor(theme.ACCENT))
         pen.setCosmetic(True)  # espessura constante em qualquer zoom
         fill = QBrush(QColor(theme.ACCENT_SOFT))
-        # mesmo retangulo vermelho do _draw_sheet_limits: e o limite do arrasto
-        bounds = QRectF(0, 0, layout.material.width, self._sheet_len.value() or length)
-        for i, item in enumerate(layout.items):
-            gfx = _CutPieceItem(
-                self._path(by_id[item.artwork_id], item), i, bounds, self._on_piece_moved
+        dx = 0.0
+        for si, layout in enumerate(self._layouts):
+            length = layout.used_length or self._sheet_len.value() or 1.0
+            self._scene.addRect(
+                QRectF(dx, 0, layout.material.width, length),
+                QPen(QColor(theme.BORDER_STRONG)),
+                QBrush(QColor(theme.SURFACE)),
             )
-            gfx.setPen(pen)
-            gfx.setBrush(fill)
-            self._scene.addItem(gfx)
-            self._gfx_by_index[i] = gfx
+            self._draw_sheet_limits(layout, length, dx)
+            # mesmo retangulo vermelho do _draw_sheet_limits: limite do
+            # arrasto — cada peca fica presa na PROPRIA chapa
+            bounds = QRectF(dx, 0, layout.material.width, self._sheet_len.value() or length)
+            for i, item in enumerate(layout.items):
+                path = self._path(by_id[item.artwork_id], item)
+                path.translate(dx, 0.0)
+                gfx = _CutPieceItem(
+                    path, i, bounds, self._on_piece_moved, sheet=si, dx=dx
+                )
+                gfx.setPen(pen)
+                gfx.setBrush(fill)
+                self._scene.addItem(gfx)
+                self._gfx_by_index[(si, i)] = gfx
+            dx += layout.material.width + _PREVIEW_SHEET_GAP_MM
         self._scene.setSceneRect(self._scene.itemsBoundingRect())
         if fit:
             self._view.fit()
@@ -924,13 +941,15 @@ class CutModeDialog(QDialog):
     def _refresh_gfx(self, gfx: _CutPieceItem, item: PlacedItem) -> None:
         """Reconstroi o caminho na posicao gravada e zera o delta — a cena
         volta a ser espelho fiel de self._layouts."""
-        gfx.setPath(self._path(self._shape(item.artwork_id), item))
+        path = self._path(self._shape(item.artwork_id), item)
+        path.translate(gfx.dx, 0.0)  # a chapa da peca fica deslocada na cena
+        gfx.setPath(path)
         gfx.setPos(QPointF(0, 0))
 
     def _on_piece_moved(self, gfx: _CutPieceItem) -> None:
         """Soltou o arrasto: pos() e o delta em mm (cena e layout compartilham
         a escala)."""
-        sheet = self._sheet_index()
+        sheet = gfx.sheet
         old = self._layouts[sheet].items[gfx.index]
         delta = gfx.pos()
         new_item = replace(
@@ -952,7 +971,7 @@ class CutModeDialog(QDialog):
                 self._rotate_piece(gfx)
 
     def _rotate_piece(self, gfx: _CutPieceItem) -> None:
-        sheet = self._sheet_index()
+        sheet = gfx.sheet
         old = self._layouts[sheet].items[gfx.index]
         step = self._rotate_mode.currentData() or 90
         degrees = (float(old.rotation) + step) % 360.0
@@ -963,7 +982,9 @@ class CutModeDialog(QDialog):
         cx = outer.origin.x + outer.size.width / 2
         cy = outer.origin.y + outer.size.height / 2
         bb = shape.contour.rotated(degrees).bounding_box
-        b = gfx.bounds
+        # bounds esta em coords da CENA (chapa deslocada); a conta do clamp e
+        # em coords da CHAPA, entao volta o deslocamento antes
+        b = gfx.bounds.translated(-gfx.dx, 0.0)
         x = min(max(cx - bb.width / 2, b.left()), max(b.left(), b.right() - bb.width))
         y = min(max(cy - bb.height / 2, b.top()), max(b.top(), b.bottom() - bb.height))
         new_item = replace(old, position=Point2D(x, y), rotation=degrees)
@@ -984,15 +1005,14 @@ class CutModeDialog(QDialog):
             replace(layout, items=tuple(items)),
             *self._layouts[sheet + 1 :],
         )
-        if sheet == self._sheet_index():
-            gfx = self._gfx_by_index.get(index)
-            if gfx is not None:
-                self._refresh_gfx(gfx, old_item)
-        else:
-            self._sheet_pick.setCurrentIndex(sheet)  # redesenha a chapa certa
+        # todas as chapas estao na cena: o desfazer atualiza a peca direto,
+        # sem precisar trocar de chapa no combo
+        gfx = self._gfx_by_index.get((sheet, index))
+        if gfx is not None:
+            self._refresh_gfx(gfx, old_item)
         self._sync()
 
-    def _draw_sheet_limits(self, layout: Layout, length: float) -> None:
+    def _draw_sheet_limits(self, layout: Layout, length: float, dx: float = 0.0) -> None:
         """Linha VERMELHA da area configurada + tracejada da margem.
 
         Sem isso o operador nao tem como saber se o arranjo cabe no que ele
@@ -1009,7 +1029,7 @@ class CutModeDialog(QDialog):
         vermelho = QPen(QColor(theme.ERROR))
         vermelho.setCosmetic(True)
         self._scene.addRect(
-            QRectF(0, 0, layout.material.width, altura), vermelho, QBrush(Qt.NoBrush)
+            QRectF(dx, 0, layout.material.width, altura), vermelho, QBrush(Qt.NoBrush)
         )
 
         margem = self._margin.value()
@@ -1020,7 +1040,7 @@ class CutModeDialog(QDialog):
             tracejada.setCosmetic(True)
             tracejada.setStyle(Qt.DashLine)
             self._scene.addRect(
-                QRectF(margem, margem, util_w, util_h), tracejada, QBrush(Qt.NoBrush)
+                QRectF(dx + margem, margem, util_w, util_h), tracejada, QBrush(Qt.NoBrush)
             )
 
     @staticmethod

@@ -353,3 +353,57 @@ def test_lista_de_pecas_com_miniatura(dialog, tmp_path):
     dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
     icon = dialog._list.item(0).icon()
     assert not icon.isNull() and _has_ink(icon, 32)
+
+
+def _multi_sheet_dialog(dialog, tmp_path):
+    """6 quadrados de 100mm numa folha 250x250 -> mais de uma chapa."""
+    dialog.add_vector_file(_rect_svg(tmp_path, 100, 100))
+    dialog._pieces[0].quantity = 6
+    dialog._width.setValue(250.0)
+    dialog._sheet_len.setValue(250.0)
+    dialog._seconds.setValue(0.0)
+    dialog._rotate_mode.setCurrentIndex(0)  # Sem giro
+    dialog.nest()
+    assert len(dialog._layouts) >= 2  # estourou a folha -> replicou a chapa
+    return dialog
+
+
+def test_preview_mostra_todas_as_chapas_lado_a_lado(dialog, tmp_path):
+    # o que nao coube na Chapa 1 aparece na Chapa 2 AO LADO (estilo eCut) —
+    # nunca escondido atras do combo (trabalho real 23/07: letras grandes
+    # "sumiam" porque estavam na chapa 2).
+    from app.presentation.cut_mode_dialog import _CutPieceItem
+
+    _multi_sheet_dialog(dialog, tmp_path)
+    total = sum(len(layout.items) for layout in dialog._layouts)
+    gfx = [it for it in dialog._scene.items() if isinstance(it, _CutPieceItem)]
+    assert len(gfx) == total  # TODAS as pecas na cena, nao so as da chapa 1
+    assert {g.sheet for g in gfx} == set(range(len(dialog._layouts)))
+    # cada chapa desenhada num deslocamento proprio (lado a lado)
+    xs = {round(g.dx, 1) for g in gfx}
+    assert len(xs) == len(dialog._layouts)
+
+
+def test_arrastar_peca_da_chapa_2_grava_no_layout_da_chapa_2(dialog, tmp_path):
+    # retoque manual (E3) continua funcionando com as chapas lado a lado:
+    # mover peca da chapa 2 escreve no layout DELA, mesmo com o combo na 1.
+    from PySide6.QtCore import QPointF
+
+    from app.presentation.cut_mode_dialog import _CutPieceItem
+
+    _multi_sheet_dialog(dialog, tmp_path)
+    dialog._sheet_pick.setCurrentIndex(0)  # combo na chapa 1 de proposito
+    gfx = next(
+        it for it in dialog._scene.items()
+        if isinstance(it, _CutPieceItem) and it.sheet == 1
+    )
+    antes = dialog._layouts[1].items[gfx.index]
+    gfx.setPos(QPointF(5.0, 7.0))  # delta do arrasto
+    dialog._on_piece_moved(gfx)
+    depois = dialog._layouts[1].items[gfx.index]
+    assert round(depois.position.x - antes.position.x, 6) == 5.0
+    assert round(depois.position.y - antes.position.y, 6) == 7.0
+    # desfazer devolve a peca ao lugar sem trocar o combo de chapa
+    dialog._undo_manip()
+    assert dialog._layouts[1].items[gfx.index] == antes
+    assert dialog._sheet_pick.currentIndex() == 0

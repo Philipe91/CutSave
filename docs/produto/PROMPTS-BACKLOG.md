@@ -792,6 +792,147 @@ commit antes de começar, como sempre).
 
 ---
 
+## TAREFA F1 — correções críticas do QA, lote pequeno (5 itens) — PROMPT MESTRE
+Cole numa conversa NOVA, junto com o CABEÇALHO FIXO. Rodar ANTES da F2.
+
+```
+# TAREFA F1 — 5 correções do relatório QA (lote pequeno)
+
+## Missão
+Corrigir 5 achados do QA MASTER (docs/qa/RELATORIO-QA-2026-07-22.md —
+leia SÓ os achados A13, A14, A15, A1b e A1, nada mais). Quatro deles já
+têm teste de reprodução xfail em tests/qa/: a correção está pronta
+quando o teste fica verde e você REMOVE o marcador xfail — NUNCA altere
+a asserção do teste para ele passar.
+
+## As 5 correções (ordem sugerida, âncoras verificadas 23/07)
+
+1. A13 — girar re-seleciona todas as cópias (duplicação exponencial).
+   main_window.py:7435 `_rotate_selected` termina chamando :7474
+   `_reselect_by_artwork`, que seleciona TODAS as peças do mesmo
+   artwork_id — aí o próximo Ctrl+D dobra tudo (1→2→4→8…).
+   Correção: após o giro, restaurar SÓ a seleção que existia antes.
+   ARMADILHA: o relayout RECRIA os PieceItem — não guarde referências
+   de item; identifique cada peça selecionada por (artwork_id, índice
+   da cópia dentro do artwork) e re-selecione pelos mesmos pares.
+   Teste: tests/qa/test_qa_f3_stress.py::
+   test_girar_depois_duplicar_nao_deveria_multiplicar_todas_as_copias
+
+2. A14 — PDF vazio/corrompido/0 páginas estoura exceção crua nos
+   caminhos síncronos. main_window.py:6174 ramo `if blocking:` do
+   generate() não tem try/except; o caminho por thread
+   (ProductionWorker→_on_failed) já avisa direito. Correção: envolver o
+   ramo blocking no MESMO padrão de erro amigável do _on_failed.
+   Testes (3): tests/qa/test_qa_f3_malformed_files.py::
+   test_pdf_vazio_0_bytes_nao_estoura, ::test_pdf_corrompido_bytes_
+   aleatorios_nao_estoura, ::test_pdf_sem_paginas_nao_estoura
+   (o ::test_pdf_corrompido_via_thread_worker_mostra_erro_amigavel é a
+   referência do comportamento certo — tem de CONTINUAR verde).
+
+3. A15 — .printnest com lixo binário estoura UnicodeDecodeError.
+   app/application/project_io.py:162 `except (OSError,
+   json.JSONDecodeError)` — incluir UnicodeDecodeError. É 1 linha.
+   Teste: tests/qa/test_qa_f3_lifecycle.py::
+   test_printnest_lixo_binario_avisa_e_nao_perde_trabalho_atual
+
+4. A1b — "Substituir arquivo" mostra o nome novo mas corta a arte
+   antiga. main_window.py:2216 `replace_selected` só troca o caminho e
+   chama _relayout (que reusa os artworks JÁ importados). Correção:
+   reimportar o arquivo novo (ou disparar a re-geração da produção)
+   dentro do próprio replace_selected.
+   Teste: tests/qa/test_qa_f2a_buracos.py::
+   test_substituir_arquivo_selecionado_atualiza_producao
+
+5. A1 — recorte de página falha em silêncio. main_window.py:5936
+   `_bake_cropped_pdf` (e o irmão _bake_cropped_image) terminam em
+   `except Exception: return None` e o _effective_path cai no arquivo
+   ORIGINAL — a produção sai SEM o recorte, e o toast "Recorte
+   aplicado" (~:5899) já apareceu ANTES do processamento real.
+   Correção: quando o bake devolver None com crop configurado, avisar
+   ("Recorte de X não pôde ser aplicado — usando o original") e mover
+   o toast de sucesso para depois do bake real (ou trocar o texto para
+   "Recorte configurado"). Este NÃO tem teste pronto — crie um em
+   tests/qa/ que force o bake a falhar e verifique o aviso.
+
+## Armadilhas
+- NÃO toque no A0 (persistência do arranjo manual) — é a TAREFA F2,
+  outra conversa. As 2 xfail de test_qa_f2a_roundtrip.py CONTINUAM
+  xfail nesta tarefa.
+- NÃO toque no motor de nesting (congelado) nem nos outros xfail.
+- Não invente refatoração em volta: 5 consertos pontuais, "menos é
+  mais".
+
+## Entrega
+tests/qa inteiro (72 verdes + as ex-xfail desta tarefa verdes, resto
+xfail) e a suíte inteira UMA vez no fim (~723+ verdes; o crash
+0xC0000005 do teardown é conhecido, ignore). Checkpoint de commit antes
+de começar; peça aprovação do Philipe antes do commit final.
+```
+
+---
+
+## TAREFA F2 — A0: salvar o arranjo manual no .printnest — PROMPT MESTRE
+Cole numa conversa NOVA, junto com o CABEÇALHO FIXO. Rodar DEPOIS da F1.
+
+```
+# TAREFA F2 — arranjo manual sobrevive a salvar+reabrir (achado A0)
+
+## Missão
+Hoje o Ctrl+S grava só quantidade + overrides por arquivo; duplicatas
+(Ctrl+D), peças movidas à mão e giro por peça (Ctrl+[ / ]) NUNCA entram
+no .printnest — reabrir volta ao nesting automático sem aviso (achado
+🔴 A0 do docs/qa/RELATORIO-QA-2026-07-22.md — leia só o A0).
+Decisão: persistir DE VERDADE (aviso-apenas foi descartado — o produto
+promete "reabrir → TUDO igual").
+
+## Contexto (âncoras verificadas 23/07)
+- main_window.py:2110 `_collect_project` monta o ProjectDocument; a
+  produção é REGENERADA ao abrir (o formato não salva Layout hoje —
+  isso é decisão antiga e vira exceção só para o arranjo manual).
+- O estado real da chapa vive em `self._result` e o giro por peça em
+  `_piece_rotations`; o caminho único canvas→modelo é
+  `_effective_sheets()` — derive o que salvar DELE, nunca da cena.
+- app/application/project_io.py: formato aditivo (campo novo com
+  default = projeto antigo abre igual; NÃO suba o "version").
+
+## Desenho sugerido (simples e aditivo)
+- Campo novo no ProjectDocument, ex. "arranjo": por chapa, lista de
+  {referência estável do arquivo (mesma usada nos overrides), x_mm,
+  y_mm, rotação}. Gravar também uma assinatura leve da lista de
+  arquivos+quantidades para invalidação.
+- Ao abrir: se o campo existe E a assinatura bate → restaurar o
+  arranjo SEM renest; se não bate (arquivos mudaram fora) → regenerar
+  como hoje e avisar 1 toast ("Arranjo salvo não pôde ser aplicado").
+- Salvar sempre que houver produção na tela (sem checkbox nova).
+
+## Armadilhas
+- "Dono único do giro": PlacedItem.rotation fica 0 no fluxo de
+  impressão; o giro por peça vive em `_piece_rotations` e é aplicado
+  no relayout. Persistir/restaurar SEM criar segundo dono.
+- Projeto ANTIGO (sem o campo) abre exatamente como hoje — teste
+  explícito de não-regressão.
+- Exportação (PDF/DXF) de um projeto SEM arranjo manual tem de sair
+  IDÊNTICA à de hoje.
+- "Resetar arranjo" continua funcionando e continua avisando.
+- Undo/Redo (SnapshotCommand) não pode brigar com o restore ao abrir.
+- NÃO toque no motor de nesting.
+
+## Testes
+- As 2 xfail de tests/qa/test_qa_f2a_roundtrip.py
+  (::test_duplicar_e_mover_sobrevive_ao_salvar_e_reabrir e
+  ::test_girar_peca_individual_sobrevive_ao_salvar_e_reabrir) ficam
+  VERDES — remova o xfail, NUNCA a asserção.
+- Novos: projeto antigo abre igual; assinatura inválida → fallback com
+  aviso; roundtrip salvar→reabrir→exportar = exportar antes de salvar.
+
+## Entrega
+tests/qa inteiro + suíte inteira UMA vez no fim (crash 0xC0000005 do
+teardown é conhecido). Checkpoint de commit antes; aprovação do
+Philipe antes do commit final.
+```
+
+---
+
 ## Ondas 2 e 3 (depois)
 - QR/barcode de recuperação de job (Parte VIII do doc de registro): valioso,
   mas envolve RIP/pasta observada — tarefa própria, depois da A2/A3.
