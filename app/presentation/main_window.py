@@ -1497,6 +1497,9 @@ class MainWindow(QMainWindow):
         # giro do arquivo. Permite girar só uma peça (ex.: a sobra solta) para
         # encaixar melhor no nesting, sem mexer nas outras cópias/páginas.
         self._piece_rotations: dict[str, int] = {}
+        # arranjo manual salvo no .printnest (QA A0), pendente de aplicar na
+        # PRIMEIRA geração após abrir o projeto (abrir não gera sozinho).
+        self._pending_arranjo: dict | None = None
         # centralizar o conteudo na LARGURA da chapa (margens iguais). A chapa
         # cresce/diminui no comprimento conforme adiciona/remove peças.
         self._center_on_sheet = True
@@ -2121,7 +2124,43 @@ class MainWindow(QMainWindow):
             files=files, settings=settings,
             file_overrides={p: dict(ov) for p, ov in self._file_overrides.items()},
             faca_manual=self._manual_faca_to_json(),
+            arranjo=self._arranjo_to_json(),
         )
+
+    def _arranjo_signature(self) -> list:
+        """Assinatura leve (arquivos + quantidades, na ordem da biblioteca):
+        invalida o arranjo salvo se a lista mudar entre salvar e regenerar."""
+        quantities = self._quantities()
+        return [[p, int(quantities.get(p, 1))] for p in self._paths]
+
+    def _arranjo_to_json(self) -> dict:
+        """QA A0: o arranjo MANUAL (duplicatas, posições e giro por peça) entra
+        no .printnest sempre que houver produção na tela. Derivado de
+        _effective_sheets() — o caminho único canvas->modelo — nunca da cena."""
+        if not self._loaded or self._result is None:
+            return {}
+        return {
+            "assinatura": self._arranjo_signature(),
+            "giros": {
+                art_id: int(rot) % 360
+                for art_id, rot in self._piece_rotations.items()
+                if int(rot) % 360
+            },
+            "chapas": [
+                {
+                    "comprimento": round(float(layout.used_length), 3),
+                    "itens": [
+                        {
+                            "id": item.artwork_id,
+                            "x": round(float(item.position.x), 3),
+                            "y": round(float(item.position.y), 3),
+                        }
+                        for item in layout.items
+                    ],
+                }
+                for layout in self._effective_sheets()
+            ],
+        }
 
     def _manual_faca_to_json(self) -> dict:
         """Facas manuais (Pontos) em formato serializável (listas de pontos)."""
@@ -2174,6 +2213,17 @@ class MainWindow(QMainWindow):
         }
         self._faca_manual = self._manual_faca_from_json(doc.faca_manual)
         self._populate_files(doc.files)
+        # QA A0: giro por peça volta JÁ na abertura (dono único continua sendo
+        # _piece_rotations — o relayout aplica via _faca_for); o arranjo das
+        # chapas fica PENDENTE e é consumido na primeira geração (abrir não
+        # gera sozinho — regra do projeto).
+        giros = (doc.arranjo or {}).get("giros") or {}
+        self._piece_rotations = {
+            str(art_id): int(rot) % 360
+            for art_id, rot in giros.items()
+            if isinstance(rot, (int, float)) and int(rot) % 360
+        }
+        self._pending_arranjo = doc.arranjo if (doc.arranjo or {}).get("chapas") else None
         # LIMPO só DEPOIS de repovoar: add_paths marca dirty e, sem isto, abrir
         # um projeto intocado já disparava o modal "alterações não salvas"
         # em Novo/Abrir/Fechar (varredura 09/07 — pior com o auto-reabrir)
@@ -2182,6 +2232,7 @@ class MainWindow(QMainWindow):
     def _reset_project_state(self) -> None:
         """Descarta a produção carregada (mantem parametros e widgets)."""
         self._loaded = False
+        self._pending_arranjo = None  # arranjo salvo pendente morre junto
         self._result = None
         self._base_artworks = []
         self._sources = {}
@@ -6297,6 +6348,52 @@ class MainWindow(QMainWindow):
         self._update_selection_info()
         self._refresh_library_metadata()
         self._toasts.success("Produção gerada")
+        self._maybe_restore_saved_arrangement()  # QA A0: arranjo do .printnest
+
+    def _maybe_restore_saved_arrangement(self) -> None:
+        """QA A0: reaplica o arranjo manual salvo no .printnest na PRIMEIRA
+        geração após abrir o projeto. O pendente é consumido aqui (uma chance):
+        gerações seguintes, Organizar e Resetar arranjo seguem como hoje.
+        Assinatura (arquivos+quantidades) diferente ou peça salva que não
+        existe mais -> mantém o encaixe automático recém-gerado e avisa."""
+        saved = self._pending_arranjo
+        if not saved:
+            return
+        self._pending_arranjo = None
+        if self._result is None:
+            return
+        aviso = "Arranjo salvo não pôde ser aplicado — usando o encaixe automático"
+        if saved.get("assinatura") != self._arranjo_signature():
+            self._toasts.warning(aviso)
+            return
+        by_id = {a.id: a for a in self._result.artworks}
+        material = self._material()
+        sheets: list = []
+        instances: list = []
+        try:
+            for chapa in saved.get("chapas") or []:
+                items = []
+                for it in chapa["itens"]:
+                    art = by_id.get(str(it["id"]))
+                    if art is None:  # arquivo mudou fora (ex.: página sumiu)
+                        raise KeyError(it["id"])
+                    items.append(PlacedItem(
+                        str(it["id"]),
+                        Point2D(float(it["x"]), float(it["y"])),
+                    ))
+                    instances.append(art)
+                sheets.append(Layout(material, items, float(chapa["comprimento"])))
+        except (KeyError, TypeError, ValueError):
+            self._toasts.warning(aviso)
+            return
+        if not instances:
+            self._toasts.warning(aviso)
+            return
+        # mesmo primitivo do desfazer (sem push): não briga com o Undo — a
+        # pilha fica vazia, como após qualquer geração.
+        self._apply_state((sheets, instances))
+        self._undo.clear()
+        self._toasts.info("Arranjo manual do projeto restaurado")
 
     def _relayout(self, *, renest: bool = True, from_table: bool = False) -> None:
         """Recalcula faca + nesting com os parametros atuais (tempo real).

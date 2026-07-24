@@ -933,6 +933,137 @@ Philipe antes do commit final.
 
 ---
 
+## TAREFA F3 — DXF: letra sai em PEDAÇOS no Corel (1 entidade por contorno) — PROMPT MESTRE
+Cole numa conversa NOVA, junto com o CABEÇALHO FIXO. Rodar DEPOIS do
+commit da F2 e ANTES da L1 (é bug de exportação — o coração da venda).
+
+```
+# TAREFA F3 — DXF: um contorno = UMA entidade (letra não pode sair em pedaços)
+
+## O bug (reproduzido pelo Philipe no Corel, 24/07)
+Exportar uma letra do Modo Corte e abrir o DXF no Corel: a letra vem em
+PEDAÇOS soltos — cada trecho curvo é um objeto, cada trecho reto outro.
+Não dá para pegar a letra inteira.
+
+## Causa (já localizada — não gaste token procurando)
+app/infrastructure/exporters/dxf_exporter.py:54-70: contorno COM curva
+vira EzPath + `render_splines_and_polylines(msp, [ez], ...)` — essa
+função do ezdxf EXPLODE o caminho em VÁRIAS entidades (um SPLINE por
+trecho curvo, polylines pros retos). Contorno só de retas já sai certo
+(1 LWPOLYLINE fechada, linha 70 — NÃO mexer nesse ramo).
+O mesmo exportador serve o modo impressão (export_dxf da janela
+principal), então a correção conserta os dois fluxos.
+
+## A correção
+Um contorno fechado = UMA entidade fechada no DXF:
+- `cubic_segments()` (app/domain/cut/curves.py:66) já devolve o contorno
+  inteiro como Béziers cúbicas — retas incluídas (degeneradas, exato).
+- Construir `ezdxf.math.Bezier4P` por segmento e juntar com
+  `ezdxf.math.bezier_to_bspline(...)` → UM B-spline; adicionar com
+  `msp.add_spline` (fechado, layer CUT). Conversão Bézier→B-spline é
+  exata: mesma curva, mesmos nós — a feature "curvas de verdade" fica
+  intacta (NADA de achatar/flatten).
+- Furo continua entidade própria (R = 2 objetos: contorno + miolo — isso
+  é correto em DXF; o errado é 1 contorno virar N pedaços).
+
+## Armadilhas
+- ORDEM DE CORTE preservada: a ordem das entidades no modelspace é a
+  ordem de corte (furos antes do externo, de dentro pra fora — ver
+  run_true_shape_nesting._layout_contours). 1 entidade por contorno não
+  pode reordenar nada.
+- Flip Y (y' = H − y), DXF R2010, layer CUT/cor 1, unidades mm: intactos.
+- Marcas de registro (layer REGMARK) não mudam NADA.
+- Se helpers de teste enumeram tipos de entidade (SPLINE/POLYLINE),
+  adapte a LEITURA sem afrouxar nenhuma asserção geométrica.
+
+## Testes
+- Novo (tests/qa/ ou tests/infrastructure/): exportar um "R"
+  (texto→curvas do Modo Corte) e afirmar: nº de entidades no layer CUT
+  == nº de contornos (outer+furos); cada SPLINE é fechado; geometria
+  bate com o preview (reusar os helpers DXF≡preview da Fase 2B).
+- Retângulo/reta continua LWPOLYLINE fechada (não-regressão do ramo 70).
+- Ordem de corte: teste existente de dentro-pra-fora segue verde.
+- Suíte inteira UMA vez no fim (crash 0xC0000005 do teardown é
+  conhecido). Checkpoint antes; aprovação do Philipe antes do commit.
+
+## Validação manual (Philipe, no Corel)
+Importar o DXF novo: a letra seleciona inteira com 1 clique (contorno) +
+miolo como objeto próprio; Ctrl+L (combinar) no Corel junta os dois se
+quiser caminho composto. Zoom na curva: continua lisa (spline), não
+facetada.
+```
+
+---
+
+## TAREFA L1 — EMPACOTAR E LANÇAR — PROMPT MESTRE
+Cole numa conversa NOVA, junto com o CABEÇALHO FIXO. Rodar DEPOIS do
+commit da F2. Esta tarefa NÃO é de código de feature: é transformar o que
+está pronto em produto instalável e vendável.
+
+```
+# TAREFA L1 — empacotar e lançar o PrintNest
+
+## Situação (não re-audite, não re-teste além do dito aqui)
+O software está APROVADO para lançar: a lista mínima do QA de 22/07
+fechou 6/6 (F1 no commit 1963870, F2 logo depois), suíte com 811+ verdes
+e 5 xfail deliberados (pós-lançamento), e o Philipe validou na máquina
+real. NÃO abra nova rodada de QA, NÃO refatore, NÃO toque no motor de
+nesting (congelado) nem em features. Só empacotamento e release.
+PRÉ-CHECK: git log tem de mostrar a F2 ("arranjo manual persiste");
+rode a suíte UMA vez (verde = siga; vermelho = pare e avise).
+
+## Entregas, em ordem
+
+1. VERSÃO — alinhar num número só: docs/build/VERSAO.txt, título da
+   janela e instalador. Sugestão: 1.0.0 (primeira versão vendida).
+   Confirme o número com o Philipe antes de aplicar.
+
+2. INSTALADOR — hoje o build é PyInstaller (build.bat + PrintNest.spec)
+   com pasta copiada na mão. Criar script Inno Setup (installer/):
+   instala em Program Files, atalho no menu/desktop, desinstalador,
+   ícone, versão no Add/Remove. Build em 2 passos documentados:
+   build.bat → iscc installer/printnest.iss.
+
+3. SMOKE TEST do pacote (não da fonte): instalar num caminho limpo e
+   validar por script/roteiro curto — abre, importa 1 PDF, gera
+   produção, exporta PDF+DXF, salva/reabre .printnest (arranjo volta),
+   tela de licença aparece no PC "novo". O que só olho valida vira
+   checklist numerada pro Philipe.
+
+4. JURÍDICO — docs/produto/juridico/ (EULA, Privacidade, Termos) tem
+   lacunas [RAZÃO SOCIAL]/[CNPJ]/[SUPORTE]/[GATEWAY]. Pergunte ao
+   Philipe as 4 respostas (MEI/CNPJ, gateway de pagamento, canal de
+   suporte, code signing sim/não). Preencha o que ele responder; o que
+   ficar aberto vira lista clara de pendências dele. EULA final entra
+   no instalador (tela de aceite).
+
+5. RELEASE — depois do ok do Philipe no instalador: merge
+   v1.3-redesign → main (a branch está ~120 commits à frente),
+   tag da versão, CHANGELOG ganha a data de lançamento.
+   Commits SÓ com aprovação explícita, como sempre.
+
+6. CHECKLIST FINAL pro Philipe (imprimível): backup da chave privada
+   de licença (tools/license_private_key.pem — SEM ela não emite nem
+   revalida NENHUMA licença vendida; pen drive + nuvem, confirmar
+   ANTES de vender), robô de ativação rodando (ROBO-ATIVACAO.md),
+   gateway configurado, página de venda no ar (site/), e-mail de
+   suporte criado, teste de compra de ponta a ponta com o código
+   PNC de uso único.
+
+## Fora do escopo (anotar, não fazer)
+- Auto-update e crash reporting: v1.0.x, depois de lançar.
+- A10 (O(n²) do merge), A4 (K puro), A2/A3 do relatório: pós-lançamento.
+- SmartScreen sem code signing: documentar o aviso azul no guia do
+  cliente se o Philipe decidir lançar sem certificado.
+
+## Regras de sempre
+Token economy (cabeçalho fixo), uma entrega por vez na ordem acima,
+checkpoint de commit antes de mexer em build/instalador, aprovação do
+Philipe antes de cada commit.
+```
+
+---
+
 ## Ondas 2 e 3 (depois)
 - QR/barcode de recuperação de job (Parte VIII do doc de registro): valioso,
   mas envolve RIP/pasta observada — tarefa própria, depois da A2/A3.

@@ -43,6 +43,9 @@ Veja [docs/build/BUILD.md](docs/build/BUILD.md) para detalhes do empacotamento.
 | **Faca** | Retângulo automático, **contorno automático** de imagens, e **faca por contorno** de PDF (rasteriza) |
 | **Faca por arquivo** | Cada arquivo pode ter sangria/recorte/giro/suavização próprios |
 | **Nesting** | Encaixe em grade na largura da chapa (comprimento aberto) |
+| **Modo Corte** | Fluxo só-corte true-shape: SVG/PDF vetorial e texto→curvas, encaixe com giro e preencher furos, mover/girar no preview, DXF de dentro para fora, plugin CorelDRAW ida-e-volta |
+| **Marcas de registro** | 6 formas (bolinhas, L, bolinhas+L, quadrados, cruzes, L de canto) com distância, tamanho e espessura ajustáveis — idênticas no preview, PDF e DXF |
+| **Faca do cliente** | Reaproveita a faca desenhada no arquivo (traço magenta 100% sem preenchimento) |
 | **Edição** | Mover, alinhar, distribuir, agrupar, ordem (frente/trás), duplicar, repetir em grade, guias, snap, desfazer/refazer |
 | **Unidades** | mm/cm em todo o sistema (réguas, campos, medidas) |
 | **Exportação** | PDF de impressão e DXF de corte (única chapa ou por chapa); imagem PNG/JPEG |
@@ -62,6 +65,8 @@ Toda a documentação está organizada por tema em **[docs/](docs/README.md)** �
 | 🗺️ Produto | [docs/produto/ROADMAP.md](docs/produto/ROADMAP.md) · [PLANO-COMERCIALIZACAO.md](docs/produto/PLANO-COMERCIALIZACAO.md) |
 | 📐 Especificações | [docs/especificacoes/FACA-CONTORNO-SPEC.md](docs/especificacoes/FACA-CONTORNO-SPEC.md) |
 | 🛠️ Build | [docs/build/BUILD.md](docs/build/BUILD.md) |
+| ✅ QA | [docs/qa/](docs/qa/) — charters e relatórios de qualidade (último: [RELATORIO-QA-2026-07-22.md](docs/qa/RELATORIO-QA-2026-07-22.md)) |
+| ⚖️ Jurídico | [docs/produto/juridico/](docs/produto/juridico/) — EULA, privacidade, termos de venda |
 | 📓 Histórico | [docs/historico/](docs/historico/) — session logs (um por sessão) |
 
 Mudanças por versão: [CHANGELOG.md](CHANGELOG.md).
@@ -70,7 +75,9 @@ Mudanças por versão: [CHANGELOG.md](CHANGELOG.md).
 
 ## Stack
 
-Python 3.10+ · PySide6 (Qt) · PyMuPDF · OpenCV + Pillow · Shapely · NumPy · ezdxf · pytest.
+Python 3.10+ · PySide6 (Qt) · pypdfium2 + pikepdf (PDF, licenças livres) · OpenCV + Pillow · Shapely · NumPy · ezdxf · fontTools · pytest.
+
+> PyMuPDF/fitz é **dev-only** (AGPL): nunca entra em `app/`.
 
 ## Estrutura (resumo)
 

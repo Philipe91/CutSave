@@ -91,12 +91,20 @@ class ProjectDocument:
       caminho -> dict esparso de parametros.
     - ``faca_manual``: facas editadas a mão (ferramenta Pontos),
       caminho -> {"contours": [[[x, y], ...], ...], "w", "h", "rotation"}.
-    Sem eles, salvar/reabrir PERDIA esses ajustes (varredura 09/07)."""
+    - ``arranjo`` (QA A0): o arranjo MANUAL da chapa (duplicatas, peças
+      movidas e giro por peça), exceção à regra "não guarda a produção":
+      {"assinatura": [[path, qty], ...],
+       "giros": {artwork_id: graus},
+       "chapas": [{"comprimento": mm, "itens": [{"id", "x", "y"}, ...]}]}.
+      A produção continua sendo regenerada ao abrir; o arranjo só é
+      reaplicado se a assinatura (arquivos+quantidades) ainda bater.
+    Sem eles, salvar/reabrir PERDIA esses ajustes (varredura 09/07; A0 24/07)."""
 
     files: list[ProjectFile] = field(default_factory=list)
     settings: dict = field(default_factory=dict)
     file_overrides: dict = field(default_factory=dict)
     faca_manual: dict = field(default_factory=dict)
+    arranjo: dict = field(default_factory=dict)
     version: int = PROJECT_VERSION
 
     def to_dict(self) -> dict:
@@ -106,6 +114,7 @@ class ProjectDocument:
             "settings": dict(self.settings),
             "file_overrides": dict(self.file_overrides),
             "faca_manual": dict(self.faca_manual),
+            "arranjo": dict(self.arranjo),
         }
 
     @classmethod
@@ -131,10 +140,14 @@ class ProjectDocument:
         manual = data.get("faca_manual")
         if not isinstance(manual, dict):
             manual = {}
+        arranjo = data.get("arranjo")  # aditivo: projeto antigo nao tem
+        if not isinstance(arranjo, dict):
+            arranjo = {}
         return cls(
             files=files, settings=settings,
             file_overrides={k: v for k, v in overrides.items() if isinstance(v, dict)},
             faca_manual={k: v for k, v in manual.items() if isinstance(v, dict)},
+            arranjo=arranjo,
             version=version,
         )
 

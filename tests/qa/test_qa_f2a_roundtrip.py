@@ -247,18 +247,12 @@ def test_projeto_persiste_overrides_e_faca_manual_multiformato(qapp, tmp_path):
     assert m["w"] == 40.0 and m["h"] == 30.0 and m["rotation"] == 90
 
 
-# ---- comportamentos que NAO sobrevivem ao salvar/reabrir (bugs reais) ----
+# ---- arranjo manual sobrevive ao salvar/reabrir (A0, corrigido na F2) ----
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="QA-F2A-01: duplicar (Ctrl+D) ou mover manualmente uma peca so "
-    "muda o arranjo em memoria (self._result / _commit_arrangement); "
-    "_collect_project() so grava a QUANTIDADE da tabela (self._quantities()), "
-    "nunca o arranjo manual. Salvar o projeto e reabrir perde a copia "
-    "duplicada e a posicao movida a mao: a peca some e a quantidade volta "
-    "para a da tabela.",
-)
 def test_duplicar_e_mover_sobrevive_ao_salvar_e_reabrir(qapp, tmp_path):
+    # QA-F2A-01 / A0, corrigido na F2: o campo aditivo "arranjo" do
+    # .printnest guarda as chapas de _effective_sheets(); a primeira geracao
+    # apos abrir restaura duplicatas e posicoes movidas a mao.
     src = _two_page_pdf(tmp_path)
     w1 = _window(tmp_path, "w1")
     w1.add_paths([src])
@@ -287,15 +281,10 @@ def test_duplicar_e_mover_sobrevive_ao_salvar_e_reabrir(qapp, tmp_path):
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="QA-F2A-02: girar uma peca individual (Ctrl+[ / Ctrl+], "
-    "self._piece_rotations) nao entra no ProjectDocument salvo — so o giro "
-    "de ARQUIVO (barra de propriedades, file_overrides['rotation']) e "
-    "persistido. Reabrir o projeto perde o giro da peca especifica: ela "
-    "volta ao giro do arquivo (ou 0).",
-)
 def test_girar_peca_individual_sobrevive_ao_salvar_e_reabrir(qapp, tmp_path):
+    # QA-F2A-02 / A0, corrigido na F2: os giros por peca (_piece_rotations)
+    # sao salvos em arranjo["giros"] e voltam JA na abertura do projeto —
+    # o dono unico do giro continua sendo _piece_rotations (relayout aplica).
     src = _n_page_pdf(tmp_path, 2, w=80.0, h=50.0)
     w1 = _window(tmp_path, "w1")
     w1._width.setValue(500)

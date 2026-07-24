@@ -4,6 +4,76 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [Não lançado] — branch `v1.3-redesign` (sessões 09/07–24/07)
+
+### Modo Corte (módulo novo — fluxo só-corte)
+- **Pipeline true-shape completo**: importadores vetoriais SVG e PDF, texto
+  digitado → curvas (fontTools), nesting true-shape com giro garantido, ângulo
+  fino e **preencher furos** (peça dentro de peça, Fase 6/D3), custo do GA por
+  chapa consumida, DXF cortando **de dentro para fora**.
+- **Manipulação no preview (E3)**: arrastar peça com o mouse, girar com a
+  tecla R/botão, Ctrl+Z por folha, limite vermelho da chapa com clamp, zoom.
+- **Chapas lado a lado** no preview (estilo eCut) + UI ilustrada com a faixa
+  de passos Adicionar → Organizar → Exportar.
+- **Plugin CorelDRAW ida-e-volta (D2)** com tutorial ilustrado (7 imagens);
+  a ponte tenta a macro nos projetos PrintNest.gms e GlobalMacros.
+
+### Marcas de registro (A2/A3 + E4)
+- **3 formas novas**: Quadrados (Summa/OPOS), Cruzes e L de canto
+  (Graphtec/Roland) — além de bolinhas, L e bolinhas+L.
+- **Ajustes do cliente**: distância, tamanho e **espessura do traço**
+  (0,3–2,0 mm), persistidos no projeto. Saída idêntica no preview, PDF de
+  impressão e DXF (provado por teste em coordenadas reais).
+- **Combo sem nome de máquina** (E4): rótulos por forma + ilustrações;
+  ícones Lucide no Modo Corte, miniaturas nas listas.
+
+### Faca
+- **Faca do cliente** (16/07): reaproveita a faca desenhada no próprio
+  arquivo — traço **magenta 100% sem preenchimento** (guia em
+  docs/produto/FACA-DO-CLIENTE.md). Cartelas idênticas pausado por flag.
+- **DXF com Y refletido** (y' = H − y): Corel/CAD não abre mais espelhado.
+
+### Licença / motor PDF
+- **Migração PyMuPDF (AGPL) → pypdfium2 + pikepdf** (13/07): app 100% em
+  licenças livres; fitz virou dev-only e não entra em `app/`.
+
+### UI/UX
+- Theme Engine + persistência; pacote de ilustrações de orientação;
+  miniaturas ilustrativas nos combos; trilho de ícones no inspector;
+  tela dividida horizontal (B4); multi-seleção e multi-drop na biblioteca
+  (B1); tour de boas-vindas + **Tutor IA**.
+
+### QA e correções
+- **Missão QA MASTER PREMIUM (22/07)**: relatório completo em
+  docs/qa/RELATORIO-QA-2026-07-22.md — 20+ achados, notas 0–10, roteiro
+  manual de 22 itens, **85 testes novos em tests/qa/**. Veredito da data:
+  não aprovado para produção (lista mínima de 6 itens).
+- **Lote F1 (24/07, commit `1963870`)** — 5 da lista mínima corrigidos:
+  girar não re-seleciona todas as cópias (fim da duplicação exponencial ao
+  girar+duplicar); PDF ruim de cliente não estoura mais exceção crua nos
+  caminhos síncronos; `.printnest` com lixo binário avisa amigável;
+  **Substituir arquivo** reimporta de verdade (antes cortava a arte antiga
+  com o nome novo); falha no recorte de página avisa em vez de sair o
+  original em silêncio.
+- **F2 (24/07)** — o arranjo manual **persiste no `.printnest`** (achado
+  A0, o último da lista mínima): duplicatas, peças movidas e giro por peça
+  sobrevivem a salvar+reabrir; campo aditivo com assinatura de invalidação,
+  projeto antigo abre igual. Com isso a lista mínima do QA fechou 6/6.
+- 5 correções do QA EXTREMO (13/07) + 9 fixes de varredura.
+- **Pendente conhecido (pós-lançamento)**: merge de facas O(n²) em chapas
+  de 1000+ peças (A10); marcas de registro saem RGB(0,0,0) em vez de K
+  puro no PDF (A4 — validar leitura no plotter real).
+
+### Site de vendas
+- Landing React: hero scrollytelling 4K, prints reais do app, seção do
+  Modo Corte (retomada por `site/ESTADO-SITE.md`).
+
+### Decisões de escopo registradas
+- **Motor de nesting congelado** (22/07): só reabre por bug real.
+- **E1 cancelada** (peças de corte no canvas de impressão): revertida em
+  `90959f4`; o caminho é manipular dentro do próprio Modo Corte (E3).
+- **E2 (true-shape na impressão) pausado** por decisão do dono.
+
 ## [v1.3.0] — branch `v1.3-redesign` (sessões 04–06/07)
 
 ### Comercialização
