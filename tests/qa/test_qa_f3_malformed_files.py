@@ -61,17 +61,9 @@ def _still_usable(w) -> None:
 # Caso 1: PDF vazio (0 bytes) e PDF corrompido (bytes aleatorios .pdf)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "QA-F3-01: PDF de 0 bytes adicionado e gerado via generate(blocking=True) "
-        "(caminho real: botao 'Gerar Faca' sem producao, ou soltar 1 arquivo na "
-        "area vazia) estoura PdfImportError sem tratamento — main_window.py "
-        "~linha 6174-6182 nao tem try/except (so o worker em thread, linha "
-        "1040-1054, trata). Deveria mostrar aviso amigavel."
-    ),
-)
 def test_pdf_vazio_0_bytes_nao_estoura(qapp, tmp_path):
+    # QA-F3-01 / A14, corrigido na F1: o ramo blocking do generate() trata a
+    # falha com o mesmo padrao amigavel do _on_failed.
     empty = tmp_path / "vazio.pdf"
     empty.write_bytes(b"")
     w = _window(tmp_path)
@@ -80,16 +72,8 @@ def test_pdf_vazio_0_bytes_nao_estoura(qapp, tmp_path):
     _still_usable(w)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "QA-F3-01b: PDF corrompido (bytes aleatorios com extensao .pdf) tem o "
-        "mesmo problema do caso 0 bytes: generate(blocking=True) propaga "
-        "PdfImportError sem dialogo amigavel (main_window.py generate(), ramo "
-        "blocking, linha ~6174)."
-    ),
-)
 def test_pdf_corrompido_bytes_aleatorios_nao_estoura(qapp, tmp_path):
+    # QA-F3-01b / A14, corrigido na F1 junto com o caso 0 bytes.
     import random
     corrompido = tmp_path / "corrompido.pdf"
     corrompido.write_bytes(bytes(random.randint(0, 255) for _ in range(2048)))
@@ -135,16 +119,8 @@ def _pdf_zero_paginas(tmp_path):
     return str(path)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "QA-F3-06: PDF valido mas com ZERO paginas: o pipeline levanta "
-        "ValidationError('Nenhuma arte importada.') (run_production_pipeline.py "
-        "linha ~76). Pelo atalho generate(blocking=True) isso tambem propaga "
-        "sem dialogo amigavel (mesma causa-raiz do QA-F3-01)."
-    ),
-)
 def test_pdf_sem_paginas_nao_estoura(qapp, tmp_path):
+    # QA-F3-06 / A14, corrigido na F1 (mesma causa-raiz do QA-F3-01).
     w = _window(tmp_path)
     w.add_paths([_pdf_zero_paginas(tmp_path)])
     w.generate(blocking=True)

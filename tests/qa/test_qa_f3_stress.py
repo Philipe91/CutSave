@@ -219,20 +219,10 @@ def test_undo_redo_100_operacoes_mistas_ida_e_volta_sem_excecao(qapp, tmp_path, 
     _still_usable(w)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "QA-F3-11b (achado ao montar o teste de undo/redo misto): girar uma "
-        "peca DUPLICADA re-seleciona TODAS as copias com o mesmo artwork_id "
-        "(_reselect_by_artwork em main_window.py ~7474, chamado por "
-        "_rotate_selected ~7464). Se o usuario, depois de girar, apertar "
-        "Ctrl+D de novo (_duplicate_selected duplica TODAS as selecionadas, "
-        "~7140), a quantidade de pecas DOBRA a cada ciclo girar+duplicar em "
-        "vez de +1 -- 3 ciclos = 8x a peca original, sem aviso. Risco de "
-        "quantidade de producao muito maior que o pretendido pelo usuario."
-    ),
-)
 def test_girar_depois_duplicar_nao_deveria_multiplicar_todas_as_copias(qapp, tmp_path):
+    # QA-F3-11b / A13, corrigido na F1: girar guarda a seleção por
+    # (artwork_id, nº da cópia) e re-seleciona SÓ as cópias que estavam
+    # selecionadas — o Ctrl+D seguinte volta a ser +1, não x2.
     src = _small_pdf(tmp_path)
     w = _window_cfg(tmp_path, "w_rot_dup")
     w.add_paths([src])

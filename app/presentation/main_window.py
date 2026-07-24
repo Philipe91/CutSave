@@ -2229,7 +2229,10 @@ class MainWindow(QMainWindow):
         item.setIcon(self._thumbnail(path))
         self._table.setItem(row, 0, item)
         if self._loaded:
-            self._relayout()
+            # QA A1b: _relayout() só recalcula a geometria dos artworks JÁ
+            # importados — a chapa mostrava o nome novo mas cortava a arte
+            # ANTIGA. Regenera a produção para importar o arquivo escolhido.
+            self.generate(blocking=True, faca=self._faca_on)
 
     # ---- protecao contra perda de trabalho (QA 2.0/C5) ----
     def _mark_dirty(self) -> None:
@@ -5896,7 +5899,14 @@ class MainWindow(QMainWindow):
         self._invalidate_crop_cache(path)
         if self._loaded:
             self.generate(blocking=True)
-        self._toasts.success(f"Recorte aplicado a {len(pages)} página(s)")
+            # QA A1: o toast de sucesso só DEPOIS do bake real — e só se ele
+            # gerou o arquivo recortado (o cache foi invalidado acima, então
+            # qualquer entrada deste path é desta geração).
+            if any(k[0] == path for k in self._baked_crops):
+                self._toasts.success(f"Recorte aplicado a {len(pages)} página(s)")
+        else:
+            # sem produção carregada o bake ainda não rodou: só configurado
+            self._toasts.success(f"Recorte configurado para {len(pages)} página(s)")
 
     def _clear_page_crop(self, path: str) -> None:
         self._page_crops.pop(path, None)
@@ -5928,6 +5938,11 @@ class MainWindow(QMainWindow):
         else:
             out = self._bake_cropped_image(path, crops, sig)
         if out is None:
+            # QA A1: o bake falhou e a produção vai sair com o arquivo INTEIRO;
+            # sem este aviso o recorte era descartado em silêncio.
+            self._toasts.warning(
+                f"Recorte de {Path(path).name} não pôde ser aplicado — usando o original"
+            )
             return path
         self._baked_crops[(path, sig)] = out
         self._crop_cache[out] = path
@@ -6172,12 +6187,18 @@ class MainWindow(QMainWindow):
         eff_paths = [self._effective_path(p) for p in target_paths]  # recorte quando houver
 
         if blocking:
-            result = self._pipeline.execute(
-                eff_paths, material, offset, sheet_height, box,
-                sensitivity=sensitivity, ignore_white=ignore_white,
-            )
-            unique = sorted(set(result.sources.values()))
-            png_map = {key: self._renderer.render_png(key[0], key[1], box=box) for key in unique}
+            # QA A14: PDF ruim (0 bytes/corrompido/sem páginas) estourava a
+            # exceção crua aqui — o worker em thread já tratava; mesmo padrão.
+            try:
+                result = self._pipeline.execute(
+                    eff_paths, material, offset, sheet_height, box,
+                    sensitivity=sensitivity, ignore_white=ignore_white,
+                )
+                unique = sorted(set(result.sources.values()))
+                png_map = {key: self._renderer.render_png(key[0], key[1], box=box) for key in unique}
+            except Exception as exc:
+                self._on_failed(str(exc))
+                return
             self._load_production(result, png_map)
             return
 
@@ -6234,6 +6255,11 @@ class MainWindow(QMainWindow):
 
     def _on_failed(self, message: str) -> None:
         self._set_busy(False)
+        import os
+        if os.environ.get("PYTEST_CURRENT_TEST") or not self.isVisible():
+            # suites offscreen não podem abrir modal (travaria o CI)
+            self._toasts.error(f"Falha ao gerar produção: {message}")
+            return
         QMessageBox.critical(self, "PrintNest", f"Falha ao gerar produção:\n{message}")
 
     def _load_production(self, result: ProductionResult, png_map: dict) -> None:
@@ -7442,8 +7468,20 @@ class MainWindow(QMainWindow):
         if not self._loaded:
             self._toasts.info("Gere a produção primeiro (Gerar Produção).")
             return
-        ids = {p.artwork_id for p in self._selected_pieces()}
+        sel = set(self._selected_pieces())
+        ids = {p.artwork_id for p in sel}
         if ids:
+            # QA A13: o relayout RECRIA os PieceItem, então a seleção é
+            # guardada por (artwork_id, nº da cópia) — re-selecionar por
+            # artwork_id pegava TODAS as cópias e o Ctrl+D seguinte dobrava
+            # a produção (1→2→4→8…).
+            sel_keys = set()
+            counters: dict = {}
+            for p in self._piece_items:
+                idx = counters.get(p.artwork_id, 0)
+                counters[p.artwork_id] = idx + 1
+                if p in sel:
+                    sel_keys.add((p.artwork_id, idx))
             # snapshot ANTES de mutar os giros: o desfazer precisa restaurar o
             # dict antigo (bug QA-01: o snapshot dentro do _relayout já pegava
             # o giro novo e o Ctrl+Z não revertia _piece_rotations).
@@ -7460,8 +7498,8 @@ class MainWindow(QMainWindow):
                 after = self._state_snapshot()
                 self._undo.push(SnapshotCommand(self, before, after, "girar peça"))
             # o re-encaixe recria as peças noutra posição e a seleção (por posição)
-            # se perdia -> re-seleciona pelo id para continuar girando/editando.
-            self._reselect_by_artwork(ids)
+            # se perdia -> re-seleciona as MESMAS cópias para continuar girando.
+            self._reselect_copies(sel_keys)
             self._toasts.success(
                 f"Girou {len(ids)} peça(s) {abs(delta)}°" if len(ids) > 1
                 else f"Peça girada {abs(delta)}°"
@@ -7470,6 +7508,20 @@ class MainWindow(QMainWindow):
             # nada selecionado: gira todos (rotação global do documento)
             novo = (self._rotation_value() + delta) % 360
             self._rotation.setCurrentText(str(novo))  # dispara o relayout
+
+    def _reselect_copies(self, keys) -> None:
+        """Re-seleciona pelas cópias exatas (artwork_id, n-ésima cópia) após um
+        re-encaixe. Diferente de _reselect_by_artwork, NAO expande a seleção
+        para as outras cópias do mesmo artwork (QA A13)."""
+        if not keys:
+            return
+        self._scene.clearSelection()
+        counters: dict = {}
+        for p in self._piece_items:
+            idx = counters.get(p.artwork_id, 0)
+            counters[p.artwork_id] = idx + 1
+            if (p.artwork_id, idx) in keys:
+                p.setSelected(True)
 
     def _reselect_by_artwork(self, ids) -> None:
         """Re-seleciona as peças cujo artwork_id esta em `ids`. Usado após um

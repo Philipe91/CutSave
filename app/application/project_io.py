@@ -159,6 +159,6 @@ class ProjectStore:
             data = json.loads(target.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:
             raise ProjectError(f"Projeto nao encontrado: {target}") from exc
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ProjectError(f"Falha ao ler o projeto: {target}") from exc
         return ProjectDocument.from_dict(data)

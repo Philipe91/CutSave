@@ -51,7 +51,7 @@ def _nest_one(dialog, tmp_path, *, sheet_len: float = 100.0):
     dialog._sheet_len.setValue(sheet_len)
     dialog._rotate_mode.setCurrentIndex(0)  # sem giro: previsivel
     dialog.nest()
-    return dialog._gfx_by_index[0]
+    return dialog._gfx_by_index[(0, 0)]  # chave (chapa, indice) desde 4751f08
 
 
 # -- arrastar para fora da chapa -----------------------------------------------
@@ -69,7 +69,7 @@ def test_arrastar_para_fora_mantem_dentro_mesmo_partindo_de_peca_deslocada(dialo
     assert dialog._layouts[0].item_count == 2
     assert dialog._layouts[0].items[1].position.x > 0  # de fato deslocada
 
-    gfx = dialog._gfx_by_index[1]
+    gfx = dialog._gfx_by_index[(0, 1)]
     eps = 1e-3
     gfx.setPos(-99_999.0, -99_999.0)
     dialog._on_piece_moved(gfx)
@@ -98,8 +98,8 @@ def test_r_gira_so_a_peca_da_folha_selecionada_sem_vazar_para_outra(dialog, tmp_
     dialog.nest()
     assert len(dialog._layouts) == 2
 
-    dialog._sheet_pick.setCurrentIndex(1)  # mostra a folha 2
-    gfx = dialog._gfx_by_index[0]
+    dialog._sheet_pick.setCurrentIndex(1)  # stats da folha 2 (todas na cena)
+    gfx = dialog._gfx_by_index[(1, 0)]  # peca 0 da folha 2
     gfx.setSelected(True)
     dialog._rotate_selected()
 
@@ -123,7 +123,8 @@ def test_ctrl_z_apos_trocar_a_folha_exibida_desfaz_na_folha_certa(dialog, tmp_pa
     assert len(dialog._layouts) == 2
 
     original = dialog._layouts[0].items[0]
-    gfx0 = dialog._gfx_by_index[0]
+    folha2_antes = dialog._layouts[1].items
+    gfx0 = dialog._gfx_by_index[(0, 0)]
     gfx0.setPos(3.0, 0.0)
     dialog._on_piece_moved(gfx0)  # retoque na folha 1 (a exibida)
     assert dialog._layouts[0].items[0] != original
@@ -132,9 +133,10 @@ def test_ctrl_z_apos_trocar_a_folha_exibida_desfaz_na_folha_certa(dialog, tmp_pa
     dialog._undo_manip()  # Ctrl+Z
 
     assert dialog._layouts[0].items[0] == original  # desfez na folha 1, nao na 2
-    # a cena exibida acompanha: o combo volta sozinho pra folha onde o
-    # desfazer aconteceu (senao o operador nao veria o resultado do Ctrl+Z)
-    assert dialog._sheet_pick.currentIndex() == 0
+    # desde as chapas lado a lado (4751f08) todas as folhas ficam visiveis ao
+    # mesmo tempo: o operador ve o Ctrl+Z sem o combo precisar voltar (ele
+    # agora so escolhe a chapa das estatisticas). A folha 2 segue intacta.
+    assert dialog._layouts[1].items == folha2_antes
 
 
 # -- arrastar -> Organizar de novo -> Ctrl+Z ------------------------------------
@@ -145,7 +147,7 @@ def test_organizar_de_novo_limpa_a_pilha_de_desfazer_do_retoque_anterior(dialog,
     dialog._width.setValue(200.0)
     dialog._rotate_mode.setCurrentIndex(0)
     dialog.nest()
-    gfx = dialog._gfx_by_index[0]
+    gfx = dialog._gfx_by_index[(0, 0)]
     gfx.setPos(10.0, 0.0)
     dialog._on_piece_moved(gfx)
     assert dialog._undo  # tem retoque na pilha
@@ -238,7 +240,7 @@ def test_sobreposicao_apos_retoque_manual_nao_bloqueia_exportar_documenta_compor
 
     a = dialog._layouts[0].items[0]
     b_pos = dialog._layouts[0].items[1].position
-    gfx_a = dialog._gfx_by_index[0]
+    gfx_a = dialog._gfx_by_index[(0, 0)]
     gfx_a.setPos(QPointF(b_pos.x - a.position.x, b_pos.y - a.position.y))
     dialog._on_piece_moved(gfx_a)
 

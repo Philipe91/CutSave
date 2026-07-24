@@ -77,16 +77,9 @@ def _n_page_pdf(tmp_path, n, w=120.0, h=120.0, name="multi"):
 
 # ---- 1) Substituir arquivo selecionado ----
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="QA-F2A-04: replace_selected() troca self._paths[row] e o texto da "
-    "tabela, mas so chama self._relayout() (recalcula GEOMETRIA dos "
-    "_base_artworks ja importados) — nunca reimporta o arquivo novo. A "
-    "producao continua com o conteudo/paginas do arquivo ANTIGO ate o "
-    "usuario clicar 'Gerar Producao' de novo; a biblioteca mostra o nome "
-    "certo mas a chapa ainda corta o arquivo trocado.",
-)
 def test_substituir_arquivo_selecionado_atualiza_producao(qapp, tmp_path, monkeypatch):
+    # QA-F2A-04 / A1b, corrigido na F1: replace_selected() regenera a
+    # producao (generate blocking) em vez de so relayoutar a geometria antiga.
     original = _two_page_pdf(tmp_path, "original")
     novo = _n_page_pdf(tmp_path, 3, name="novo")
     w = _window(tmp_path)

@@ -302,18 +302,9 @@ def test_printnest_corrompido_avisa_e_nao_perde_trabalho_atual(qapp, tmp_path, m
     assert w._result is not None
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "QA-F3-14: .printnest com LIXO BINARIO (nao-UTF8) faz "
-        "ProjectStore.load() estourar UnicodeDecodeError na leitura "
-        "(project_io.py: `target.read_text(encoding='utf-8')`), que NAO e "
-        "um ProjectError nem um OSError/JSONDecodeError — o except em "
-        "project_io.py so pega (OSError, json.JSONDecodeError). O erro sobe "
-        "cru ate a UI (open_project nao mostra dialogo, so trata ProjectError)."
-    ),
-)
 def test_printnest_lixo_binario_avisa_e_nao_perde_trabalho_atual(qapp, tmp_path, monkeypatch):
+    # QA-F3-14 / A15, corrigido na F1: o except do ProjectStore.load() agora
+    # cobre UnicodeDecodeError e vira ProjectError com dialogo amigavel.
     variantes = _corrupted_variants(tmp_path)
     caminho_corrompido = variantes["lixo_binario"]
 

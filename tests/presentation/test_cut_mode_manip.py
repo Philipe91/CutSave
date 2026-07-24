@@ -51,7 +51,7 @@ def _nest_one(dialog, tmp_path, *, sheet_len: float = 100.0):
     dialog._sheet_len.setValue(sheet_len)
     dialog._rotate_mode.setCurrentIndex(0)  # Sem giro: previsivel
     dialog.nest()
-    return dialog._gfx_by_index[0]
+    return dialog._gfx_by_index[(0, 0)]  # chave (chapa, indice) desde 4751f08
 
 
 # -- Missao 1: mover e girar escrevem em self._layouts ------------------------

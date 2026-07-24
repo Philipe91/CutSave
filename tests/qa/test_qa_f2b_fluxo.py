@@ -115,9 +115,10 @@ def _expected_bboxes(dialog, layout):
 
 def _scene_bboxes(dialog):
     boxes = []
-    for i in range(len(dialog._gfx_by_index)):
-        gfx = dialog._gfx_by_index[i]
-        r = gfx.path().boundingRect().translated(gfx.pos())
+    for key in sorted(dialog._gfx_by_index):  # chave (chapa, indice) desde 4751f08
+        gfx = dialog._gfx_by_index[key]
+        # volta o deslocamento da chapa na cena (dx): compara em coords da FOLHA
+        r = gfx.path().boundingRect().translated(gfx.pos()).translated(-gfx.dx, 0.0)
         boxes.append((r.left(), r.top(), r.right(), r.bottom()))
     return boxes
 
@@ -173,14 +174,14 @@ def test_fluxo_completo_svg_pdf_texto_arrastar_girar_exportar(dialog, tmp_path, 
     assert dialog._layouts[0].item_count == total_bodies
 
     # arrastar UMA peca via eventos de mouse de verdade na view
-    gfx_drag = dialog._gfx_by_index[0]
+    gfx_drag = dialog._gfx_by_index[(0, 0)]
     antes = dialog._layouts[0].items[0]
     _drag_via_mouse(dialog, qapp, gfx_drag, 15.0, 5.0)
     depois = dialog._layouts[0].items[0]
     assert (depois.position.x, depois.position.y) != (antes.position.x, antes.position.y)
 
     # girar OUTRA peca pelo atalho de teclado de verdade (R via QShortcut)
-    gfx_rotate = dialog._gfx_by_index[1]
+    gfx_rotate = dialog._gfx_by_index[(0, 1)]
     gfx_rotate.setSelected(True)
     rot_antes = float(dialog._layouts[0].items[1].rotation)
     QTest.keyClick(dialog, Qt.Key_R)
@@ -213,16 +214,17 @@ def test_varias_folhas_cada_dxf_bate_com_a_sua_propria_folha(dialog, tmp_path, q
     dialog.nest()
     assert len(dialog._layouts) == 4
 
-    # arrasta a peca da folha 1 (a exibida por padrao apos organizar)
-    gfx0 = dialog._gfx_by_index[0]
+    # arrasta a peca da folha 1
+    gfx0 = dialog._gfx_by_index[(0, 0)]
     gfx0.setPos(5.0, 0.0)
     dialog._on_piece_moved(gfx0)
 
-    # troca para a folha 2 e gira a peca de la pelo atalho R de verdade
+    # gira a peca da folha 2 pelo atalho R de verdade (todas as folhas estao
+    # na cena desde 4751f08; o combo so muda as estatisticas)
     dialog._sheet_pick.setCurrentIndex(1)
     dialog.show()
     qapp.processEvents()
-    gfx1 = dialog._gfx_by_index[0]  # mesmo indice local, folha diferente
+    gfx1 = dialog._gfx_by_index[(1, 0)]  # mesmo indice local, folha diferente
     gfx1.setSelected(True)
     QTest.keyClick(dialog, Qt.Key_R)
     qapp.processEvents()
