@@ -31,3 +31,6 @@ tools/robot_config.json
 
 # Site (app Node/Vite): dependencias nunca vao para o Git
 node_modules/
+
+# zips de build para envio (gerados localmente)
+PrintNest_Build_*.zip

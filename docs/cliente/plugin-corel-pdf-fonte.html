@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>PrintNest no CorelDRAW — Guia de instalação do plugin</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: #1c1e26; font-size: 11.5pt; line-height: 1.55; margin: 0;
+  }
+  .capa { text-align: center; padding-top: 60mm; page-break-after: always; }
+  .capa h1 { font-size: 30pt; margin: 0 0 4mm; color: #7c3aed; }
+  .capa .sub { font-size: 15pt; color: #444; }
+  .capa .selo {
+    display: inline-block; margin-top: 14mm; padding: 3mm 8mm;
+    border: 2px solid #7c3aed; border-radius: 8px; color: #7c3aed;
+    font-weight: 600; font-size: 12pt;
+  }
+  h2 {
+    font-size: 17pt; color: #7c3aed; border-bottom: 2px solid #e6ddfb;
+    padding-bottom: 2mm; margin: 10mm 0 4mm; page-break-after: avoid;
+  }
+  h3 { font-size: 13pt; margin: 7mm 0 2mm; page-break-after: avoid; }
+  ol, ul { margin: 2mm 0 4mm; padding-left: 7mm; }
+  li { margin-bottom: 2.5mm; }
+  b, strong { color: #000; }
+  kbd, code {
+    font-family: Consolas, monospace; background: #f2effc;
+    border-radius: 3px; padding: 0.5mm 1.5mm; font-size: 10.5pt;
+  }
+  .passo-img {
+    display: block; max-width: 130mm; width: 100%; margin: 3mm auto 5mm;
+    border: 1px solid #d9d3ee; border-radius: 6px;
+    page-break-inside: avoid;
+  }
+  .dica {
+    background: #f6f3ff; border-left: 4px solid #7c3aed;
+    padding: 3mm 5mm; border-radius: 0 6px 6px 0; margin: 4mm 0;
+    page-break-inside: avoid;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 3mm 0 5mm; }
+  th, td { border: 1px solid #d9d3ee; padding: 2.5mm 3.5mm; text-align: left; vertical-align: top; }
+  th { background: #f2effc; color: #4c1d95; }
+  .ok { color: #087443; font-weight: 600; }
+  .quebra { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="capa">
+  <h1>PrintNest&nbsp;+&nbsp;CorelDRAW</h1>
+  <div class="sub">Guia de instalação do plugin — passo a passo ilustrado</div>
+  <div class="selo">Instala uma vez &nbsp;•&nbsp; 2 minutos &nbsp;•&nbsp; depois é só clicar no botão</div>
+</div>
+
+<h2>O que o plugin faz</h2>
+<p>Ele coloca um <b>botão do PrintNest dentro do CorelDRAW</b>, com dois caminhos:</p>
+<ul>
+  <li><b>Importar</b> → o desenho selecionado cai no PrintNest para <b>impressão e faca</b>;</li>
+  <li><b>Modo Corte</b> → abre a janela de encaixe (laser/CNC) <b>já organizando</b> o que
+      você selecionou, e devolve o arranjo pronto <b>na página do Corel</b> ou em
+      <b>DXF</b> para a máquina.</li>
+</ul>
+
+<h2>Instalação (2 minutos)</h2>
+<ol>
+  <li><b>Abra o PrintNest uma vez</b> (dois cliques no <code>PrintNest.exe</code>).
+      Pode fechar em seguida — ele se registra sozinho para o Corel encontrá-lo.</li>
+  <li>Na pasta <b>Plugin CorelDRAW</b> (veio junto do programa), dê dois cliques em
+      <code>instalar_plugin_corel.bat</code>. Ele acha o seu CorelDRAW sozinho e
+      instala o plugin em todas as versões que você tiver.</li>
+  <li>Abra o CorelDRAW e <b>crie o botão</b> (só na primeira vez):</li>
+</ol>
+
+<h3>3a. Abra a Personalização</h3>
+<p><b>Ferramentas → Opções → Personalização → Comandos</b><br>
+<i>(em algumas versões: Ferramentas → Personalização → Comandos)</i></p>
+<img class="passo-img" src="file:///C:/projetos/Cutph/corel/imagens/01-abrir-personalizacao.png" alt="Menu Ferramentas">
+
+<h3>3b. Filtre por Macros</h3>
+<p>Na lista suspensa no alto (onde diz "Ajuda"), escolha <b>Macros</b>:</p>
+<img class="passo-img" src="file:///C:/projetos/Cutph/corel/imagens/02-filtro-macros.png" alt="Escolher Macros">
+
+<h3>3c. Arraste o botão para a barra</h3>
+<p>Ache <b>PrintNest.PrintNestMenu</b> na lista e <b>arraste</b> para a barra de
+ferramentas de cima:</p>
+<img class="passo-img" src="file:///C:/projetos/Cutph/corel/imagens/03-arrastar-botao.png" alt="Arrastar o botão">
+
+<h3>3d. (Opcional) Coloque a logo no botão</h3>
+<p>Com o item ainda selecionado, na aba <b>Geral</b> ao lado, clique em
+<b>Ícone → Procurar...</b> e escolha a imagem <code>printnest_symbol.png</code>
+da pasta do plugin:</p>
+<img class="passo-img" src="file:///C:/projetos/Cutph/corel/imagens/04-aparencia-logo.png" alt="Colocar a logo">
+
+<p class="ok">Pronto! O botão do PrintNest está na sua barra do Corel. 🎉</p>
+
+<h2 class="quebra">Como usar no dia a dia</h2>
+
+<h3>Impressão + faca (adesivos, rótulos…)</h3>
+<ol>
+  <li>Desenhe a arte. <b>A linha de corte, desenhe como vetor</b> (curva)
+      <b>magenta 100%, sem preenchimento</b>.</li>
+  <li>Selecione (ou deixe sem seleção para mandar a página inteira) e clique no
+      botão <b>PrintNest</b> → <b>[Sim] Importar</b>.</li>
+  <li>No PrintNest: Tipo de faca <b>"Faca do cliente (vetor do PDF)"</b> →
+      <b>Gerar Faca</b>.</li>
+</ol>
+
+<h3>Modo Corte (laser / CNC / plotter)</h3>
+<ol>
+  <li>Selecione as peças ou o texto no Corel (texto <b>não</b> precisa converter
+      em curvas — o plugin converte sozinho).</li>
+  <li>Botão <b>PrintNest</b> → aparece a pergunta → <b>[Não] Modo Corte</b>:</li>
+</ol>
+<img class="passo-img" src="file:///C:/projetos/Cutph/corel/imagens/07-popup-duas-opcoes.png" alt="As duas opções">
+<p>A janela abre <b>já organizando</b> as peças pelo contorno real:</p>
+<img class="passo-img" src="file:///C:/projetos/Cutph/corel/imagens/05-modo-corte-organizando.png" alt="Modo Corte organizado">
+
+<div class="dica">
+  <b>Ajustes que valem a pena:</b> <b>Giro das peças</b> (passo mais fino =
+  encaixe mais denso, um pouco mais demorado) e <b>Tempo de otimização</b>
+  (mais tempo = melhor aproveitamento; em lote grande use 30–60&nbsp;s).
+  <b>Preencher furos</b> aproveita o vão interno das peças (o miolo do "O")
+  para encaixar as menores — pode deixar sempre ligado: o programa testa com
+  e sem, e fica com o que render mais.
+</div>
+
+<p>Depois escolha a saída:</p>
+<ul>
+  <li><b>Enviar p/ Corel</b> → o arranjo volta para a página do Corel como
+      <b>curvas magenta editáveis</b>:</li>
+</ul>
+<img class="passo-img" src="file:///C:/projetos/Cutph/corel/imagens/06-enviar-para-corel.png" alt="Enviar para o Corel">
+<ul>
+  <li><b>Exportar DXF</b> → arquivo em milímetros, layer CUT, direto na máquina.
+      O corte sai <b>de dentro para fora</b> (primeiro o que está no vão, o
+      contorno externo por último) — nada se solta da chapa antes da hora.</li>
+</ul>
+
+<h2>Botões disponíveis (se quiser mais de um)</h2>
+<table>
+  <tr><th>Macro</th><th>O que faz</th></tr>
+  <tr><td><b>PrintNestMenu</b></td><td><b>Recomendado</b>: pergunta Importar ou Modo Corte</td></tr>
+  <tr><td>ModoCorteNoPrintNest</td><td>Vai direto ao Modo Corte, sem perguntar</td></tr>
+  <tr><td>EnviarParaPrintNest</td><td>Importa: seleção (se houver) ou a página</td></tr>
+  <tr><td>EnviarSelecaoParaPrintNest</td><td>Importa só a seleção</td></tr>
+  <tr><td>EnviarPaginaParaPrintNest</td><td>Importa a página inteira</td></tr>
+  <tr><td>AbrirPrintNest</td><td>Só abre/traz o PrintNest para frente</td></tr>
+</table>
+
+<h2>Problemas comuns</h2>
+<table>
+  <tr><th>Sintoma</th><th>Solução</th></tr>
+  <tr><td>"PrintNest não encontrado"</td>
+      <td>Abra o PrintNest uma vez e tente de novo — ele se registra sozinho a cada abertura.</td></tr>
+  <tr><td>O instalador não achou o CorelDRAW</td>
+      <td>Abra o CorelDRAW uma vez (para criar as pastas de usuário) e rode o instalador de novo.</td></tr>
+  <tr><td>Aviso de segurança de macro</td>
+      <td>Aceite/permita — é o plugin do PrintNest.</td></tr>
+  <tr><td>Cliquei no botão e nada aconteceu</td>
+      <td>O botão perdeu o vínculo (acontece ao reinstalar o plugin). Remova o botão
+          (Personalização aberta → arraste-o para fora da barra) e crie de novo
+          (passo 3 da instalação).</td></tr>
+  <tr><td>"Enviar p/ Corel" reclama da macro</td>
+      <td>Rode o <code>instalar_plugin_corel.bat</code> de novo (a importação faz parte do plugin).</td></tr>
+  <tr><td>Instalador sem o arquivo PrintNest.gms</td>
+      <td>Instalação manual em 2 minutos: abra o Corel, <kbd>Alt+F11</kbd>, botão direito em
+          <b>GlobalMacros</b> → <b>Import File...</b> → escolha o <code>PrintNest.bas</code>
+          da pasta do plugin → <kbd>Ctrl+S</kbd>. Depois crie o botão (passo 3).</td></tr>
+</table>
+
+<p style="margin-top:10mm;color:#666;font-size:10pt;">
+PrintNest Pro — guia do cliente. Dúvidas? Envie o arquivo
+<code>PRINTNEST-MENTOR-IA.md</code> (na pasta do programa) para um chat de IA e
+pergunte à vontade, ou fale com o suporte.</p>
+
+</body>
+</html>

@@ -1,0 +1,48 @@
+=====================================================
+  PRINTNEST PRO — LEIA-ME
+=====================================================
+
+Obrigado por testar o PrintNest!
+
+COMO ABRIR
+----------
+1. Dê dois cliques em PrintNest.exe (nesta pasta).
+2. Se o Windows mostrar um aviso azul ("o Windows protegeu
+   seu computador"), clique em "Mais informações" e depois
+   em "Executar assim mesmo". É o aviso padrão para
+   programas novos — não é vírus.
+3. Na primeira abertura, siga o tour de boas-vindas.
+
+O QUE TEM NESTA PASTA
+---------------------
+- PrintNest.exe ............ o programa
+- LEIA-ME.txt .............. este arquivo
+- Plugin CorelDRAW (PDF) ... passo a passo ILUSTRADO para
+  criar o botão do PrintNest dentro do CorelDRAW
+  (instala em 2 minutos; leia antes de usar com o Corel)
+- PRINTNEST-MENTOR-IA.md ... seu PROFESSOR PARTICULAR:
+  envie este arquivo em um chat de IA (Claude, ChatGPT...)
+  e aperte Enter. A IA vira um especialista do PrintNest
+  na hora e responde qualquer dúvida sua, passo a passo.
+  Pode perguntar em português, do básico ao avançado.
+
+PRIMEIRO TRABALHO EM 5 PASSOS
+-----------------------------
+1. Ctrl+I  -> adicione seus PDFs/imagens
+2. Defina a quantidade de cada arquivo na lista
+3. F5      -> Gerar Produção (encaixa tudo na chapa)
+4. Ctrl+E  -> Centro de Exportação (PDF de impressão + DXF)
+5. Ctrl+S  -> salvar o projeto (.printnest)
+
+Para corte puro (laser/CNC/plotter), use o botão
+"Modo Corte" (tesoura) na barra superior.
+
+DÚVIDAS E SUPORTE
+-----------------
+- Pare o mouse sobre qualquer botão: aparece a explicação.
+- Use o arquivo PRINTNEST-MENTOR-IA.md num chat de IA
+  (é o caminho mais rápido para qualquer dúvida).
+- Suporte: philipe.fernandes0101@gmail.com
+
+Bom trabalho!
+=====================================================
