@@ -229,6 +229,10 @@ def _build_html(body: str) -> str:
 
 
 def _send_reply(cfg: dict, to_addr: str, subject: str, body: str) -> None:
+    # assunto longo (o mailto do app poe o pedido inteiro nele) chega DOBRADO
+    # pelo Gmail, com \r\n no meio — header de resposta nao aceita quebra de
+    # linha (ValueError no smtplib). Achata para uma linha antes de usar.
+    subject = " ".join(subject.split())
     reply = EmailMessage()
     reply["From"] = f"PrintNest Pro <{cfg['email']}>"
     reply["To"] = to_addr
@@ -272,7 +276,9 @@ def check_inbox(cfg: dict, store: VoucherStore, issue, processed: ProcessedLog) 
             if processed.has(msg_id):
                 continue
             sender_name, sender_addr = email.utils.parseaddr(_decode(msg.get("From")))
-            subject = _decode(msg.get("Subject"))
+            # header dobrado pelo provedor (\r\n + espaco) vira 1 linha: a
+            # dobra no meio do PN-/PNC- impedia o extract_request de achar
+            subject = " ".join(_decode(msg.get("Subject")).split())
             low = sender_addr.lower()
             if not sender_addr or low == cfg["email"].lower() or any(
                 bad in low for bad in _NO_REPLY
