@@ -1064,6 +1064,70 @@ Philipe antes de cada commit.
 
 ---
 
+## TAREFA U1 — UX: consolidar ferramentas + descoberta (teste real 24/07) — PROMPT MESTRE
+Cole numa conversa NOVA, junto com o CABEÇALHO FIXO. Nasceu do teste com
+usuário real (chefe do Philipe): gente se perde na interface.
+
+```
+# TAREFA U1 — interface que se explica: consolidar duplicados + descoberta
+
+## Por que (contexto do teste real de 24/07)
+Um usuário de verdade testou o software como cliente e se perdeu:
+- não descobriu que arquivo da biblioteca vai pra chapa ARRASTANDO
+  (não há botão, nem duplo clique, nem menu de contexto — conferido);
+- impressão geral de FUNÇÕES DUPLICADAS na lista/painel lateral e
+  ferramentas espalhadas.
+Regra de ouro desta tarefa (decisão antiga do dono): REFINAR, NÃO
+REINVENTAR. Nada de redesign, nada de remover FUNÇÃO — consolidar
+ACESSO e dar caminho visível ao que hoje é gesto escondido.
+
+## ETAPA 1 — AUDITORIA (nenhuma linha de código; entregue e PARE)
+Monte docs/qa/AUDITORIA-UI-2026-07.md com:
+1. INVENTÁRIO de todo controle visível: barra superior, ribbon, menus,
+   painel lateral/inspector (cards e acordeões), barra Faca, cards de
+   arquivo, barrinha de exibição, atalhos. Fonte: main_window.py
+   (varra _act/addWidget/cards) — cite ~linha de cada um.
+2. DUPLICADOS: para cada função acessível por 2+ lugares, classifique:
+   a) PROPOSITAL padrão Corel (menu + ribbon + atalho da MESMA ação —
+      manter); b) DUPLICATA CONFUSA (dois widgets DIFERENTES mexendo no
+      mesmo parâmetro em lugares distintos, ou dois nomes pra mesma
+      coisa — candidata a consolidar). Já houve consolidação antes
+      (commit 2e76dc5 "fim do Tipo de faca duplicado") — procure irmãs.
+3. MAPA DE FRICÇÃO "primeira viagem": simule o usuário de gráfica que
+   nunca viu o app (importar → quantidade → gerar → faca → exportar).
+   Onde cada passo depende de gesto invisível ou termo não óbvio?
+4. PROPOSTA priorizada: o que consolidar/renomear/agrupar, com custo
+   (S/M/L) e risco. NADA é aplicado nesta etapa.
+PARE e espere o Philipe aprovar item a item.
+
+## ETAPA 2 — APLICAR (só o aprovado + estes 4 já decididos pelo dono)
+1. Botão "Colocar na chapa" na biblioteca (funciona com multi-seleção)
+   + DUPLO CLIQUE no arquivo fazendo o mesmo — ambos reusando o MESMO
+   caminho de código do arrastar de hoje (o drop chama
+   generate(blocking=True); não crie fluxo novo).
+2. Canvas vazio que ensina: sem produção na tela, dica central
+   "Adicione arquivos (Ctrl+I) e clique em Colocar na chapa" — replique
+   o padrão _HintView do cut_mode_dialog.py (E3), não importe o diálogo.
+3. Tela de ativação (licensing_dialog.py): campo próprio "Código de
+   compra" que entra JÁ no pedido montado (mailto E "Copiar pedido");
+   quando o mailto falhar/o cliente não tiver programa de e-mail, a
+   própria tela instrui o caminho do webmail. Teste real de 24/07: o
+   cliente colou o ID no lugar do código DUAS vezes — o campo mata isso.
+4. Tooltips/labels que a auditoria apontar como termo obscuro.
+
+## Armadilhas
+- NÃO tocar: motor de nesting (congelado), fluxos de exportação,
+  Modo Corte (E3/E4 prontos), combos ilustrados.
+- Remover botão duplicado NÃO pode remover o atalho nem a entrada de
+  menu (padrão Corel: 3 acessos à mesma ação é feature).
+- Cada consolidação: teste de que a função continua acessível e
+  funcional pelo caminho que ficou.
+- Suíte inteira 1× ao fim de cada etapa. Checkpoint antes; commit só
+  com aprovação explícita.
+```
+
+---
+
 ## Ondas 2 e 3 (depois)
 - QR/barcode de recuperação de job (Parte VIII do doc de registro): valioso,
   mas envolve RIP/pasta observada — tarefa própria, depois da A2/A3.
