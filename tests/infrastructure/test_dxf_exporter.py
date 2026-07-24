@@ -61,14 +61,16 @@ def test_dxf_sai_com_y_para_cima_sem_espelhar(tmp_path):
 
 def test_contorno_curvo_sai_como_spline(tmp_path):
     # curva de verdade no DXF (corte liso na maquina); o retangulo continua
-    # como polilinha (retas exatas)
+    # como polilinha (retas exatas). F3: UM contorno = UM SPLINE fechado —
+    # nada de explodir a peca em pedacos (bug do Corel, 24/07).
     out = tmp_path / "faca.dxf"
     DxfExporter().export([_circle_contour(), _rect_contour()], str(out))
     doc = ezdxf.readfile(str(out))
     msp = doc.modelspace()
     splines = msp.query("SPLINE")
     plines = msp.query("LWPOLYLINE")
-    assert len(splines) >= 1 and splines[0].dxf.layer == "CUT"
+    assert len(splines) == 1 and splines[0].dxf.layer == "CUT"
+    assert splines[0].closed
     assert len(plines) == 1  # so o retangulo
 
 

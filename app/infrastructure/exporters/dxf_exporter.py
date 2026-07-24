@@ -3,8 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import ezdxf
-from ezdxf.path import Path as EzPath
-from ezdxf.path import render_splines_and_polylines
+from ezdxf.math import Bezier4P, Vec3, bezier_to_bspline
 
 from app.application.ports.dxf_exporter import IDxfExporter
 from app.domain.cut.curves import cubic_segments, has_curves
@@ -53,18 +52,25 @@ class DxfExporter(IDxfExporter):
         msp = doc.modelspace()
         for contour in contours:
             flipped = [Point2D(p.x, fy(p.y)) for p in contour.points]
-            # contorno CURVO sai como SPLINE (curva de verdade, poucos nos —
-            # corte liso na maquina); retas/retangulos seguem como polyline.
+            # contorno CURVO sai como UM SPLINE FECHADO por contorno (F3:
+            # render_splines_and_polylines quebrava o caminho a cada canto —
+            # a letra abria em pedacos no Corel). Bezier -> B-spline e EXATO
+            # (mesma curva, nos internos com multiplicidade 3 preservam os
+            # cantos vivos); retas/retangulos seguem como polyline.
             segs = cubic_segments(flipped)
             if segs and has_curves(segs):
-                ez = EzPath((segs[0].p0.x, segs[0].p0.y))
-                for s in segs:
-                    ez.curve4_to(
-                        (s.p1.x, s.p1.y), (s.c1.x, s.c1.y), (s.c2.x, s.c2.y)
-                    )
-                render_splines_and_polylines(
-                    msp, [ez], dxfattribs={"layer": CUT_LAYER}
-                )
+                beziers = [
+                    Bezier4P((
+                        Vec3(s.p0.x, s.p0.y, 0.0),
+                        Vec3(s.c1.x, s.c1.y, 0.0),
+                        Vec3(s.c2.x, s.c2.y, 0.0),
+                        Vec3(s.p1.x, s.p1.y, 0.0),
+                    ))
+                    for s in segs
+                ]
+                spline = msp.add_spline(dxfattribs={"layer": CUT_LAYER})
+                spline.apply_construction_tool(bezier_to_bspline(beziers))
+                spline.closed = True
                 continue
             points = [(p.x, p.y) for p in flipped]
             msp.add_lwpolyline(points, close=True, dxfattribs={"layer": CUT_LAYER})

@@ -32,6 +32,10 @@ sessão fica em [`docs/historico/`](docs/historico/).
   arquivo — traço **magenta 100% sem preenchimento** (guia em
   docs/produto/FACA-DO-CLIENTE.md). Cartelas idênticas pausado por flag.
 - **DXF com Y refletido** (y' = H − y): Corel/CAD não abre mais espelhado.
+- **DXF: um contorno = UMA entidade (F3, 24/07)**: contorno curvo sai como
+  **um único SPLINE fechado** (Bézier → B-spline exata, cantos preservados) —
+  a letra seleciona inteira no Corel em vez de abrir em pedaços; furo segue
+  objeto próprio e a ordem de corte (de dentro para fora) não muda.
 
 ### Licença / motor PDF
 - **Migração PyMuPDF (AGPL) → pypdfium2 + pikepdf** (13/07): app 100% em
