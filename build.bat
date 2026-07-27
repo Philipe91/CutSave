@@ -7,8 +7,9 @@ REM ============================================================
 setlocal
 cd /d "%~dp0"
 
-echo [1/4] Gerando icone...
+echo [1/4] Gerando icone e tela de abertura...
 ".venv\Scripts\python.exe" assets\make_icon.py
+".venv\Scripts\python.exe" assets\make_splash.py
 
 echo [2/4] Limpando builds anteriores...
 if exist build rmdir /s /q build

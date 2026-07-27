@@ -22,8 +22,9 @@ datas = [
 ]
 
 # Toolkits/pesos que o app nao usa: evita inchar o executavel se algo os puxar.
+# OBS: "tkinter" NAO entra aqui — a splash nativa do PyInstaller (tela de
+# abertura durante a descompactacao) depende do Tcl/Tk.
 excludes = [
-    "tkinter",
     "PyQt5",
     "PyQt6",
     "PySide2",
@@ -61,11 +62,26 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Tela de abertura NATIVA: aparece durante a descompactacao do .exe (antes do
+# Python iniciar), cobrindo o silencio dos primeiros segundos. O codigo a fecha
+# (pyi_splash.close, em app/presentation/__main__.py) assim que a interface Qt
+# assume. So entra se o asset existir (gerado pelo build.bat: make_splash.py).
+_splash_img = "assets/splash.png"
+_has_splash = Path(_splash_img).exists()
+splash = Splash(
+    _splash_img,
+    binaries=a.binaries,
+    datas=a.datas,
+    text_pos=None,
+    always_on_top=True,
+) if _has_splash else None
+
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
+    *([splash, splash.binaries] if _has_splash else []),
     [],
     name="PrintNest",
     debug=False,

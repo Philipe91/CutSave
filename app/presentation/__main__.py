@@ -4,9 +4,11 @@ import contextlib
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import QElapsedTimer, QEventLoop, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from app import __version__
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase
 from app.application.use_cases.import_image import ImportImageUseCase
@@ -25,6 +27,11 @@ from app.shared.logging import setup_logging
 from app.shared.resources import resource_path
 
 _FILE_EXTS = (".pdf", ".png", ".jpg", ".jpeg", ".webp")
+
+# tempo minimo que a tela de abertura fica visivel (estilo Corel/Photoshop).
+# A janela ja e montada por tras; se ficar pronta antes disso, seguramos o
+# restante para o cliente ver a marca. Nao ATRASA o trabalho, so o "aparecer".
+_SPLASH_MIN_MS = 3000
 
 
 def _file_args(argv: list[str]) -> list[str]:
@@ -47,6 +54,56 @@ def _cut_mode_arg(argv: list[str]) -> str | None:
     return ""
 
 
+def _close_pyi_splash() -> None:
+    """Fecha a tela de abertura NATIVA do PyInstaller (a que aparece durante a
+    descompactacao do .exe). O modulo pyi_splash so existe no executavel
+    empacotado; rodando do fonte, nao faz nada."""
+    try:
+        import pyi_splash  # type: ignore
+    except ModuleNotFoundError:
+        return
+    with contextlib.suppress(Exception):
+        pyi_splash.close()
+
+
+def _make_splash(app: QApplication):
+    """Tela de abertura do app (estilo Corel/Photoshop): cobre o tempo de
+    montagem da janela principal. Usa o MESMO asset da splash nativa, entao a
+    troca e continua. Retorna None se o asset faltar (nunca trava a abertura)."""
+    splash_file = resource_path("assets/splash.png")
+    if not splash_file.exists():
+        return None
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtWidgets import QSplashScreen
+
+    pix = QPixmap(str(splash_file))
+    if pix.isNull():
+        return None
+    splash = QSplashScreen(pix)
+    splash.showMessage(
+        f"PrintNest {__version__}  ·  Carregando…",
+        Qt.AlignBottom | Qt.AlignHCenter, Qt.white,
+    )
+    splash.show()
+    app.processEvents()  # garante que pinte ANTES do trabalho pesado a seguir
+    splash._shown_at = QElapsedTimer()
+    splash._shown_at.start()
+    return splash
+
+
+def _hold_splash(splash) -> None:
+    """Mantem a tela de abertura visivel ate completar _SPLASH_MIN_MS desde que
+    ela surgiu. Usa um loop de eventos (nao trava a UI): a splash segue pintada
+    e responsiva durante a espera."""
+    if splash is None:
+        return
+    remaining = _SPLASH_MIN_MS - splash._shown_at.elapsed()
+    if remaining > 0:
+        loop = QEventLoop()
+        QTimer.singleShot(int(remaining), loop.quit)
+        loop.exec()
+
+
 def main() -> int:
     paths = AppPaths.default().ensure()
     store = SettingsStore(paths.config_file)
@@ -54,6 +111,10 @@ def main() -> int:
     setup_logging(settings.log_level, paths.logs_dir)
 
     app = QApplication(sys.argv)
+    # a splash NATIVA (descompactacao do exe) ja cumpriu o papel: a partir daqui
+    # quem assume a espera e a QSplashScreen do fluxo normal (ou o proprio
+    # dialogo de ativacao). Fechar aqui evita ela ficar atras desses.
+    _close_pyi_splash()
 
     # Modo Corte direto (macro do CorelDRAW): processo proprio, FORA da
     # instancia unica — abre so o dialogo por cima do Corel (como o eCut) e
@@ -116,6 +177,11 @@ def main() -> int:
             dialog.open_with_file(cut_pdf)
         return app.exec()
 
+    # tela de abertura enquanto a janela e montada (fluxo normal so — nao entra
+    # no --modo-corte, que ja retornou acima, nem no --selftest, que nem chega
+    # na GUI). Some sozinha quando a janela aparece (splash.finish).
+    splash = _make_splash(app)
+
     pipeline = RunProductionPipelineUseCase(
         ImportPdfUseCase(PdfiumImporter()),
         image_uc=ImportImageUseCase(Cv2ImageImporter(paths.cache_dir)),
@@ -135,10 +201,16 @@ def main() -> int:
     # guarda a referência no app para não ser coletado pelo GC.
     app._ipc_server = start_server(window.open_external_files)
 
+    # janela ja montada por tras da splash; segura o restante dos ~3s antes de
+    # revelar (a tela de abertura fica visivel o tempo combinado).
+    _hold_splash(splash)
+
     # abre MAXIMIZADO: na primeira execução a janela vinha num tamanho solto
     # e o cliente "ficava perdido" (beta 13/07). Padrão de software gráfico:
     # ocupa o monitor inteiro; o usuário restaura/redimensiona se quiser.
     window.showMaximized()
+    if splash is not None:
+        splash.finish(window)  # some quando a janela ja esta na tela
     if file_args:  # arquivos passados na linha de comando -> abre já na sessao
         window.open_external_files(file_args)
     return app.exec()
