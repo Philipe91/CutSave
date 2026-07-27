@@ -145,4 +145,13 @@ def test_dialogo_monta_pedido_com_id_e_endereco(tmp_path):
     url = dlg._request_mailto()
     assert url.startswith(f"mailto:{ACTIVATION_EMAIL}?")
     assert m.machine_id.replace("-", "%2D") in url or m.machine_id in url
+
+    # U1: o campo "Código de compra" entra JÁ no pedido montado
+    dlg._code_field.setText("PNC-TESTE-1234")
+    assert "Codigo de compra: PNC-TESTE-1234" in dlg._request_text()
+    # e o engano clássico (colar o ID no lugar do código) é detectado
+    dlg._code_field.setText(m.machine_id)
+    assert dlg._code_looks_like_id()
+    dlg._code_field.setText("")
+    assert not dlg._code_looks_like_id()  # vazio segue valendo (placeholder)
     dlg.deleteLater()

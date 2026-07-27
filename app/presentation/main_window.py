@@ -1630,8 +1630,8 @@ class MainWindow(QMainWindow):
         modo_corte = self._act("Modo Corte", self._open_cut_mode, None,
                                "Nesting pelo contorno REAL (laser/CNC): importa SVG, PDF "
                                "ou texto, encaixa as peças e exporta o DXF")
-        rem = self._act("Remover PDF selecionado", self.remove_selected, None,
-                        "Remove o PDF selecionado da lista")
+        rem = self._act("Remover arquivo da biblioteca", self.remove_selected, None,
+                        "Remove o arquivo selecionado da lista da biblioteca")
         dup = self._act("Duplicar", self._duplicate_selected, "Ctrl+D",
                         "Duplica as peças selecionadas com um pequeno deslocamento")
         dup_qty = self._act("Duplicar só esta página...", self._duplicate_selected_qty,
@@ -1860,15 +1860,9 @@ class MainWindow(QMainWindow):
         self._act_generate = gerar
         self._export_actions = [exp_center, exp_pdf, exp_dxf, exp_dxf_n, exp_faca_pdf, exp_img,
                                 exp_cartelas, exp_mimaki, exp_iecho]
-        for action in self._export_actions:
-            action.setEnabled(False)
-
-        # toggle de réguas espelhando o checkbox de Exibição
-        reguas = QAction("Réguas", self)
-        reguas.setCheckable(True)
-        reguas.setChecked(self._show_rulers.isChecked())
-        reguas.setIcon(icons.icon("ruler"))
-        reguas.toggled.connect(self._show_rulers.setChecked)
+        # tooltip original guardado para o aviso "gere primeiro" (U1/P7)
+        self._export_tips = {a: a.toolTip() for a in self._export_actions}
+        self._set_exports_enabled(False)
 
         # botão "Exibição" na barra: abre um popup com os controles de exibição
         disp_btn = QToolButton()
@@ -1877,7 +1871,7 @@ class MainWindow(QMainWindow):
         disp_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         disp_btn.setPopupMode(QToolButton.InstantPopup)
         disp_btn.setCursor(Qt.PointingHandCursor)
-        disp_btn.setToolTip("Unidade, modo de visualização, réguas e encaixe")
+        disp_btn.setToolTip("Réguas e encaixe (snap)")
         disp_menu = QMenu(disp_btn)
         disp_action = QWidgetAction(disp_menu)
         disp_action.setDefaultWidget(self._display_panel)
@@ -1942,7 +1936,8 @@ class MainWindow(QMainWindow):
                 tb.tool_button(fit, "maximize"),
                 self._view_mode_menu_button(),  # visualização ao lado de Ajustar
                 disp_btn,
-                tb.tool_button(reguas, "ruler", show_text=False),
+                # U1/P4: o toggle solto de Réguas saiu — duplicava o checkbox
+                # "Mostrar réguas" do popup Exibição no MESMO grupo da barra.
             ]),
         ])
         self._ribbon = rb  # referência p/ o tour de boas-vindas
@@ -2584,9 +2579,11 @@ class MainWindow(QMainWindow):
         self._ct_offset = LengthSpin(0, 100)
         # largura MINIMA derivada da fonte (nunca fixa): "100.00 mm" + setas
         self._ct_offset.setMinimumWidth(fm.horizontalAdvance("100.00 mm") + 34)
-        self._ct_offset.setToolTip("Offset da faca: distância da linha de corte até a arte.")
+        self._ct_offset.setToolTip(
+            "Sangria da faca (offset): distância da linha de corte até a arte."
+        )
         self._ct_offset.editingFinished.connect(self._apply_contour_offset)
-        cl.addWidget(QLabel("Offset"))
+        cl.addWidget(QLabel("Sangria"))
         cl.addWidget(self._ct_offset)
 
         # botões só-icone com dimensão derivada da fonte (escala 125-200% ok)
@@ -2903,12 +2900,15 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_view"):
             if not self._paths:
                 hint = (
-                    "Arraste seus arquivos para cá\n"
-                    "ou clique em  +  Adicionar arquivos"
+                    "Adicione arquivos (Ctrl+I) e clique em  Colocar na chapa\n"
+                    "(você também pode arrastá-los para cá)"
                 )
                 step = 0
             elif self._result is None:
-                hint = "Arquivos prontos — clique em  Gerar Faca  (Shift+F5)"
+                hint = (
+                    "Clique em  Colocar na chapa  — ou arraste o arquivo "
+                    "da biblioteca para cá\nDepois:  Gerar Faca  (Shift+F5)"
+                )
                 step = 1
             else:
                 hint = ""
@@ -4172,7 +4172,7 @@ class MainWindow(QMainWindow):
         self._pf_smooth = _spin(0, 5)
         self._pf_smooth.valueChanged.connect(lambda _: self._on_piece_faca_changed())
         faca.body.addWidget(self._pf_smooth)
-        faca.body.addWidget(QLabel("Cantos arredondados - raio (0 = vivo)"))
+        faca.body.addWidget(QLabel("Raio dos cantos (0 = vivo)"))
         self._pf_corner_radius = LengthSpin(0, 50)
         self._pf_corner_radius.setToolTip(
             "Arredonda os cantos da faca com este raio (mm), estilo Contorno do\n"
@@ -4264,7 +4264,7 @@ class MainWindow(QMainWindow):
             ("ungroup", "Desagrupar", self._ungroup_selected),
             ("align-vertical-justify-start", "Trazer para frente", self._bring_to_front),
             ("align-vertical-justify-end", "Enviar para tras", self._send_to_back),
-            ("trash-2", "Remover", self._delete_selected),
+            ("trash-2", "Excluir da chapa", self._delete_selected),
         ]))
         return page
 
@@ -4604,9 +4604,23 @@ class MainWindow(QMainWindow):
         self._table.setDragEnabled(True)  # arrastar arquivo para a área de trabalho
         self._table.setDragDropMode(QAbstractItemView.DragOnly)
         self._table.itemSelectionChanged.connect(self._update_selection_info)
+        # duplo clique na linha = Colocar na chapa (U1: o arrastar ganhou
+        # caminho visível; ambos convergem em _place_selected_on_sheet)
+        self._table.itemDoubleClicked.connect(lambda _i: self._place_selected_on_sheet())
         lay.addWidget(self._table, 1)
 
-        self._btn_crop = QPushButton("  Recortar...")
+        self._btn_place = QPushButton("  Colocar na chapa")
+        self._btn_place.setIcon(icons.icon("zap", theme.ICON_ON_ACCENT))
+        self._btn_place.setProperty("accent", "true")
+        self._btn_place.setToolTip(
+            "Coloca o(s) arquivo(s) selecionado(s) na área de trabalho —\n"
+            "o mesmo que arrastar o arquivo da biblioteca para a chapa.\n"
+            "Sem seleção: coloca todos. Duplo clique na linha também funciona."
+        )
+        self._btn_place.clicked.connect(self._place_selected_on_sheet)
+        lay.addWidget(self._btn_place)
+
+        self._btn_crop = QPushButton("  Recortar páginas...")
         self._btn_crop.setIcon(icons.icon("replace", theme.ICON))
         self._btn_crop.setToolTip(
             "Corta as bordas do arquivo selecionado (PDF ou imagem): arraste as\n"
@@ -4615,7 +4629,7 @@ class MainWindow(QMainWindow):
         self._btn_crop.clicked.connect(self._crop_pages_dialog)
         lay.addWidget(self._btn_crop)
 
-        self._btn_remove = QPushButton("  Remover selecionado")
+        self._btn_remove = QPushButton("  Remover da biblioteca")
         self._btn_remove.setIcon(icons.icon("trash-2", theme.ICON))
         self._btn_remove.clicked.connect(lambda: self.remove_selected())
         lay.addWidget(self._btn_remove)
@@ -6292,8 +6306,14 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _set_exports_enabled(self, enabled: bool) -> None:
+        # U1/P7: desabilitado MUDO confunde — o tooltip diz o que falta
+        tips = getattr(self, "_export_tips", {})
         for action in getattr(self, "_export_actions", []):
             action.setEnabled(enabled)
+            base = tips.get(action, action.toolTip())
+            action.setToolTip(
+                base if enabled else f"{base}\n(Gere a produção primeiro — F5)"
+            )
 
     def _on_progress(self, done: int, total: int) -> None:
         self._progress.setRange(0, total)
@@ -7167,6 +7187,20 @@ class MainWindow(QMainWindow):
         self._batch_select(_alvo)
 
     # ---- adicionar arquivo da biblioteca a produção já gerada (arrastar) ----
+    def _place_selected_on_sheet(self) -> None:
+        """Botão 'Colocar na chapa' e duplo clique da biblioteca (U1).
+
+        MESMO caminho de código do arrastar: delega em _on_library_drop, que
+        gera a produção (sem faca) na primeira vez ou insere as peças no
+        centro da vista quando já existe produção. Sem seleção, coloca todos.
+        """
+        if not self._paths:
+            return
+        if not self._table.selectedIndexes():
+            self._table.selectAll()
+        center = self._view.mapToScene(self._view.viewport().rect().center())
+        self._on_library_drop(center)
+
     def _on_library_drop(self, scene_pos) -> None:
         rows = sorted({ix.row() for ix in self._table.selectedIndexes()})
         if not rows:

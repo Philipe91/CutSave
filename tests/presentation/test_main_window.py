@@ -2280,6 +2280,30 @@ def test_b1_multi_drop_da_biblioteca(qapp, tmp_path):
     assert sum(s.item_count for s in w._result.sheets) == 4
 
 
+def test_u1_colocar_na_chapa_botao_e_duplo_clique(qapp, tmp_path):
+    # U1: quem não sabe arrastar tem o botão "Colocar na chapa" e o duplo
+    # clique na biblioteca — ambos reusam o caminho do drop (_on_library_drop).
+    from PIL import Image
+
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    Image.new("RGB", (300, 200), (255, 0, 0)).save(a)
+    Image.new("RGB", (200, 300), (0, 0, 255)).save(b)
+    w = _window(tmp_path)
+    assert w._btn_place.text().strip() == "Colocar na chapa"
+    w.add_paths([str(a), str(b)])
+
+    # sem seleção, o botão coloca TODOS os arquivos (primeira viagem)
+    w._table.clearSelection()
+    w._btn_place.click()
+    assert w._result is not None
+    assert sum(s.item_count for s in w._result.sheets) == 2
+
+    # duplo clique numa linha adiciona só aquele arquivo (2 + 1 = 3)
+    w._table.setCurrentCell(0, 0)
+    w._table.itemDoubleClicked.emit(w._table.item(0, 0))
+    assert sum(s.item_count for s in w._result.sheets) == 3
+
+
 def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
     # QA EXTREMO QAX-04 (🟠): cada setSelected disparava o handler O(n) →
     # O(n²): 2048 peças = travamento. Em lote, o handler roda 1x.

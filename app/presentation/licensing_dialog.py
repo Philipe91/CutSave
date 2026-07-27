@@ -61,13 +61,26 @@ class ActivationDialog(QDialog):
         id_row.addWidget(copy)
         lay.addLayout(id_row)
 
+        # codigo de compra: campo proprio (U1 — teste real de 24/07: o cliente
+        # colou o ID no lugar do codigo; o campo com nome e exemplo mata isso)
+        lay.addWidget(self._caption(
+            "2. Cole o seu código de compra (veio no e-mail/recibo da compra):"
+        ))
+        self._code_field = QLineEdit()
+        self._code_field.setPlaceholderText("PNC-XXXX-XXXX")
+        self._code_field.setToolTip(
+            "O código de compra (PNC-...) NÃO é o ID da Máquina acima.\n"
+            "Ele chega no e-mail/recibo quando você compra o PrintNest."
+        )
+        lay.addWidget(self._code_field)
+
         # pedido automatico: e-mail pronto para o robo de ativacao responder
         req_row = QHBoxLayout()
         req_btn = QPushButton("Pedir minha chave por e-mail")
         req_btn.setToolTip(
-            "Abre um e-mail pronto (com o ID desta maquina) para "
-            f"{ACTIVATION_EMAIL}. Cole o seu codigo de compra e envie: a chave "
-            "chega em ate alguns minutos."
+            "Abre um e-mail pronto (com o ID desta maquina e o seu codigo de "
+            f"compra) para {ACTIVATION_EMAIL}. So enviar: a chave chega em "
+            "ate alguns minutos."
         )
         req_btn.clicked.connect(self._request_by_email)
         req_row.addWidget(req_btn)
@@ -82,7 +95,7 @@ class ActivationDialog(QDialog):
         lay.addLayout(req_row)
 
         # colar a chave
-        lay.addWidget(self._caption("2. Cole aqui a chave de licença que você recebeu:"))
+        lay.addWidget(self._caption("3. Cole aqui a chave de licença que você recebeu:"))
         self._key_field = QPlainTextEdit()
         self._key_field.setPlaceholderText("PNEST1. ...")
         self._key_field.setFixedHeight(84)
@@ -118,10 +131,12 @@ class ActivationDialog(QDialog):
         return "Ativacao PrintNest"
 
     def _request_text(self) -> str:
+        code = self._code_field.text().strip()
         return (
             "Quero ativar o PrintNest Pro.\n\n"
             f"ID da Maquina: {self._m.machine_id}\n"
-            "Codigo de compra: (cole aqui o codigo PNC-XXXX-XXXX recebido na compra)\n"
+            "Codigo de compra: "
+            f"{code or '(cole aqui o codigo PNC-XXXX-XXXX recebido na compra)'}\n"
         )
 
     def _request_mailto(self) -> str:
@@ -131,17 +146,41 @@ class ActivationDialog(QDialog):
             f"&body={quote(self._request_text())}"
         )
 
+    def _code_looks_like_id(self) -> bool:
+        """True se o campo de codigo recebeu o ID da Maquina por engano."""
+        code = self._code_field.text().strip()
+        return bool(code) and code == self._m.machine_id
+
     def _request_by_email(self) -> None:
+        if self._code_looks_like_id():
+            QMessageBox.warning(
+                self, "Ativacao",
+                "O campo 2 recebeu o ID da Máquina, mas ali vai o CÓDIGO DE "
+                "COMPRA (PNC-...), que chegou no e-mail/recibo da compra.\n"
+                "O ID da Máquina já entra sozinho no pedido.",
+            )
+            return
         if not QDesktopServices.openUrl(QUrl(self._request_mailto())):
             self._copy_request()
 
     def _copy_request(self) -> None:
+        if self._code_looks_like_id():
+            QMessageBox.warning(
+                self, "Ativacao",
+                "O campo 2 recebeu o ID da Máquina, mas ali vai o CÓDIGO DE "
+                "COMPRA (PNC-...), que chegou no e-mail/recibo da compra.\n"
+                "O ID da Máquina já entra sozinho no pedido.",
+            )
+            return
         QApplication.clipboard().setText(self._request_text())
         QMessageBox.information(
             self, "Pedido copiado",
             "O texto do pedido foi copiado.\n\n"
-            f"Cole num e-mail para {ACTIVATION_EMAIL}, complete o seu codigo "
-            "de compra e envie. A chave chega em ate alguns minutos.",
+            "Sem programa de e-mail no PC? Abra o seu webmail no navegador "
+            "(Gmail, Outlook, Yahoo...), crie um novo e-mail para\n"
+            f"{ACTIVATION_EMAIL}\n"
+            "cole o pedido (Ctrl+V) no corpo e envie. "
+            "A chave chega em ate alguns minutos.",
         )
 
     def _activate(self) -> None:
