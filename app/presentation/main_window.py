@@ -1439,6 +1439,54 @@ def _guard_export(method):
     return wrapper
 
 
+class AnchorGrid(QWidget):
+    """Grade 3x3 de direção (estilo CorelDRAW): clicar num sentido preenche o
+    X/Y do duplicar com o tamanho da peça naquele eixo (cópia encostada). Emite
+    `picked(col, row)` — col/row em 0..2 (centro = 1,1)."""
+
+    picked = Signal(int, int)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._col, self._row = 1, 1  # centro
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(3)
+        self._btns = {}
+        for r in range(3):
+            for c in range(3):
+                b = QPushButton()
+                b.setObjectName("anchorDot")
+                b.setCheckable(True)
+                b.setFixedSize(14, 14)
+                b.setCursor(Qt.PointingHandCursor)
+                b.clicked.connect(lambda _=False, cc=c, rr=r: self._pick(cc, rr))
+                self._btns[(c, r)] = b
+                grid.addWidget(b, r, c)
+        self._btns[(1, 1)].setChecked(True)
+        # trava o tamanho: 3x14 + 2x3 de espaco = 48px (senao a grade estica na
+        # vertical ao lado dos campos X/Y e fica com aparencia bugada)
+        self.setFixedSize(48, 48)
+        self.setToolTip(
+            "Direção da cópia (estilo Corel): clique num sentido (→ ↓ etc.) e o\n"
+            "X/Y é preenchido com o tamanho da peça — a cópia sai encostada.\n"
+            "Depois ajuste X/Y para dar folga. Centro: usa o X/Y que você digitar."
+        )
+        self.setStyleSheet(
+            "#anchorDot{border:1.5px solid #c7cdd8; border-radius:3px; background:#ffffff;}"
+            "#anchorDot:checked{background:#2563eb; border-color:#2563eb;}"
+        )
+
+    def _pick(self, c: int, r: int) -> None:
+        self._col, self._row = c, r
+        for key, b in self._btns.items():
+            b.setChecked(key == (c, r))
+        self.picked.emit(c, r)
+
+    def anchor(self) -> tuple[float, float]:
+        return self._col / 2.0, self._row / 2.0
+
+
 class StatValue(QLabel):
     """QLabel de valor de métrica com a MESMA interface do MeasureField
     (set_value), para o _update_resumo continuar valendo sem alteração."""
@@ -3987,23 +4035,46 @@ class MainWindow(QMainWindow):
         cap.setWordWrap(True)
         lay.addWidget(cap)
 
-        # ---- Duplicar (posição) ----
-        dup = CollapsibleCard("Duplicar (posição)")
+        # ---- Posição (duplicar) — layout estilo CorelDRAW ----
+        dup = CollapsibleCard("Posição (duplicar)")
+        self._td_anchor = AnchorGrid()
+        self._td_anchor.picked.connect(self._on_anchor_direction)
         self._td_x = LengthSpin(-20000, 20000)
         self._td_x.setValue(100)
         self._td_y = LengthSpin(-20000, 20000)
         self._td_y.setValue(0)
         self._td_x.valueChanged.connect(lambda _: self._preview_duplicate())
         self._td_y.valueChanged.connect(lambda _: self._preview_duplicate())
-        self._grid_fields(dup.body, [
-            ("Deslocamento X", self._td_x, "Distância entre cópias no eixo X (mm)."),
-            ("Deslocamento Y", self._td_y, "Distância entre cópias no eixo Y (mm)."),
-        ])
-        self._td_relative = QCheckBox("Posição relativa (cada cópia a partir da anterior)")
+        # linha superior: grade de âncora (esquerda) + X/Y (direita), como no Corel
+        pos_row = QHBoxLayout()
+        pos_row.setContentsMargins(0, 0, 0, 0)
+        pos_row.setSpacing(theme.SPACE_MD)
+        anchor_box = QVBoxLayout()
+        anchor_box.setContentsMargins(0, 0, 0, 0)
+        anchor_box.setSpacing(4)
+        anchor_cap = QLabel("Âncora")
+        anchor_cap.setProperty("role", "caption")
+        anchor_box.addWidget(anchor_cap)
+        anchor_box.addWidget(self._td_anchor)
+        anchor_box.addStretch()
+        pos_row.addLayout(anchor_box)
+        xy = QGridLayout()
+        xy.setContentsMargins(0, 0, 0, 0)
+        xy.setHorizontalSpacing(8)
+        xy.setVerticalSpacing(8)
+        self._td_x.setToolTip("Posição/passo no eixo X (mm).")
+        self._td_y.setToolTip("Posição/passo no eixo Y (mm).")
+        xy.addWidget(QLabel("X"), 0, 0)
+        xy.addWidget(self._td_x, 0, 1)
+        xy.addWidget(QLabel("Y"), 1, 0)
+        xy.addWidget(self._td_y, 1, 1)
+        pos_row.addLayout(xy, 1)
+        dup.body.addLayout(pos_row)
+        self._td_relative = QCheckBox("Posição relativa")
         self._td_relative.setChecked(True)
         self._td_relative.setToolTip(
             "Marcado: X/Y são o passo entre cópias (0, X, 2X, 3X...). Desmarcado: "
-            "todas as cópias vão para a MESMA posição (X, Y) informada."
+            "as cópias vão para a posição (X, Y), medida a partir da ÂNCORA escolhida."
         )
         self._td_relative.toggled.connect(lambda _: self._preview_duplicate())
         dup.body.addWidget(self._td_relative)
@@ -4016,8 +4087,10 @@ class MainWindow(QMainWindow):
         dup.body.addWidget(btn_dup)
         lay.addWidget(dup)
 
-        # ---- Grade (colunas x linhas) ----
-        grid = CollapsibleCard("Grade (colunas x linhas)")
+        # Card "Grade (colunas x linhas)" REMOVIDO (U1 27/07): o preview gerava
+        # sobreposição e não atendia — o cliente monta grade pelo Duplicar por
+        # posição (X/Y + cópias) e por Ctrl+D. Os widgets seguem como estado
+        # (sessão/projeto/testes); o motor _apply_transform_grid fica disponível.
         self._tg_cols = _spin(1, 200)
         self._tg_cols.setValue(5)
         self._tg_rows = _spin(1, 200)
@@ -4026,35 +4099,9 @@ class MainWindow(QMainWindow):
         self._tg_gap_h.setValue(10)
         self._tg_gap_v = LengthSpin(0, 20000)
         self._tg_gap_v.setValue(10)
-        for w in (self._tg_cols, self._tg_rows, self._tg_gap_h, self._tg_gap_v):
-            w.valueChanged.connect(lambda _: self._preview_grid())
-        self._grid_fields(grid.body, [
-            ("Colunas", self._tg_cols, "Número de colunas."),
-            ("Linhas", self._tg_rows, "Número de linhas."),
-            ("Espaco H", self._tg_gap_h, "Espaçamento horizontal entre cópias (mm)."),
-            ("Espaco V", self._tg_gap_v, "Espaçamento vertical entre cópias (mm)."),
-        ])
-        btn_grid = QPushButton("  Gerar Grade")
-        btn_grid.setIcon(icons.icon("grid-3x3", theme.ICON))
-        btn_grid.clicked.connect(self._apply_transform_grid)
-        grid.body.addWidget(btn_grid)
-        lay.addWidget(grid)
 
-        # ---- Rotação ----
-        rot = CollapsibleCard("Rotação", collapsed=True)
-        row = QHBoxLayout()
-        b_l = QPushButton("  -90")
-        b_l.setIcon(icons.icon("rotate-ccw", theme.ICON))
-        b_l.clicked.connect(lambda: self._rotate_selected(-90))
-        b_r = QPushButton("  +90")
-        b_r.setIcon(icons.icon("rotate-cw", theme.ICON))
-        b_r.clicked.connect(lambda: self._rotate_selected(90))
-        row.addWidget(b_l)
-        row.addWidget(b_r)
-        rot.body.addLayout(row)
-        rot.body.addWidget(QLabel("Gira só a(s) peça(s) selecionada(s) e re-encaixa."))
-        lay.addWidget(rot)
-
+        # Card "Rotação" removido (U1 declutter 27/07): girar ±90 já vive no
+        # ribbon (Organizar) e nos atalhos Ctrl+[ / Ctrl+] — o de cima atende.
         lay.addStretch()
         return page
 
@@ -4104,6 +4151,20 @@ class MainWindow(QMainWindow):
             self._preview_grid()
         else:
             self._preview_duplicate()
+
+    def _on_anchor_direction(self, col: int, row: int) -> None:
+        """Grade de âncora (estilo Corel): clicar num sentido preenche X/Y com o
+        TAMANHO da peça selecionada naquele eixo — a cópia sai ENCOSTADA no
+        sentido escolhido (→ ao lado, ↓ abaixo...). O usuário ajusta X/Y para
+        dar folga. Centro (1,1) não mexe nos valores."""
+        dirx, diry = col - 1, row - 1
+        if not (dirx or diry):
+            return
+        sel = self._selected_pieces()
+        if not sel:
+            return
+        self._td_x.setValue(dirx * sel[0].rect().width())
+        self._td_y.setValue(diry * sel[0].rect().height())
 
     def _preview_duplicate(self) -> None:
         self._transform_mode = "dup"
@@ -4306,12 +4367,9 @@ class MainWindow(QMainWindow):
         faca.body.addWidget(self._pf_manual_reset)
         lay.addWidget(faca)
 
-        lay.addWidget(self._actions_card([
-            ("copy", "Duplicar", self._duplicate_selected),
-            ("copy-plus", "Duplicar por posição...", self._show_transform_tab),
-            ("copy-plus", "Duplicar só esta página...", self._duplicate_selected_qty),
-            ("trash-2", "Excluir", self._delete_selected),
-        ]))
+        # card "Ações" removido (U1 declutter 27/07): Duplicar/Excluir/Duplicar
+        # por posição já vivem no ribbon, no menu e nos atalhos (Ctrl+D, Del,
+        # Ctrl+Shift+C) e na aba Transformar — a lista lateral só repetia.
         lay.addStretch()
         return page
 
@@ -4943,11 +5001,10 @@ class MainWindow(QMainWindow):
     def _build_imagens_card(self) -> CollapsibleCard:
         """Secao 3 - Imagens (recolhida): faca automática de PNG/JPG/WEBP."""
         card = self._doc_card("Imagens", "imagens", collapsed=True)
+        # Sensibilidade agora mora no SLIDER da barra Faca (topo) — aqui fica só
+        # como estado (sincronizado pela barra). Tira o controle duplicado da
+        # lateral (U1 declutter 27/07).
         self._auto_sensitivity = _spin(0, 100)
-        self._grid_fields(card.body, [
-            ("Sensibilidade (0-100)", self._auto_sensitivity,
-             "Sensibilidade da detecção do contorno em imagens (0-100)."),
-        ])
         # QA 2.0 (fonte única): "Suavizar" e a sangria da imagem saíram do
         # card — os controles visíveis moram na barra Faca (Offset vale para
         # PDF e imagem juntos; Suavizar no popup Ajustes). Widgets vivos como

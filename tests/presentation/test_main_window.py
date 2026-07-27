@@ -1017,6 +1017,39 @@ def test_transformar_duplicar_linear(qapp, tmp_path):
     assert sum(s.item_count for s in window._result.sheets) == 6
 
 
+def test_transformar_duplicar_ancora_direcao(qapp, tmp_path):
+    # Grade de âncora estilo Corel: clicar num sentido preenche X/Y com o
+    # tamanho da peça (cópia encostada), pronta para duplicar naquele sentido.
+    from app.presentation.main_window import AnchorGrid
+
+    src = _n_page_pdf(tmp_path, 1, name="anc")
+    window = _window(tmp_path)
+    window._width.setValue(3000)
+    window._height.setValue(3000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    assert isinstance(window._td_anchor, AnchorGrid)
+    piece = window._piece_items[0]
+    piece.setSelected(True)
+    pw, ph = piece.rect().width(), piece.rect().height()
+
+    # "direita-meio" -> X = largura, Y = 0 (cópia ao lado)
+    window._td_anchor._pick(2, 1)
+    assert window._td_x.value() == pytest.approx(pw, abs=0.5)
+    assert window._td_y.value() == 0
+
+    # "baixo-centro" -> X = 0, Y = altura (cópia abaixo) — o fluxo Corel
+    window._td_anchor._pick(1, 2)
+    assert window._td_x.value() == 0
+    assert window._td_y.value() == pytest.approx(ph, abs=0.5)
+
+    # aplica (1 cópia) -> vira 2 peças
+    window._td_copies.setValue(1)
+    window._apply_transform_duplicate()
+    assert sum(s.item_count for s in window._result.sheets) == 2
+
+
 def test_transformar_gerar_grade(qapp, tmp_path):
     # Aba Transformar: grade 5x4 = 20 pecas.
     src = _n_page_pdf(tmp_path, 1, name="tg")
