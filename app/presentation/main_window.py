@@ -1439,6 +1439,51 @@ def _guard_export(method):
     return wrapper
 
 
+class StatValue(QLabel):
+    """QLabel de valor de métrica com a MESMA interface do MeasureField
+    (set_value), para o _update_resumo continuar valendo sem alteração."""
+
+    def set_value(self, value: str) -> None:
+        self.setText(value)
+
+
+class StatTile(QFrame):
+    """Bloco de métrica do Resumo (estilo dashboard, U1 redesign 27/07): chip de
+    ícone no topo, valor em destaque e legenda. Neutro por padrão."""
+
+    def __init__(self, icon_name: str, caption: str) -> None:
+        super().__init__()
+        self.setObjectName("statTile")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(13, 11, 13, 11)
+        lay.setSpacing(2)
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        chip = QLabel()
+        chip.setObjectName("stChip")
+        chip.setFixedSize(24, 24)
+        chip.setAlignment(Qt.AlignCenter)
+        chip.setPixmap(icons.pixmap(icon_name, theme.ACCENT, 15))
+        top.addStretch()
+        top.addWidget(chip)
+        self.value = StatValue("—")
+        self.value.setObjectName("stVal")
+        cap = QLabel(caption)
+        cap.setObjectName("stCap")
+        lay.addLayout(top)
+        lay.addWidget(self.value)
+        lay.addWidget(cap)
+        self.setStyleSheet(
+            "#statTile{background:#f6f8fb; border-radius:14px;}"
+            "#stVal{font-size:16px; font-weight:700; color:#111827;}"
+            "#stCap{font-size:10px; color:#9ca3af;}"
+            "#stChip{background:#e7eefc; border-radius:7px;}"
+        )
+
+    def set_value(self, value: str) -> None:
+        self.value.set_value(value)
+
+
 class MainWindow(QMainWindow):
     """Tela única do MVP PrintNest, organizada por categorias."""
 
@@ -4679,25 +4724,75 @@ class MainWindow(QMainWindow):
             grid.addWidget(labeled(label, widget), i // 2, i % 2)
         body.addLayout(grid)
 
-    def _build_resumo_card(self) -> CollapsibleCard:
-        """Resumo da produção (somente leitura), atualizado automaticamente."""
-        card = CollapsibleCard("Resumo da produção", accent="resumo")
-        self._sum_material = MeasureField("Material")
-        self._sum_pecas = MeasureField("Peças")
-        self._sum_chapas = MeasureField("Chapas")
-        self._sum_area = MeasureField("Área utilizada")
-        self._sum_faca = MeasureField("Faca")
-        self._sum_reg = MeasureField("Registro")
+    def _build_resumo_card(self) -> QWidget:
+        """Resumo da produção em blocos (U1 redesign 27/07, aprovado): bloco
+        duplo AZUL juntando Material + Área usada; demais neutros com ícone.
+        Atualizado por _update_resumo (mesma interface set_value)."""
+        # bloco duplo azul (Material da chapa + Área usada juntos)
+        hero = QFrame()
+        hero.setObjectName("statHero")
+        hl = QVBoxLayout(hero)
+        hl.setContentsMargins(14, 13, 14, 13)
+        hl.setSpacing(2)
+        htop = QHBoxLayout()
+        htop.setContentsMargins(0, 0, 0, 0)
+        hchip = QLabel()
+        hchip.setAlignment(Qt.AlignCenter)
+        hchip.setPixmap(icons.pixmap("layers", "#ffffff", 16))
+        htop.addStretch()
+        htop.addWidget(hchip)
+        self._sum_material = StatValue("—")
+        self._sum_material.setObjectName("heroVal")
+        mcap = QLabel("Material da chapa")
+        mcap.setObjectName("heroCap")
+        hdiv = QFrame()
+        hdiv.setObjectName("heroDiv")
+        hdiv.setFixedHeight(1)
+        self._sum_area = StatValue("—")
+        self._sum_area.setObjectName("heroVal2")
+        acap = QLabel("Área usada")
+        acap.setObjectName("heroCap")
+        hl.addLayout(htop)
+        hl.addWidget(self._sum_material)
+        hl.addWidget(mcap)
+        hl.addWidget(hdiv)
+        hl.addWidget(self._sum_area)
+        hl.addWidget(acap)
+        hl.addStretch()
+        hero.setStyleSheet(
+            "#statHero{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            "stop:0 #2563eb, stop:1 #4f46e5); border-radius:15px;}"
+            "#heroVal{font-size:20px; font-weight:800; color:#ffffff;}"
+            "#heroVal2{font-size:16px; font-weight:800; color:#ffffff; margin-top:10px;}"
+            "#heroCap{font-size:10px; color:#dbe5ff;}"
+            "#heroDiv{background:#5f79ea; border:none; margin-top:12px;}"
+        )
+
+        # blocos neutros com ícone
+        self._sum_pecas = StatTile("copy", "Peças")
+        self._sum_chapas = StatTile("grid-3x3", "Chapas")
+        self._sum_faca = StatTile("scissors", "Faca (mm)")
+        self._sum_reg = StatTile("plus", "Registro")
+
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(theme.SPACE_MD)
-        grid.setVerticalSpacing(theme.SPACE_SM)
-        fields = [self._sum_material, self._sum_pecas, self._sum_chapas,
-                  self._sum_area, self._sum_faca, self._sum_reg]
-        for i, f in enumerate(fields):
-            grid.addWidget(f, i // 2, i % 2)
-        card.body.addLayout(grid)
-        return card
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        grid.addWidget(hero, 0, 0, 2, 1)
+        grid.addWidget(self._sum_pecas, 0, 1)
+        grid.addWidget(self._sum_chapas, 0, 2)
+        grid.addWidget(self._sum_faca, 1, 1)
+        grid.addWidget(self._sum_reg, 1, 2)
+        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(1, 2)
+        grid.setColumnStretch(2, 2)
+
+        box = QWidget()
+        bl = QVBoxLayout(box)
+        bl.setContentsMargins(0, 0, 0, theme.SPACE_SM)
+        bl.setSpacing(0)
+        bl.addLayout(grid)
+        return box
 
     def _build_producao_card(self) -> CollapsibleCard:
         """Secao 1 - Produção (sempre aberta): o que se usa 95% do tempo."""
@@ -5118,12 +5213,11 @@ class MainWindow(QMainWindow):
         pct = round(max(
             measurements.sheet_metrics(s, r.artworks).used_pct for s in r.sheets
         ))
-        height = float(self._height.value()) or max((s.used_length for s in r.sheets), default=0)
         off = float(self._offset.value())
         sinal = "+" if off >= 0 else "−"
-        self._sum_material.set_value(
-            f"{units.fmt_len(mat.width, with_unit=False)} x {units.fmt_len(height)}"
-        )
+        # bloco azul mostra só a largura do material ("1250 mm"); a área usada
+        # vem no mesmo bloco (set_value de _sum_area abaixo)
+        self._sum_material.set_value(units.fmt_len(mat.width))
         self._sum_pecas.set_value(str(total))
         self._sum_chapas.set_value(str(len(r.sheets)))
         self._sum_area.set_value(f"{pct}%")
