@@ -49,3 +49,19 @@ def test_selftest_do_entrypoint_passa():
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "SELFTEST OK" in proc.stdout
+
+
+def test_spec_configura_a_tela_de_abertura():
+    """Splash nativa do PyInstaller (tela de abertura na descompactacao)."""
+    spec = (ROOT / "PrintNest.spec").read_text(encoding="utf-8")
+    assert "Splash(" in spec, "splash nativa nao configurada no spec"
+    assert "assets/splash.png" in spec
+    # a splash nativa depende do Tcl/Tk: tkinter NAO pode voltar aos excludes
+    # (checa a ENTRADA da lista, com virgula; o comentario do spec cita o nome)
+    assert '"tkinter",' not in spec
+
+
+def test_build_bat_gera_a_splash():
+    bat = (ROOT / "build.bat").read_text(encoding="utf-8")
+    assert "make_splash.py" in bat
+    assert (ROOT / "assets" / "make_splash.py").exists()

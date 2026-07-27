@@ -2304,6 +2304,35 @@ def test_u1_colocar_na_chapa_botao_e_duplo_clique(qapp, tmp_path):
     assert sum(s.item_count for s in w._result.sheets) == 3
 
 
+def test_u1_documento_subabas_resumo_e_transformar(qapp, tmp_path):
+    # U1 redesign 27/07: painel Documento com sub-abas + resumo em blocos
+    # (bloco duplo azul via StatTile), rótulos de registro sem "Mimaki" e o
+    # atalho "Duplicar por posição" que abre a aba Transformar.
+    from app.presentation.main_window import StatTile
+
+    w = _window(tmp_path)
+    # sub-abas: 5 seções e 5 botões; Produção (0) aberta por padrão
+    assert len(w._doc_sections) == 5
+    assert len(w._doc_nav_btns) == 5
+    assert w._doc_sections[0].is_open
+    assert not w._doc_sections[3].is_open
+    # trocar de seção abre só ela e marca a sub-aba
+    w._show_doc_section(3)
+    assert w._doc_sections[3].is_open
+    assert not w._doc_sections[0].is_open
+    assert w._doc_nav_btns[3].isChecked()
+    # o cabeçalho do card virou a sub-aba (fica escondido de propósito)
+    assert not w._doc_sections[0]._header.isVisibleTo(w._doc_sections[0])
+    # resumo em StatTile, com a MESMA interface set_value do MeasureField
+    assert isinstance(w._sum_pecas, StatTile)
+    w._sum_pecas.set_value("7")  # não deve levantar
+    # rótulos de registro sem "Mimaki"
+    assert "Mimaki" not in w._mk_distance.toolTip()
+    # "Duplicar por posição" abre a aba Transformar (motor estilo Corel)
+    w._show_transform_tab()
+    assert w._props_tabs.currentWidget() is w._transform_page
+
+
 def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
     # QA EXTREMO QAX-04 (🟠): cada setSelected disparava o handler O(n) →
     # O(n²): 2048 peças = travamento. Em lote, o handler roda 1x.

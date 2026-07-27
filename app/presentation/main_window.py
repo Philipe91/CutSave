@@ -156,7 +156,6 @@ from app.presentation.widgets import (
     MeasureField,
     ToastManager,
     labeled,
-    make_exclusive,
 )
 from app.shared.config.settings import AppSettings, SettingsStore
 from app.shared.errors import ProjectError, ValidationError
@@ -1455,7 +1454,7 @@ class StatTile(QFrame):
         super().__init__()
         self.setObjectName("statTile")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(13, 11, 13, 11)
+        lay.setContentsMargins(10, 9, 10, 9)
         lay.setSpacing(2)
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
@@ -1475,7 +1474,7 @@ class StatTile(QFrame):
         lay.addWidget(cap)
         self.setStyleSheet(
             "#statTile{background:#f6f8fb; border-radius:14px;}"
-            "#stVal{font-size:16px; font-weight:700; color:#111827;}"
+            "#stVal{font-size:15px; font-weight:700; color:#111827;}"
             "#stCap{font-size:10px; color:#9ca3af;}"
             "#stChip{background:#e7eefc; border-radius:7px;}"
         )
@@ -3853,17 +3852,25 @@ class MainWindow(QMainWindow):
             cta.clicked.connect(self._show_cartelas_tab)
             self._cartelas_cta = cta
             dl.addWidget(cta)
-        dl.addWidget(self._build_producao_card())        # 1 - Produção (aberto)
-        dl.addWidget(self._build_acabamento_card())      # 2 - Acabamento (recolhido)
-        dl.addWidget(self._build_imagens_card())         # 3 - Imagens (recolhido)
-        dl.addWidget(self._build_registro_card())        # 4 - Marcas de registro (recolhido)
-        # Cartelas saiu da lista de cards: agora e uma ABA propria ("Cartelas"),
-        # sempre visivel — o cliente nao precisa rolar a lista para achar.
-        dl.addWidget(self._build_avancado_card())        # 5 - Avançado (recolhido)
-        # acordeao exclusivo: abrir uma secao recolhe as demais, entao todos
-        # os titulos ficam sempre visiveis sem rolar a lista (o Resumo fica
-        # fora do grupo: e leitura, pode conviver aberto com qualquer secao)
-        make_exclusive(self._doc_cards)
+        # U1 passo 2 (redesign 27/07): o acordeão de 6 barras vira SUB-ABAS.
+        # Os cards continuam (guardam _width/_faca_mode etc. e o Modo Compacto),
+        # mas com o cabeçalho ESCONDIDO e sem borda — quem troca a seção visível
+        # é o segmented control azul. Só uma seção aparece por vez.
+        sections = [
+            ("Produção", self._build_producao_card()),
+            ("Acabamento", self._build_acabamento_card()),
+            ("Imagens", self._build_imagens_card()),
+            ("Registro", self._build_registro_card()),
+            ("Avançado", self._build_avancado_card()),
+        ]
+        dl.addWidget(self._build_doc_nav(sections))
+        self._doc_sections = []
+        for _label, card in sections:
+            card._header.setVisible(False)  # o cabeçalho virou a sub-aba
+            card.setStyleSheet("#card{border:none; background:transparent;}")
+            self._doc_sections.append(card)
+            dl.addWidget(card)
+        self._show_doc_section(0)  # Produção ativa
         dl.addStretch()
         self._doc_widget = document  # usado pelo Modo Compacto p/ achar os campos
         doc_scroll = QScrollArea()
@@ -3906,8 +3913,10 @@ class MainWindow(QMainWindow):
         wl.addWidget(self._props_tabs, 1)
         # o trilho de icones ocupa ~46px: painel um pouco mais largo para os
         # campos manterem a mesma area util de antes (280px de conteudo)
-        wrap.setMinimumWidth(340)
-        wrap.setMaximumWidth(446)
+        # largura mínima maior: o resumo em blocos precisa de espaço para não
+        # cortar "Chapas"/"Registro" (pedido 27/07: "tem que ficar sempre assim").
+        wrap.setMinimumWidth(400)
+        wrap.setMaximumWidth(452)
         return wrap
 
     # ==================== Aba "Transformar" (duplicação inteligente) ==========
@@ -4247,6 +4256,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(self._actions_card([
             ("copy", "Duplicar", self._duplicate_selected),
+            ("copy-plus", "Duplicar por posição...", self._show_transform_tab),
             ("copy-plus", "Duplicar só esta página...", self._duplicate_selected_qty),
             ("trash-2", "Excluir", self._delete_selected),
         ]))
@@ -4594,9 +4604,9 @@ class MainWindow(QMainWindow):
         self._crop.setToolTip("Corta as bordas da arte (remove faixa branca) (mm)")
         self._shared.setToolTip("Faca por peça (quadrados) ou compartilhada (grade fora a fora)")
         self._reg_type.setToolTip("Tipo de marca de registro para a mesa de corte")
-        self._mk_distance.setToolTip("Mimaki: distância do quadro até o conteudo (mm)")
-        self._mk_size.setToolTip("Mimaki: tamanho das marcas em L (mm)")
-        self._mk_thickness.setToolTip("Mimaki: espessura das marcas (mm)")
+        self._mk_distance.setToolTip("Distância do quadro até o conteudo (mm)")
+        self._mk_size.setToolTip("Tamanho das marcas em L (mm)")
+        self._mk_thickness.setToolTip("Espessura das marcas (mm)")
         self._view_mode.setToolTip("O que mostrar: impressao, corte, ambos ou tela dividida")
         self._show_rulers.setToolTip("Mostra/esconde as réguas (mm)")
         self._snap_check.setToolTip(
@@ -4732,7 +4742,7 @@ class MainWindow(QMainWindow):
         hero = QFrame()
         hero.setObjectName("statHero")
         hl = QVBoxLayout(hero)
-        hl.setContentsMargins(14, 13, 14, 13)
+        hl.setContentsMargins(12, 11, 12, 11)
         hl.setSpacing(2)
         htop = QHBoxLayout()
         htop.setContentsMargins(0, 0, 0, 0)
@@ -4762,8 +4772,8 @@ class MainWindow(QMainWindow):
         hero.setStyleSheet(
             "#statHero{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
             "stop:0 #2563eb, stop:1 #4f46e5); border-radius:15px;}"
-            "#heroVal{font-size:20px; font-weight:800; color:#ffffff;}"
-            "#heroVal2{font-size:16px; font-weight:800; color:#ffffff; margin-top:10px;}"
+            "#heroVal{font-size:19px; font-weight:800; color:#ffffff;}"
+            "#heroVal2{font-size:15px; font-weight:800; color:#ffffff; margin-top:10px;}"
             "#heroCap{font-size:10px; color:#dbe5ff;}"
             "#heroDiv{background:#5f79ea; border:none; margin-top:12px;}"
         )
@@ -4776,8 +4786,8 @@ class MainWindow(QMainWindow):
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(6)
         grid.addWidget(hero, 0, 0, 2, 1)
         grid.addWidget(self._sum_pecas, 0, 1)
         grid.addWidget(self._sum_chapas, 0, 2)
@@ -4944,13 +4954,13 @@ class MainWindow(QMainWindow):
         self._mk_size = LengthSpin(1, 100)
         self._mk_size.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._grid_fields(card.body, [
-            ("Mimaki: distância", self._mk_distance,
+            ("Distância da marca", self._mk_distance,
              "Distância do quadro (frame) até o conteudo (mm)."),
-            ("Mimaki: tamanho", self._mk_size, "Tamanho das marcas em L (mm)."),
+            ("Tamanho da marca", self._mk_size, "Tamanho das marcas em L (mm)."),
         ])
         self._mk_thickness = LengthSpin(0.1, 10)
         card.body.addWidget(self._labeled_tip(
-            "Mimaki: espessura da marca", self._mk_thickness,
+            "Espessura da marca", self._mk_thickness,
             "Espessura das marcas de registro (mm)."
         ))
         return card
@@ -5183,6 +5193,40 @@ class MainWindow(QMainWindow):
     def _labeled_tip(label: str, widget, tip: str):
         widget.setToolTip(tip)
         return labeled(label, widget)
+
+    def _build_doc_nav(self, sections) -> QFrame:
+        """Barra de sub-abas (segmented control) do painel Documento — a aba
+        ativa fica AZUL. Substitui os cabeçalhos do acordeão (U1 passo 2)."""
+        bar = QFrame()
+        bar.setObjectName("docNav")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(3)
+        self._doc_nav_btns = []
+        for i, (label, _card) in enumerate(sections):
+            b = QPushButton(label)
+            b.setObjectName("docTab")
+            b.setCheckable(True)
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(lambda _=False, idx=i: self._show_doc_section(idx))
+            self._doc_nav_btns.append(b)
+            lay.addWidget(b, 1)
+        bar.setStyleSheet(
+            "#docNav{background:#f1f3f8; border-radius:13px;}"
+            "#docTab{border:none; background:transparent; border-radius:10px;"
+            " padding:8px 2px; font-size:11px; font-weight:600; color:#6b7280;}"
+            "#docTab:hover{color:#111827;}"
+            "#docTab:checked{background:#2563eb; color:#ffffff;}"
+        )
+        return bar
+
+    def _show_doc_section(self, index: int) -> None:
+        """Mostra só a seção `index` do painel Documento (recolhe as demais) e
+        marca a sub-aba correspondente em azul."""
+        for i, card in enumerate(self._doc_sections):
+            card.set_collapsed(i != index)
+        for i, btn in enumerate(self._doc_nav_btns):
+            btn.setChecked(i == index)
 
     def _apply_compact_mode(self, on: bool) -> None:
         """Modo Compacto: reduz espaçamentos e a altura dos campos (notebooks)."""
@@ -7057,6 +7101,12 @@ class MainWindow(QMainWindow):
             if self._props_tabs.tabText(i) == "Objeto":
                 self._props_tabs.setCurrentIndex(i)
                 return
+
+    def _show_transform_tab(self) -> None:
+        """Abre a aba 'Transformar' (duplicar por posição estilo Corel: X/Y +
+        Posição relativa + Cópias + Aplicar, com prévia). Mantém a seleção."""
+        if hasattr(self, "_transform_page"):
+            self._props_tabs.setCurrentWidget(self._transform_page)
 
     # ---- edicao na área de trabalho (mover / agrupar / desfazer) ----
     def _begin_move(self) -> None:
