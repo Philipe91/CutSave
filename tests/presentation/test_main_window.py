@@ -2531,15 +2531,18 @@ def test_contorno_toolbar_offset_direcao_cantos(qapp, tmp_path):
 
     # offset externo (positivo) grava nos dois campos de sangria
     window._ct_offset.setValue(5)
-    window._ct_dir.button(1).setChecked(True)   # Externo
     window._apply_contour_offset()
     assert window._offset.value() == 5
     assert window._auto_offset.value() == 5
 
-    # interno = negativo
-    window._ct_dir.button(2).setChecked(True)   # Interno
-    window._apply_contour_offset()
+    # interno = negativo: clicar no botão "dentro" torna o campo negativo
+    window._on_ct_dir_clicked(window._ct_dir.button(2))
     assert window._offset.value() == -5
+
+    # e dá para DIGITAR o negativo direto no campo (corte para dentro)
+    window._ct_offset.setValue(-8)
+    window._apply_contour_offset()
+    assert window._offset.value() == -8
 
     # cantos
     window._ct_corner.button(1).setChecked(True)  # Ponta (miter)

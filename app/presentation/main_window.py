@@ -74,6 +74,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSlider,
     QSpinBox,
     QSplitter,
     QStackedWidget,
@@ -2620,11 +2621,35 @@ class MainWindow(QMainWindow):
         self._ct_mode.currentIndexChanged.connect(lambda _: self._apply_contour_mode())
         cl.addWidget(self._ct_mode)
 
-        self._ct_offset = LengthSpin(0, 100)
-        # largura MINIMA derivada da fonte (nunca fixa): "100.00 mm" + setas
-        self._ct_offset.setMinimumWidth(fm.horizontalAdvance("100.00 mm") + 34)
+        # Sensibilidade do recorte (imagens) — slider ARRASTÁVEL ao lado do tipo
+        # de faca (pedido do teste 27/07): o cliente ajusta quando o recorte
+        # automático "come" o desenho (diminui) ou sobra fundo (aumenta).
+        # Re-detecta a faca ao SOLTAR (imagens são detectadas na importação).
+        self._ct_sensitivity = QSlider(Qt.Horizontal)
+        self._ct_sensitivity.setRange(0, 100)
+        self._ct_sensitivity.setFixedWidth(96)
+        self._ct_sensitivity.setToolTip(
+            "Sensibilidade do recorte automático de IMAGENS.\n"
+            "Recorte 'comendo' o desenho? DIMINUA. Sobrou fundo? AUMENTE.\n"
+            "Ao soltar, a faca é recalculada."
+        )
+        self._ct_sens_val = QLabel("50")
+        self._ct_sens_val.setMinimumWidth(fm.horizontalAdvance("100"))
+        self._ct_sensitivity.valueChanged.connect(
+            lambda v: self._ct_sens_val.setText(str(v))
+        )
+        self._ct_sensitivity.sliderReleased.connect(self._apply_contour_sensitivity)
+        cl.addWidget(QLabel("Sensib."))
+        cl.addWidget(self._ct_sensitivity)
+        cl.addWidget(self._ct_sens_val)
+
+        # negativo = corte PARA DENTRO (recuo/vinco); positivo = sangria (fora).
+        self._ct_offset = LengthSpin(-100, 100)
+        # largura MINIMA derivada da fonte (nunca fixa): "-100.00 mm" + setas
+        self._ct_offset.setMinimumWidth(fm.horizontalAdvance("-100.00 mm") + 34)
         self._ct_offset.setToolTip(
-            "Sangria da faca (offset): distância da linha de corte até a arte."
+            "Sangria da faca (offset): distância da linha de corte até a arte.\n"
+            "Positivo = para FORA (sangria). Negativo = para DENTRO (recuo/vinco)."
         )
         self._ct_offset.editingFinished.connect(self._apply_contour_offset)
         cl.addWidget(QLabel("Sangria"))
@@ -2655,7 +2680,7 @@ class MainWindow(QMainWindow):
         b_in.setIconSize(QSize(20, 20))
         self._ct_dir.addButton(b_out, 1)   # externo (id 1; evita -1, sentinela do Qt)
         self._ct_dir.addButton(b_in, 2)    # interno
-        self._ct_dir.buttonClicked.connect(lambda _: self._apply_contour_offset())
+        self._ct_dir.buttonClicked.connect(self._on_ct_dir_clicked)
         cl.addWidget(b_out)
         cl.addWidget(b_in)
 
@@ -2768,6 +2793,20 @@ class MainWindow(QMainWindow):
         cl.addWidget(ajustes)
         return w
 
+    def _apply_contour_sensitivity(self) -> None:
+        """Slider de sensibilidade (barra Faca), ao SOLTAR: grava o valor global
+        e RE-DETECTA a faca. Sensibilidade vale na detecção (importação), então
+        precisa reimportar → generate (não basta relayout)."""
+        if self._ct_loading:
+            return
+        self._auto_sensitivity.blockSignals(True)
+        self._auto_sensitivity.setValue(int(self._ct_sensitivity.value()))
+        self._auto_sensitivity.blockSignals(False)
+        if self._loaded and self._paths:
+            self._faca_on = True
+            with _wait_cursor():
+                self.generate(blocking=True, faca=True)
+
     def _apply_contour_smooth(self) -> None:
         """Suavizar (barra), sensível ao ESCOPO: arquivo selecionado ou global."""
         if self._ct_loading:
@@ -2803,12 +2842,23 @@ class MainWindow(QMainWindow):
         finally:
             self._keep_tab = False
 
+    def _on_ct_dir_clicked(self, btn) -> None:
+        """Botões fora/dentro da barra Faca: definem o SINAL da sangria (fora =
+        positivo, dentro = negativo). Equivale a digitar o negativo no campo."""
+        want_out = self._ct_dir.id(btn) == 1
+        cur = abs(float(self._ct_offset.value()))
+        self._ct_offset.setValue(cur if want_out else -cur)
+        self._apply_contour_offset()
+
     def _apply_contour_offset(self) -> None:
         """Offset (barra), sensível ao ESCOPO: arquivo selecionado ou global."""
         if self._ct_loading:
             return
-        sign = 1 if self._ct_dir.checkedId() == 1 else -1
-        val = float(self._ct_offset.value()) * sign
+        val = float(self._ct_offset.value())  # o campo já carrega o sinal
+        # espelha o sinal nos botões de direção (fora = +, dentro = −)
+        btn = self._ct_dir.button(1 if val >= 0 else 2)
+        if btn is not None:
+            btn.setChecked(True)
         if getattr(self, "_selected_path", None):
             self._piece_override({"offset": val, "auto_offset": val})
             return
@@ -2896,7 +2946,7 @@ class MainWindow(QMainWindow):
                 signed = float(self._offset.value())
                 smooth_val = int(self._auto_smooth.value())
                 radius_val = float(self._ct_radius.value())
-            self._ct_offset.setValue(abs(signed))
+            self._ct_offset.setValue(signed)  # campo carrega o sinal (±)
             btn = self._ct_dir.button(1 if signed >= 0 else 2)
             if btn is not None:
                 btn.setChecked(True)
@@ -2907,6 +2957,8 @@ class MainWindow(QMainWindow):
                     if b is not None:
                         b.setChecked(True)
             self._ct_smooth.setValue(smooth_val)
+            # sensibilidade é global (vale para a detecção de imagens)
+            self._ct_sensitivity.setValue(int(self._auto_sensitivity.value()))
             # tipo exibido segue o ESCOPO: arquivo selecionado (efetivo, com
             # override) ou o global do documento
             sel = getattr(self, "_selected_path", None)
