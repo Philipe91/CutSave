@@ -17,17 +17,21 @@ REQUISITOS MINIMOS
 
 COMO INSTALAR
 -------------
-Nao precisa instalador. Basta copiar a pasta "PrintNest_Build" para
-qualquer lugar do computador (ex.: Area de Trabalho ou C:\PrintNest).
+Com o INSTALADOR (recomendado): duplo clique em
+PrintNest-Setup-<versao>.exe, aceite o contrato e avance. O programa
+fica no menu Iniciar (e na Area de Trabalho, se voce marcar a opcao).
+
+Sem instalador (pasta avulsa): copiar a pasta "PrintNest_Build" para
+qualquer lugar do computador tambem funciona.
 
 
 COMO EXECUTAR
 -------------
-1. Abra a pasta PrintNest_Build.
-2. Du-plo clique em PrintNest.exe.
+1. Abra o PrintNest pelo atalho do menu Iniciar (ou, na pasta avulsa,
+   duplo clique em PrintNest.exe).
    (Na primeira vez o Windows pode levar alguns segundos para abrir,
     porque o executavel se descompacta - isso e normal.)
-3. Se o Windows SmartScreen avisar ("aplicativo nao reconhecido"),
+2. Se o Windows SmartScreen avisar ("aplicativo nao reconhecido"),
    clique em "Mais informacoes" > "Executar assim mesmo".
 
 
@@ -55,6 +59,15 @@ Apagar essa pasta apenas reseta as configuracoes; nao afeta o programa.
 
 OBSERVACOES
 -----------
-- Esta e uma versao prototipo para testes reais na producao.
 - O arquivo de CORTE (DXF) deve ser validado na mesa de corte
   (iBrightCut / Mimaki) antes do uso em larga escala.
+
+
+PARA O DESENVOLVEDOR - COMO GERAR O PACOTE (2 passos)
+-----------------------------------------------------
+1. build.bat
+   -> PyInstaller monta PrintNest_Build\ (exe + Tutor IA + plugin Corel)
+2. "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\printnest.iss
+   -> gera dist_installer\PrintNest-Setup-<versao>.exe
+Versao: alinhar app/__init__.py, docs/build/VERSAO.txt e o MyAppVersion
+do installer/printnest.iss. Depois: smoke test (docs/build/SMOKE-TEST.md).

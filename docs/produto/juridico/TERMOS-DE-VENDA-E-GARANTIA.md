@@ -27,7 +27,7 @@ Consumidor).
 dentro do prazo, informando o e-mail da compra.
 
 3.3. O reembolso é **integral**, pelo mesmo meio de pagamento, no prazo de
-processamento da plataforma ([GATEWAY]). Após o reembolso, a licença é
+processamento da plataforma (Mercado Pago). Após o reembolso, a licença é
 cancelada e o cliente deve desinstalar o Software.
 
 ## 4. Requisitos do sistema

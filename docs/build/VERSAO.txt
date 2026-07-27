@@ -1,7 +1,7 @@
 PrintNest Premium - Preparacao de Producao Grafica
 ===================================================
 
-Versao:        V1.3 (redesign + auditoria QA)
+Versao:        1.0.0 (primeira versao comercial)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)

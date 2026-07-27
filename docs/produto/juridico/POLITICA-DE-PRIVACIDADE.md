@@ -16,7 +16,7 @@ eles. Nosso princípio é coletar **o mínimo necessário**.
 | Nome e e-mail | na compra e no pedido de ativação | identificar a compra, entregar a chave de licença e prestar suporte |
 | **ID da Máquina** (código técnico gerado a partir de identificadores do computador, ex.: `PN-XXXX-...`) | na ativação | vincular a licença ao computador do cliente (controle antipirataria) |
 | Registros de ativação (código de compra, data, chave emitida) | na ativação | histórico da licença, reenvio de chave e transferência de computador |
-| Dados de pagamento | na compra | processados **pela plataforma de pagamento** ([GATEWAY]); nós não armazenamos números de cartão |
+| Dados de pagamento | na compra | processados **pela plataforma de pagamento** (Mercado Pago); nós não armazenamos números de cartão |
 
 **O que o PrintNest NÃO faz:** o programa funciona **offline** e **não envia**
 seus arquivos, artes ou trabalhos para a internet. Não usamos os dados acima
@@ -31,7 +31,7 @@ para publicidade nem os vendemos a terceiros.
 
 ## 3. Compartilhamento
 
-Compartilhamos dados apenas com: a **plataforma de pagamento** ([GATEWAY],
+Compartilhamos dados apenas com: a **plataforma de pagamento** (Mercado Pago,
 para processar a compra) e o **provedor de e-mail** (para envio da chave).
 Nenhum outro compartilhamento é feito, salvo obrigação legal.
 

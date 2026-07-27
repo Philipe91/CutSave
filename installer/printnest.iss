@@ -1,0 +1,62 @@
+; ============================================================
+;  PrintNest Premium - instalador Windows (Inno Setup 6)
+;
+;  Build em 2 passos (ver docs/build/BUILD.md):
+;    1) build.bat                       -> gera PrintNest_Build\
+;    2) ISCC installer\printnest.iss    -> gera dist_installer\PrintNest-Setup-<versao>.exe
+;
+;  O instalador empacota a pasta PrintNest_Build INTEIRA (exe, VERSAO.txt,
+;  README, Tutor IA em PDF e o Plugin CorelDRAW). A desinstalacao remove so
+;  o que foi instalado — %APPDATA%\PrintNest (configuracoes + LICENCA do
+;  cliente) fica intacto de proposito: desinstalar/reinstalar nao pode
+;  derrubar a ativacao.
+; ============================================================
+
+#define MyAppName "PrintNest Premium"
+; ATENCAO: alinhar com app/__init__.py (__version__) e docs/build/VERSAO.txt.
+#define MyAppVersion "1.0.0"
+; Preencher com a razao social / nome do vendedor (decisao do Philipe).
+#define MyAppPublisher "PrintNest"
+#define MyAppExeName "PrintNest.exe"
+
+[Setup]
+; AppId identifica o programa no Windows entre versoes — NUNCA mudar.
+AppId={{B7F31E9C-5D24-4A86-9C1D-3A7F0E52C816}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+DefaultDirName={autopf}\PrintNest
+DefaultGroupName={#MyAppName}
+DisableProgramGroupPage=yes
+LicenseFile=EULA.txt
+OutputDir=..\dist_installer
+OutputBaseFilename=PrintNest-Setup-{#MyAppVersion}
+SetupIconFile=..\assets\printnest.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
+UninstallDisplayName={#MyAppName}
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+PrivilegesRequired=admin
+
+[Languages]
+Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[Files]
+; a pasta de build inteira, com subpastas (Plugin CorelDRAW etc.)
+Source: "..\PrintNest_Build\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\Tutor IA - PrintNest (PDF)"; Filename: "{app}\Tutor IA - PrintNest.pdf"
+Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

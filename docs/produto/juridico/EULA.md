@@ -52,8 +52,9 @@ antigo, o suporte fará a transferência mediante verificação.
 4.1. O Licenciante poderá disponibilizar atualizações do Software a seu
 critério. **[DEFINIR: atualizações incluídas por X meses/anos ou vitalícias]**
 
-4.2. O suporte é prestado por **[CANAL: e-mail/WhatsApp]**, em dias úteis, em
-horário comercial, sem garantia de tempo de resposta.
+4.2. O suporte é prestado por **e-mail e WhatsApp** (contatos no fim deste
+documento), em dias úteis, em horário comercial, sem garantia de tempo de
+resposta.
 
 ## 5. Garantia e devolução
 
