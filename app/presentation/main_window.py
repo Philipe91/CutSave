@@ -3956,13 +3956,17 @@ class MainWindow(QMainWindow):
         # Os cards continuam (guardam _width/_faca_mode etc. e o Modo Compacto),
         # mas com o cabeçalho ESCONDIDO e sem borda — quem troca a seção visível
         # é o segmented control azul. Só uma seção aparece por vez.
-        sections = [
-            ("Produção", self._build_producao_card()),
-            ("Acabamento", self._build_acabamento_card()),
-            ("Imagens", self._build_imagens_card()),
-            ("Registro", self._build_registro_card()),
-            ("Avançado", self._build_avancado_card()),
-        ]
+        prod = self._build_producao_card()
+        acab = self._build_acabamento_card()
+        img = self._build_imagens_card()      # só estado (sub-aba removida 27/07)
+        reg = self._build_registro_card()
+        avan = self._build_avancado_card()    # só estado (sub-aba removida 27/07)
+        sections = [("Produção", prod), ("Acabamento", acab), ("Registro", reg)]
+        # Imagens e Avançado saíram das sub-abas (declutter 27/07); os widgets
+        # (auto_ignore_white, reset da faca etc.) seguem vivos, só escondidos.
+        for hidden in (img, avan):
+            hidden.setVisible(False)
+            dl.addWidget(hidden)
         dl.addWidget(self._build_doc_nav(sections))
         self._doc_sections = []
         for _label, card in sections:
@@ -3999,8 +4003,8 @@ class MainWindow(QMainWindow):
         self._props_tabs.addTab(doc_scroll, "file-text", "Documento")
         self._props_tabs.addTab(self._sel_stack, "mouse-pointer", "Seleção")
         self._props_tabs.addTab(self._build_object_page(), "layers", "Objeto")
-        self._transform_page = self._build_transform_page()
-        self._props_tabs.addTab(self._transform_page, "copy-plus", "Transformar")
+        # aba "Transformar" removida (27/07): a "Posição (duplicar)" foi para a
+        # sub-aba Produção; o preview fantasma agora vale na aba Documento.
         if CARTELAS_ENABLED:
             self._props_tabs.addTab(self._build_cartelas_tab(), "scissors", "Cartelas")
         # ao sair da aba Transformar, some com os fantasmas
@@ -4020,77 +4024,70 @@ class MainWindow(QMainWindow):
         return wrap
 
     # ==================== Aba "Transformar" (duplicação inteligente) ==========
-    def _build_transform_page(self) -> QWidget:
-        """Aba 'Transformar' (estilo CorelDRAW): duplicar por posição (X/Y +
-        cópias), gerar grade (colunas x linhas) e girar. Preview 'fantasma' em
-        tempo real. Só mexe na camada de edicao: as cópias viram peças reais via
+    def _build_position_card(self) -> CollapsibleCard:
+        """'Posição (duplicar)' estilo CorelDRAW: âncora de DIREÇÃO + X/Y +
+        Posição relativa + Cópias + Aplicar. Mora na sub-aba Produção (movida
+        da antiga aba Transformar em 27/07). As cópias viram peças reais via
         _add_placed (entram no undo, no PDF, no DXF e no .printnest)."""
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(theme.SPACE_SM)
-
-        cap = QLabel("Selecione peça(s) e escolha como multiplicar.")
+        card = CollapsibleCard("Posição (duplicar)")
+        cap = QLabel("Selecione peça(s) e a direção para multiplicar.")
         cap.setProperty("role", "caption")
         cap.setWordWrap(True)
-        lay.addWidget(cap)
+        card.body.addWidget(cap)
 
-        # ---- Posição (duplicar) — layout estilo CorelDRAW ----
-        dup = CollapsibleCard("Posição (duplicar)")
         self._td_anchor = AnchorGrid()
         self._td_anchor.picked.connect(self._on_anchor_direction)
         self._td_x = LengthSpin(-20000, 20000)
         self._td_x.setValue(100)
         self._td_y = LengthSpin(-20000, 20000)
         self._td_y.setValue(0)
+        self._td_x.setToolTip("Posição/passo no eixo X (mm).")
+        self._td_y.setToolTip("Posição/passo no eixo Y (mm).")
         self._td_x.valueChanged.connect(lambda _: self._preview_duplicate())
         self._td_y.valueChanged.connect(lambda _: self._preview_duplicate())
-        # linha superior: grade de âncora (esquerda) + X/Y (direita), como no Corel
+
+        # âncora (esquerda, alinhada ao topo) + X/Y (direita), compacto
         pos_row = QHBoxLayout()
         pos_row.setContentsMargins(0, 0, 0, 0)
         pos_row.setSpacing(theme.SPACE_MD)
-        anchor_box = QVBoxLayout()
-        anchor_box.setContentsMargins(0, 0, 0, 0)
-        anchor_box.setSpacing(4)
         anchor_cap = QLabel("Âncora")
         anchor_cap.setProperty("role", "caption")
-        anchor_box.addWidget(anchor_cap)
-        anchor_box.addWidget(self._td_anchor)
-        anchor_box.addStretch()
-        pos_row.addLayout(anchor_box)
+        anchor_w = QWidget()
+        avb = QVBoxLayout(anchor_w)
+        avb.setContentsMargins(0, 0, 0, 0)
+        avb.setSpacing(4)
+        avb.addWidget(anchor_cap)
+        avb.addWidget(self._td_anchor)
+        pos_row.addWidget(anchor_w, 0, Qt.AlignTop)
         xy = QGridLayout()
         xy.setContentsMargins(0, 0, 0, 0)
         xy.setHorizontalSpacing(8)
         xy.setVerticalSpacing(8)
-        self._td_x.setToolTip("Posição/passo no eixo X (mm).")
-        self._td_y.setToolTip("Posição/passo no eixo Y (mm).")
         xy.addWidget(QLabel("X"), 0, 0)
         xy.addWidget(self._td_x, 0, 1)
         xy.addWidget(QLabel("Y"), 1, 0)
         xy.addWidget(self._td_y, 1, 1)
+        xy.setColumnStretch(1, 1)
         pos_row.addLayout(xy, 1)
-        dup.body.addLayout(pos_row)
+        card.body.addLayout(pos_row)
+
         self._td_relative = QCheckBox("Posição relativa")
         self._td_relative.setChecked(True)
         self._td_relative.setToolTip(
-            "Marcado: X/Y são o passo entre cópias (0, X, 2X, 3X...). Desmarcado: "
-            "as cópias vão para a posição (X, Y), medida a partir da ÂNCORA escolhida."
+            "Marcado: X/Y são o passo entre cópias (0, X, 2X...). Desmarcado: "
+            "as cópias vão para a posição (X, Y)."
         )
         self._td_relative.toggled.connect(lambda _: self._preview_duplicate())
-        dup.body.addWidget(self._td_relative)
+        card.body.addWidget(self._td_relative)
         self._td_copies = QuantityStepper(1, 1000, 1)
         self._td_copies.valueChanged.connect(lambda _: self._preview_duplicate())
-        dup.body.addWidget(labeled("Cópias", self._td_copies))
+        card.body.addWidget(labeled("Cópias", self._td_copies))
         btn_dup = QPushButton("  Aplicar")
         btn_dup.setIcon(icons.icon("copy-plus", theme.ICON))
         btn_dup.clicked.connect(self._apply_transform_duplicate)
-        dup.body.addWidget(btn_dup)
-        lay.addWidget(dup)
+        card.body.addWidget(btn_dup)
 
-        # Card "Grade (colunas x linhas)" REMOVIDO (U1 27/07): o preview gerava
-        # sobreposição e não atendia — o cliente monta grade pelo Duplicar por
-        # posição (X/Y + cópias) e por Ctrl+D. Os widgets seguem como estado
-        # (sessão/projeto/testes); o motor _apply_transform_grid fica disponível.
+        # widgets da Grade (removida) seguem como estado: _apply_transform_grid
         self._tg_cols = _spin(1, 200)
         self._tg_cols.setValue(5)
         self._tg_rows = _spin(1, 200)
@@ -4099,18 +4096,15 @@ class MainWindow(QMainWindow):
         self._tg_gap_h.setValue(10)
         self._tg_gap_v = LengthSpin(0, 20000)
         self._tg_gap_v.setValue(10)
-
-        # Card "Rotação" removido (U1 declutter 27/07): girar ±90 já vive no
-        # ribbon (Organizar) e nos atalhos Ctrl+[ / Ctrl+] — o de cima atende.
-        lay.addStretch()
-        return page
+        return card
 
     def _transform_active(self) -> bool:
-        """True se a aba Transformar esta em foco (para mostrar/limpar fantasmas)."""
-        return (
-            hasattr(self, "_transform_page")
-            and self._props_tabs.currentWidget() is self._transform_page
-        )
+        """True quando a aba Documento está em foco (onde mora a Posição/duplicar)
+        — para mostrar/limpar os fantasmas do preview."""
+        if not hasattr(self, "_props_tabs"):
+            return False
+        idx = self._props_tabs.currentIndex()
+        return self._props_tabs.tabText(idx) == "Documento"
 
     def _clear_ghost(self) -> None:
         """Remove os previews fantasma da cena."""
@@ -4938,6 +4932,9 @@ class MainWindow(QMainWindow):
             ("Espaçamento vertical", self._spacing_v,
              "Espaco entre as LINHAS (para cima/baixo). Negativo aproxima."),
         ])
+        # Posição (duplicar) estilo Corel — logo abaixo do espaçamento (pedido
+        # 27/07: movida da aba Transformar para o início da Produção).
+        card.body.addWidget(self._build_position_card())
         self._center_check = QCheckBox("Manter centralizado na chapa")
         self._center_check.setChecked(self._center_on_sheet)
         self._center_check.setToolTip(
@@ -7210,12 +7207,6 @@ class MainWindow(QMainWindow):
             if self._props_tabs.tabText(i) == "Objeto":
                 self._props_tabs.setCurrentIndex(i)
                 return
-
-    def _show_transform_tab(self) -> None:
-        """Abre a aba 'Transformar' (duplicar por posição estilo Corel: X/Y +
-        Posição relativa + Cópias + Aplicar, com prévia). Mantém a seleção."""
-        if hasattr(self, "_transform_page"):
-            self._props_tabs.setCurrentWidget(self._transform_page)
 
     # ---- edicao na área de trabalho (mover / agrupar / desfazer) ----
     def _begin_move(self) -> None:

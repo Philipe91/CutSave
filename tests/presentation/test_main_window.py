@@ -1075,8 +1075,10 @@ def test_transformar_preview_fantasma(qapp, tmp_path):
     window.add_paths([src])
     window.generate(blocking=True)
 
-    window._props_tabs.setCurrentWidget(window._transform_page)  # ativa a aba
+    # selecionar troca p/ a aba Seleção; volta pra Documento (onde vive a
+    # Posição) para o preview ficar ativo
     window._piece_items[0].setSelected(True)
+    window._props_tabs.setCurrentIndex(0)  # aba Documento
     window._td_copies.setValue(3)
     window._preview_duplicate()
     assert len(window._ghost_items) == 3  # 3 copias fantasma
@@ -2344,16 +2346,17 @@ def test_u1_documento_subabas_resumo_e_transformar(qapp, tmp_path):
     from app.presentation.main_window import StatTile
 
     w = _window(tmp_path)
-    # sub-abas: 5 seções e 5 botões; Produção (0) aberta por padrão
-    assert len(w._doc_sections) == 5
-    assert len(w._doc_nav_btns) == 5
+    # sub-abas: 3 seções e 3 botões (Produção/Acabamento/Registro); Produção (0)
+    # aberta por padrão (Imagens e Avançado saíram; Posição foi p/ Produção)
+    assert len(w._doc_sections) == 3
+    assert len(w._doc_nav_btns) == 3
     assert w._doc_sections[0].is_open
-    assert not w._doc_sections[3].is_open
+    assert not w._doc_sections[2].is_open
     # trocar de seção abre só ela e marca a sub-aba
-    w._show_doc_section(3)
-    assert w._doc_sections[3].is_open
+    w._show_doc_section(2)
+    assert w._doc_sections[2].is_open
     assert not w._doc_sections[0].is_open
-    assert w._doc_nav_btns[3].isChecked()
+    assert w._doc_nav_btns[2].isChecked()
     # o cabeçalho do card virou a sub-aba (fica escondido de propósito)
     assert not w._doc_sections[0]._header.isVisibleTo(w._doc_sections[0])
     # resumo em StatTile, com a MESMA interface set_value do MeasureField
@@ -2361,9 +2364,9 @@ def test_u1_documento_subabas_resumo_e_transformar(qapp, tmp_path):
     w._sum_pecas.set_value("7")  # não deve levantar
     # rótulos de registro sem "Mimaki"
     assert "Mimaki" not in w._mk_distance.toolTip()
-    # "Duplicar por posição" abre a aba Transformar (motor estilo Corel)
-    w._show_transform_tab()
-    assert w._props_tabs.currentWidget() is w._transform_page
+    # "Posição (duplicar)" (motor estilo Corel) agora vive na sub-aba Produção
+    from app.presentation.main_window import AnchorGrid
+    assert isinstance(w._td_anchor, AnchorGrid)
 
 
 def test_qax04_selecao_em_massa_dispara_handler_uma_vez(qapp, tmp_path):
