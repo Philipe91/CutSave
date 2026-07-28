@@ -73,3 +73,20 @@ def test_from_dict_tolera_campos_ausentes():
 def test_project_file_defaults_em_dados_parciais():
     pf = ProjectFile.from_dict({"path": "c.pdf"})
     assert (pf.path, pf.quantity, pf.rotation) == ("c.pdf", 1, 0)
+
+
+def test_paginas_escolhidas_sobrevivem_ao_round_trip(tmp_path):
+    path = tmp_path / "paginas.printnest"
+    doc = ProjectDocument(files=[ProjectFile("catalogo.pdf", quantity=2, pages=[0, 3, 7])])
+    ProjectStore().save(str(path), doc)
+    lido = ProjectStore().load(str(path))
+    assert lido.files[0].pages == [0, 3, 7]
+
+
+def test_pdf_inteiro_nao_grava_paginas_e_projeto_antigo_abre_com_todas():
+    # sem escolha, o campo nem entra no JSON (projeto antigo = todas as paginas)
+    assert "pages" not in ProjectFile("a.pdf").to_dict()
+    assert ProjectFile.from_dict({"path": "a.pdf", "quantity": 1}).pages is None
+    assert ProjectFile.from_dict({"path": "a.pdf", "pages": []}).pages is None
+    # ordena e tira repetidos (o arquivo pode ter sido editado a mao)
+    assert ProjectFile.from_dict({"path": "a.pdf", "pages": [3, 1, 3]}).pages == [1, 3]

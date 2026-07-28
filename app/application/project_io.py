@@ -64,20 +64,31 @@ class ProjectFile:
     path: str
     quantity: int = 1
     rotation: int = 0
+    # paginas escolhidas do PDF (0-based). Vazio/None = TODAS — projetos
+    # antigos, que nao tem o campo, continuam abrindo com o PDF inteiro.
+    pages: list[int] | None = None
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "path": self.path,
             "quantity": int(self.quantity),
             "rotation": int(self.rotation),
         }
+        if self.pages:
+            data["pages"] = [int(p) for p in self.pages]
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> ProjectFile:
+        cru = data.get("pages")
+        pages = None
+        if isinstance(cru, (list, tuple)) and cru:
+            pages = sorted({int(p) for p in cru if isinstance(p, (int, float))})
         return cls(
             path=str(data.get("path", "")),
             quantity=int(data.get("quantity", 1) or 1),
             rotation=int(data.get("rotation", 0) or 0),
+            pages=pages,
         )
 
 

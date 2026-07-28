@@ -53,7 +53,12 @@ class RunProductionPipelineUseCase:
         *,
         sensitivity: float = 50.0,
         ignore_white: bool = True,
+        pages: dict[str, Sequence[int]] | None = None,
     ) -> ProductionResult:
+        """`pages` limita QUAIS paginas de cada PDF entram (indices 0-based,
+        por caminho). Caminho ausente do dicionario = todas as paginas, que e o
+        comportamento de sempre. O indice ORIGINAL da pagina e preservado em
+        `sources`, senao o preview rasterizaria a pagina errada."""
         artworks: list[Artwork] = []
         sources: dict[str, tuple[str, int]] = {}
         origins: dict[str, str] = {}
@@ -65,7 +70,10 @@ class RunProductionPipelineUseCase:
                 sources[imported.artwork.id] = (imported.render_path, 0)
                 origins[imported.artwork.id] = path
             else:
+                escolhidas = None if pages is None else pages.get(path)
                 for page_index, art in enumerate(self._import.execute(path, box)):
+                    if escolhidas is not None and page_index not in escolhidas:
+                        continue
                     with_faca = self._faca.execute(art, offset_mm)
                     artworks.append(with_faca)
                     sources[with_faca.id] = (path, page_index)

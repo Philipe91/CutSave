@@ -102,3 +102,27 @@ def test_pipeline_sem_artes_falha():
     pipeline = RunProductionPipelineUseCase(_FakeImport({"a.pdf": []}))
     with pytest.raises(ValidationError):
         pipeline.execute(["a.pdf"], Material("UV", width=1300), 3.0)
+
+
+def test_pipeline_usa_so_as_paginas_escolhidas():
+    # PDF de 5 paginas com so a 1a, 3a e 5a marcadas: entram 3 artes, e o
+    # indice ORIGINAL da pagina e preservado (senao o preview rasteriza errado)
+    paginas = [_artwork(f"p{i}") for i in range(5)]
+    pipeline = RunProductionPipelineUseCase(_FakeImport({"doc.pdf": paginas}))
+    result = pipeline.execute(
+        ["doc.pdf"], Material("UV", width=1300), 3.0, pages={"doc.pdf": [0, 2, 4]}
+    )
+    assert len(result.artworks) == 3
+    assert sorted(pg for _, pg in result.sources.values()) == [0, 2, 4]
+
+
+def test_pipeline_sem_filtro_traz_todas_as_paginas():
+    paginas = [_artwork(f"p{i}") for i in range(5)]
+    pipeline = RunProductionPipelineUseCase(_FakeImport({"doc.pdf": paginas}))
+    # nem dicionario, nem entrada para este caminho = todas (padrao de sempre)
+    assert len(pipeline.execute(
+        ["doc.pdf"], Material("UV", width=1300), 3.0
+    ).artworks) == 5
+    assert len(pipeline.execute(
+        ["doc.pdf"], Material("UV", width=1300), 3.0, pages={"outro.pdf": [1]}
+    ).artworks) == 5

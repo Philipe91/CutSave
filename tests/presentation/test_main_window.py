@@ -2977,3 +2977,91 @@ def test_espessura_habilita_so_para_cruz_e_l(qapp, tmp_path):
     ):
         combo.setCurrentIndex(combo.findData(data))
         assert window._reg_thickness.isEnabled() is enabled, data
+
+
+# ---------------------------------------------------------------- paginas/recorte
+def _png_sem_dpi(tmp_path, w=800, h=1000):
+    """PNG sem metadado de DPI: cai no padrao de 96dpi do importador."""
+    from PIL import Image
+
+    src = tmp_path / "arte.png"
+    Image.new("RGBA", (w, h), (200, 60, 90, 255)).save(str(src))
+    return str(src)
+
+
+def test_dialogo_de_recorte_usa_o_mesmo_tamanho_do_importador(qapp, tmp_path):
+    # O renderizador trata 1px como 1pt em imagem; o importador usa o DPI do
+    # arquivo. O dialogo de recorte trabalha em mm e seguia o renderizador,
+    # entao via a pagina 1,333x maior (96/72) e o recorte saia MUITO maior do
+    # que o desenhado na previa.
+    from PySide6.QtGui import QPixmap
+
+    src = _png_sem_dpi(tmp_path)
+    window = _window(tmp_path)
+    data = window._renderer.render_png(src, 0, dpi=110, box="trim")
+    pm = QPixmap()
+    pm.loadFromData(data, "PNG")
+
+    w_mm, h_mm = window._source_size_mm(src, pm)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    art = window._base_artworks[0]
+    assert w_mm == pytest.approx(art.size.width, abs=0.5)
+    assert h_mm == pytest.approx(art.size.height, abs=0.5)
+
+
+def test_escolher_paginas_do_pdf_filtra_a_producao(qapp, tmp_path):
+    src = _n_page_pdf(tmp_path, 6, name="catalogo")
+    window = _window(tmp_path)
+    window._width.setValue(1000)
+    window._height.setValue(1000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    assert sum(s.item_count for s in window._result.sheets) == 6  # todas
+
+    window._set_file_pages(src, [0, 2, 4], 6)
+    assert sum(s.item_count for s in window._result.sheets) == 3
+    # o indice ORIGINAL da pagina segue no sources (preview da pagina certa)
+    assert sorted({pg for _, pg in window._result.sources.values()}) == [0, 2, 4]
+
+    window._set_file_pages(src, [3], 6)  # so uma
+    assert sum(s.item_count for s in window._result.sheets) == 1
+
+    window._set_file_pages(src, list(range(6)), 6)  # de volta para todas
+    assert sum(s.item_count for s in window._result.sheets) == 6
+    assert src not in window._file_pages  # PDF inteiro nao guarda escolha
+
+
+def test_menu_do_botao_direito_muda_com_a_selecao(qapp, tmp_path):
+    src = _n_page_pdf(tmp_path, 2, name="menu")
+    window = _window(tmp_path)
+    window.add_paths([src])
+    window.generate(blocking=True)
+
+    def textos():
+        return [
+            a.text() for a in window._build_canvas_menu().actions() if not a.isSeparator()
+        ]
+
+    window._scene.clearSelection()
+    vazio = textos()
+    assert any("Organizar" in t for t in vazio)
+    assert not any("Excluir" in t for t in vazio)
+
+    window._piece_items[0].setSelected(True)
+    com_peca = textos()
+    assert any("Recortar" in t for t in com_peca)
+    assert any("Escolher páginas" in t for t in com_peca)  # PDF de 2 paginas
+    assert any("Duplicar" in t for t in com_peca)
+    assert any("Excluir" in t for t in com_peca)
+
+
+def test_selecionar_todas_as_pecas_do_arquivo(qapp, tmp_path):
+    src = _n_page_pdf(tmp_path, 4, name="mesmo")
+    window = _window(tmp_path)
+    window._width.setValue(1000)
+    window.add_paths([src])
+    window.generate(blocking=True)
+    window._scene.clearSelection()
+    window._select_same_file(src)
+    assert len(window._selected_pieces()) == 4

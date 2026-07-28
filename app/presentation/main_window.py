@@ -1026,7 +1026,7 @@ class ProductionWorker(QObject):
     failed = Signal(str)
 
     def __init__(self, pipeline, renderer, paths, material, offset, sheet_height, box,
-                 sensitivity=50.0, ignore_white=True):
+                 sensitivity=50.0, ignore_white=True, pages=None):
         super().__init__()
         self._pipeline = pipeline
         self._renderer = renderer
@@ -1037,6 +1037,7 @@ class ProductionWorker(QObject):
         self._box = box
         self._sensitivity = sensitivity
         self._ignore_white = ignore_white
+        self._pages = pages
 
     def run(self) -> None:
         try:
@@ -1044,6 +1045,7 @@ class ProductionWorker(QObject):
                 self._paths, self._material, self._offset, self._sheet_height, self._box,
                 on_progress=lambda done, total: self.progress.emit(done, total),
                 sensitivity=self._sensitivity, ignore_white=self._ignore_white,
+                pages=self._pages,
             )
             unique = sorted(set(result.sources.values()))
             png_map = {}
@@ -1699,6 +1701,9 @@ class MainWindow(QMainWindow):
         # recorte de página (por arquivo/página): caminho -> {página: (l,t,r,b) mm}.
         # Aplicado "assando" um PDF recortado em cache; o resto do fluxo não muda.
         self._page_crops: dict[str, dict[int, tuple]] = {}
+        # paginas escolhidas por PDF: caminho -> [indices 0-based]. Caminho
+        # ausente = TODAS (o padrao de sempre; so entra aqui quem escolheu).
+        self._file_pages: dict[str, list[int]] = {}
         self._baked_crops: dict = {}      # (caminho, assinatura) -> PDF recortado em cache
         self._crop_cache: dict[str, str] = {}  # PDF recortado -> caminho original
         # faca "pelo contorno" de PDF: detecta o contorno da página rasterizada.
@@ -2294,7 +2299,10 @@ class MainWindow(QMainWindow):
         quantities = self._quantities()
         rotation = self._rotation_value()
         files = [
-            ProjectFile(path=path, quantity=quantities.get(path, 1), rotation=rotation)
+            ProjectFile(
+                path=path, quantity=quantities.get(path, 1), rotation=rotation,
+                pages=list(self._file_pages.get(path, ())) or None,
+            )
             for path in self._paths
         ]
         settings = {key: getattr(self._settings, key) for key in PROJECT_SETTING_KEYS}
@@ -2425,11 +2433,14 @@ class MainWindow(QMainWindow):
         self._table.setRowCount(0)
         self._paths = []
         for pfile in files:
-            self.add_paths([pfile.path])
+            # abrir projeto NAO pergunta paginas: a escolha ja vem salva nele
+            self.add_paths([pfile.path], perguntar_paginas=False)
             row = self._table.rowCount() - 1
             spin = self._table.cellWidget(row, 1)
             if spin is not None:
                 spin.setValue(max(1, int(pfile.quantity)))
+            if pfile.pages:
+                self._file_pages[pfile.path] = list(pfile.pages)
             if not Path(pfile.path).exists():
                 self._mark_missing(row)
 
@@ -2507,6 +2518,7 @@ class MainWindow(QMainWindow):
         self._file_sizes = {}      # descarta tamanhos personalizados por arquivo
         self._piece_rotations = {}  # descarta giros por peça
         self._page_crops = {}      # descarta recortes de página
+        self._file_pages = {}      # descarta a escolha de páginas do PDF
         self._baked_crops = {}
         self._crop_cache = {}
         self._table.setRowCount(0)
@@ -3630,6 +3642,7 @@ class MainWindow(QMainWindow):
             "pixmaps": dict(self._pixmaps),
             "file_sizes": dict(self._file_sizes),
             "page_crops": {k: dict(v) for k, v in self._page_crops.items()},
+            "file_pages": {k: list(v) for k, v in self._file_pages.items()},
             "baked_crops": dict(self._baked_crops),
             "crop_cache": dict(self._crop_cache),
             "file_overrides": {k: dict(v) for k, v in self._file_overrides.items()},
@@ -3690,6 +3703,9 @@ class MainWindow(QMainWindow):
             self._pixmaps = dict(s["pixmaps"])
             self._file_sizes = dict(s["file_sizes"])
             self._page_crops = {k: dict(v) for k, v in s["page_crops"].items()}
+            self._file_pages = {
+                k: list(v) for k, v in s.get("file_pages", {}).items()
+            }
             self._baked_crops = dict(s["baked_crops"])
             self._crop_cache = dict(s["crop_cache"])
             self._file_overrides = {k: dict(v) for k, v in s["file_overrides"].items()}
@@ -3832,6 +3848,8 @@ class MainWindow(QMainWindow):
         self._view.library_drop.connect(self._on_library_drop)
         self._view.files_dropped.connect(self.add_paths)
         self._view.double_clicked.connect(self._on_canvas_double_click)
+        self._view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._view.customContextMenuRequested.connect(self._canvas_menu)
 
         work = QWidget()
         grid = QGridLayout(work)
@@ -4879,7 +4897,7 @@ class MainWindow(QMainWindow):
         self._btn_place.clicked.connect(self._place_selected_on_sheet)
         lay.addWidget(self._btn_place)
 
-        self._btn_crop = QPushButton("  Recortar páginas...")
+        self._btn_crop = QPushButton("  Recortar páginas ou imagem...")
         self._btn_crop.setIcon(icons.icon("replace", theme.ICON))
         self._btn_crop.setToolTip(
             "Corta as bordas do arquivo selecionado (PDF ou imagem): arraste as\n"
@@ -4887,6 +4905,15 @@ class MainWindow(QMainWindow):
         )
         self._btn_crop.clicked.connect(self._crop_pages_dialog)
         lay.addWidget(self._btn_crop)
+
+        self._btn_pages = QPushButton("  Páginas do PDF...")
+        self._btn_pages.setIcon(icons.icon("file-text", theme.ICON))
+        self._btn_pages.setToolTip(
+            "Escolhe QUAIS páginas do PDF vão para a área de trabalho:\n"
+            "uma, várias ou todas. Só vale para PDF com mais de uma página."
+        )
+        self._btn_pages.clicked.connect(self._pages_dialog_selected)
+        lay.addWidget(self._btn_pages)
 
         self._btn_remove = QPushButton("  Remover da biblioteca")
         self._btn_remove.setIcon(icons.icon("trash-2", theme.ICON))
@@ -6048,8 +6075,11 @@ class MainWindow(QMainWindow):
             self._settings.last_dir = str(Path(paths[0]).parent)
             self._store.save(self._settings)
 
-    def add_paths(self, paths: list[str]) -> None:
+    def add_paths(self, paths: list[str], *, perguntar_paginas: bool = True) -> None:
+        import os  # (o modulo importa 'os' localmente, como o resto da janela)
+
         self._mark_dirty()
+        novos_multipagina = []
         for path in paths:
             # arquivo JA na biblioteca: NAO cria linha duplicada — soma +1 na
             # quantidade da linha existente. Duas linhas do mesmo caminho
@@ -6074,6 +6104,21 @@ class MainWindow(QMainWindow):
             self._table.setCellWidget(row, 1, spin)
             self._table.setRowHeight(row, 52)  # linha com respiro (miniatura 44)
             self._paths.append(path)
+            if self._pdf_page_count(path) > 1:
+                novos_multipagina.append(path)
+        # PDF de varias paginas: pergunta QUAIS entram, na hora de soltar. Vem
+        # tudo marcado — dar OK sem mexer e o comportamento de sempre. Cancelar
+        # tambem mantem todas; ninguem fica preso no dialogo.
+        # A guarda de janela invisivel/pytest e a mesma do resto (abrir projeto
+        # e a suite carregam PDF de varias paginas; dialogo modal ali travaria).
+        if (
+            perguntar_paginas
+            and novos_multipagina
+            and self.isVisible()
+            and not os.environ.get("PYTEST_CURRENT_TEST")
+        ):
+            for path in novos_multipagina:
+                self._pages_dialog(path, ao_importar=True)
 
     @staticmethod
     def _file_type(path: str) -> str:
@@ -6131,6 +6176,10 @@ class MainWindow(QMainWindow):
                     )
                 if len(pages) > 1:
                     meta += f" · {len(pages)} pag"
+            escolhidas = self._file_pages.get(path)
+            if escolhidas:  # so aparece quando NAO e o PDF inteiro
+                total_pg = self._pdf_page_count(path)
+                meta += f" · {len(escolhidas)} de {total_pg} pág."
             item.setText(f"{Path(path).name}\n{meta}")
 
     def remove_selected(self) -> None:
@@ -6268,7 +6317,8 @@ class MainWindow(QMainWindow):
                 pm = QPixmap()
                 pm.loadFromData(data, "PNG")
                 if not pm.isNull():
-                    preview.set_page(pm, pm.width() * 25.4 / 110.0, pm.height() * 25.4 / 110.0)
+                    w_mm, h_mm = self._source_size_mm(path, pm)
+                    preview.set_page(pm, w_mm, h_mm)
             except Exception:
                 pass
             push_to_preview()
@@ -6314,6 +6364,158 @@ class MainWindow(QMainWindow):
         else:
             # sem produção carregada o bake ainda não rodou: só configurado
             self._toasts.success(f"Recorte configurado para {len(pages)} página(s)")
+
+    @staticmethod
+    def _pdf_page_count(path: str) -> int:
+        """Numero de paginas do PDF (0 se nao for PDF ou nao abrir)."""
+        if Path(path).suffix.lower() != ".pdf":
+            return 0
+        try:
+            import pypdfium2 as pdfium
+
+            doc = pdfium.PdfDocument(path)
+            total = len(doc)
+            doc.close()
+            return total
+        except Exception:
+            return 0
+
+    def _pages_dialog(self, path: str, *, ao_importar: bool = False) -> bool:
+        """Escolha de QUAIS paginas do PDF entram na area de trabalho.
+
+        Miniaturas com caixa de marcar + Todas/Nenhuma/Inverter. Devolve True
+        se o usuario confirmou. Vem tudo marcado, entao confirmar sem mexer =
+        comportamento de sempre (todas as paginas)."""
+        total = self._pdf_page_count(path)
+        if total <= 1:
+            return False
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Páginas — {Path(path).name}")
+        dlg.resize(720, 540)
+        root = QVBoxLayout(dlg)
+        topo = QLabel(
+            f"{total} páginas. Marque as que vão para a área de trabalho."
+            if not ao_importar else
+            f"Este PDF tem {total} páginas. Marque as que você quer usar."
+        )
+        topo.setProperty("role", "caption")
+        root.addWidget(topo)
+
+        lista = QListWidget()
+        lista.setViewMode(QListWidget.IconMode)
+        lista.setIconSize(QSize(110, 150))
+        lista.setGridSize(QSize(130, 190))
+        lista.setResizeMode(QListWidget.Adjust)
+        lista.setMovement(QListWidget.Static)
+        lista.setSelectionMode(QListWidget.NoSelection)
+        lista.setSpacing(4)
+        escolhidas = set(self._file_pages.get(path, range(total)))
+        for pg in range(total):
+            item = QListWidgetItem(f"{pg + 1}")
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if pg in escolhidas else Qt.Unchecked)
+            item.setData(Qt.UserRole, pg)
+            with contextlib.suppress(Exception):
+                data = self._renderer.render_png(
+                    path, pg, dpi=26, box=self._import_box.currentData()
+                )
+                pm = QPixmap()
+                pm.loadFromData(data, "PNG")
+                if not pm.isNull():
+                    item.setIcon(QIcon(pm))
+            lista.addItem(item)
+        root.addWidget(lista, 1)
+
+        def marcar(estado) -> None:
+            for i in range(lista.count()):
+                lista.item(i).setCheckState(estado)
+
+        def inverter() -> None:
+            for i in range(lista.count()):
+                it = lista.item(i)
+                it.setCheckState(
+                    Qt.Unchecked if it.checkState() == Qt.Checked else Qt.Checked
+                )
+
+        linha = QHBoxLayout()
+        for texto, fn in (
+            ("Todas", lambda: marcar(Qt.Checked)),
+            ("Nenhuma", lambda: marcar(Qt.Unchecked)),
+            ("Inverter", inverter),
+        ):
+            b = QPushButton(texto)
+            b.clicked.connect(fn)
+            linha.addWidget(b)
+        linha.addStretch()
+        root.addLayout(linha)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        root.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return False
+
+        marcadas = [
+            lista.item(i).data(Qt.UserRole)
+            for i in range(lista.count())
+            if lista.item(i).checkState() == Qt.Checked
+        ]
+        if not marcadas:
+            self._toasts.info("Marque ao menos uma página.")
+            return False
+        self._set_file_pages(path, marcadas, total)
+        return True
+
+    def _set_file_pages(self, path: str, marcadas: list[int], total: int) -> None:
+        """Grava a escolha (ou apaga, se for tudo) e regenera se ja havia produção."""
+        if len(marcadas) >= total:
+            mudou = self._file_pages.pop(path, None) is not None
+        else:
+            mudou = self._file_pages.get(path) != marcadas
+            self._file_pages[path] = marcadas
+        self._refresh_library_metadata()
+        if mudou and self._loaded:
+            self.generate(blocking=True)
+        if mudou:
+            self._dirty = True
+
+    def _pages_dialog_selected(self) -> None:
+        """Botao 'Páginas...' da biblioteca: age no arquivo selecionado."""
+        row = self._table.currentRow()
+        if row < 0 or row >= len(self._paths):
+            QMessageBox.information(self, "PrintNest", "Selecione um arquivo na biblioteca.")
+            return
+        path = self._paths[row]
+        if self._pdf_page_count(path) <= 1:
+            self._toasts.info("Só faz sentido em PDF com mais de uma página.")
+            return
+        self._pages_dialog(path)
+
+    def _source_size_mm(self, path: str, preview_pm) -> tuple[float, float]:
+        """Tamanho FISICO (mm) do arquivo, do jeito que ele entra na chapa.
+
+        O dialogo de recorte trabalha em mm, entao ele precisa do mesmo tamanho
+        que o importador usa — senao cada mm digitado corta um tanto diferente.
+
+        Em PDF os dois batem: o renderizador escala os pontos por dpi/72, entao
+        px*25.4/dpi da o tamanho certo. Em IMAGEM, nao: o renderizador trata
+        1px como 1pt (comportamento antigo, mantido para os previews), enquanto
+        o importador usa o DPI do arquivo. Num PNG de 96dpi isso dava uma
+        pagina 1,333x maior no dialogo (800x1000px viravam 282x353mm em vez de
+        212x265mm) e o recorte saia MUITO maior do que o desenhado."""
+        if Path(path).suffix.lower() != ".pdf":
+            with contextlib.suppress(Exception):
+                from PIL import Image
+
+                with Image.open(path) as im:
+                    w_px, h_px = im.size
+                dpi = Cv2ImageImporter._read_dpi(path)  # mesma regra do importador
+                return w_px / dpi * 25.4, h_px / dpi * 25.4
+        return preview_pm.width() * 25.4 / 110.0, preview_pm.height() * 25.4 / 110.0
 
     def _clear_page_crop(self, path: str) -> None:
         self._page_crops.pop(path, None)
@@ -6592,6 +6794,14 @@ class MainWindow(QMainWindow):
         ignore_white = self._auto_ignore_white.isChecked()
         self._fit_next = True  # ajusta o zoom uma vez após gerar
         eff_paths = [self._effective_path(p) for p in target_paths]  # recorte quando houver
+        # paginas escolhidas: o filtro e por caminho EFETIVO (o PDF recortado em
+        # cache), que e o que o pipeline recebe
+        pages_map = {
+            eff: list(self._file_pages[orig])
+            for orig, eff in zip(target_paths, eff_paths, strict=False)
+            if orig in self._file_pages
+        }
+        pages_map = pages_map or None
 
         if blocking:
             # QA A14: PDF ruim (0 bytes/corrompido/sem páginas) estourava a
@@ -6600,6 +6810,7 @@ class MainWindow(QMainWindow):
                 result = self._pipeline.execute(
                     eff_paths, material, offset, sheet_height, box,
                     sensitivity=sensitivity, ignore_white=ignore_white,
+                    pages=pages_map,
                 )
                 unique = sorted(set(result.sources.values()))
                 png_map = {key: self._renderer.render_png(key[0], key[1], box=box) for key in unique}
@@ -6614,6 +6825,7 @@ class MainWindow(QMainWindow):
         self._worker = ProductionWorker(
             self._pipeline, self._renderer, eff_paths,
             material, offset, sheet_height, box, sensitivity, ignore_white,
+            pages_map,
         )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
@@ -7371,6 +7583,113 @@ class MainWindow(QMainWindow):
         before_state, after_state = (before, arts), (after, arts)
         self._result = ProductionResult(sheets=after, artworks=arts, sources=self._sources)
         self._undo.push(SnapshotCommand(self, before_state, after_state, text))
+
+    # ---- menu de botao direito no canvas ----
+    def _canvas_menu(self, pos) -> None:
+        """Menu do botao direito na area de trabalho.
+
+        Clicar com o direito numa peca que NAO esta selecionada passa a
+        seleção para ela (comportamento de todo editor grafico): o que o menu
+        oferece e sempre o que voce esta vendo marcado."""
+        cena = self._view.mapToScene(pos)
+        alvo = None
+        for it in self._scene.items(cena):
+            if isinstance(it, PieceItem):
+                alvo = it
+                break
+        if alvo is not None and not alvo.isSelected():
+            self._scene.clearSelection()
+            alvo.setSelected(True)
+        menu = self._build_canvas_menu()
+        menu.exec(self._view.viewport().mapToGlobal(pos))
+
+    def _build_canvas_menu(self) -> QMenu:
+        """Monta o menu conforme a seleção (separado do exec: da para testar)."""
+        sel = self._selected_pieces()
+        menu = QMenu(self._view)
+
+        if sel:
+            path = self._path_of(sel[0].artwork_id)
+            nome = Path(path).name if path else "arquivo"
+            e_pdf = bool(path) and Path(path).suffix.lower() == ".pdf"
+            rotulo = "Recortar páginas..." if e_pdf else "Recortar imagem..."
+            act = menu.addAction(icons.icon("replace", theme.ICON), f"{rotulo}  ({nome})")
+            act.setEnabled(bool(path))
+            act.triggered.connect(lambda: self._crop_from_canvas(path))
+            if e_pdf and self._pdf_page_count(path) > 1:
+                menu.addAction(
+                    icons.icon("file-text", theme.ICON), "Escolher páginas do PDF...",
+                ).triggered.connect(lambda: self._pages_dialog(path))
+            menu.addSeparator()
+            menu.addAction(
+                icons.icon("copy", theme.ICON), "Duplicar\tCtrl+D",
+            ).triggered.connect(self._duplicate_selected)
+            menu.addAction(
+                icons.icon("rotate-ccw", theme.ICON), "Girar 90° à esquerda",
+            ).triggered.connect(lambda: self._rotate_selected(-90))
+            menu.addAction(
+                icons.icon("rotate-cw", theme.ICON), "Girar 90° à direita",
+            ).triggered.connect(lambda: self._rotate_selected(90))
+            menu.addSeparator()
+            if len(sel) > 1:
+                menu.addAction(
+                    icons.icon("group", theme.ICON), "Agrupar",
+                ).triggered.connect(self._group_selected)
+            if any(isinstance(it, QGraphicsItemGroup) for it in self._scene.selectedItems()):
+                menu.addAction(
+                    icons.icon("ungroup", theme.ICON), "Desagrupar",
+                ).triggered.connect(self._ungroup_selected)
+            menu.addAction(
+                icons.icon("align-vertical-justify-start", theme.ICON),
+                "Trazer para frente",
+            ).triggered.connect(self._bring_to_front)
+            menu.addAction(
+                icons.icon("align-vertical-justify-end", theme.ICON),
+                "Enviar para trás",
+            ).triggered.connect(self._send_to_back)
+            menu.addSeparator()
+            if path:
+                menu.addAction(
+                    icons.icon("layers", theme.ICON),
+                    "Selecionar todas as peças deste arquivo",
+                ).triggered.connect(lambda: self._select_same_file(path))
+            menu.addAction(
+                icons.icon("trash-2", theme.ICON), "Excluir da chapa\tDel",
+            ).triggered.connect(self._delete_selected)
+        else:
+            # clique no vazio: acoes da chapa
+            menu.addAction(
+                icons.icon("grid-3x3", theme.ICON), "Organizar (re-encaixar)",
+            ).triggered.connect(self._organize)
+            menu.addAction(
+                icons.icon("layers", theme.ICON), "Selecionar tudo\tCtrl+A",
+            ).triggered.connect(self._select_all)
+            menu.addAction(
+                icons.icon("maximize", theme.ICON), "Ajustar à tela",
+            ).triggered.connect(self._fit_view)
+        return menu
+
+    def _crop_from_canvas(self, path: str | None) -> None:
+        """'Recortar' pelo menu da peca: seleciona o arquivo dela na biblioteca
+        e abre o MESMO dialogo do botao (uma logica de recorte so)."""
+        if not path:
+            return
+        for row, p in enumerate(self._paths):
+            if p == path:
+                self._table.setCurrentCell(row, 0)
+                break
+        else:
+            self._toasts.info("Arquivo não está mais na biblioteca.")
+            return
+        self._crop_pages_dialog()
+
+    def _select_same_file(self, path: str) -> None:
+        """Marca todas as pecas que vieram do mesmo arquivo (util para aplicar
+        giro/duplicar/excluir de uma vez)."""
+        alvos = {
+            b.id for b in self._base_artworks if self._path_of(b.id) == path
+        }
+        self._batch_select(lambda piece: piece.artwork_id in alvos)
 
     def _group_selected(self) -> None:
         items = [it for it in self._scene.selectedItems() if isinstance(it, PieceItem)]
