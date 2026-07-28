@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import math
 import tempfile
 from contextlib import contextmanager
 from dataclasses import replace
@@ -1439,6 +1440,85 @@ def _guard_export(method):
     return wrapper
 
 
+# célula da âncora: 18px é o menor corpo em que as setas diagonais ainda se
+# leem (a 14px a ponta some no antialiasing e vira um risco)
+ANCHOR_CELL = 18
+ANCHOR_GAP = 3
+
+
+class AnchorCell(QPushButton):
+    """Célula da AnchorGrid: a caixinha vem do stylesheet, a seta é pintada aqui.
+
+    A seta é desenhada numa caixa normalizada de 24 unidades e escalada para o
+    tamanho da célula — assim o desenho fica igual em qualquer tamanho e sai
+    limpo mesmo nos 14px do painel (glifo de fonte nesse corpo vira borrão)."""
+
+    def __init__(self, col: int, row: int) -> None:
+        super().__init__()
+        self._c, self._r = col, row
+        self._center = col == 1 and row == 1
+        self.setObjectName("anchorMid" if self._center else "anchorDot")
+        self.setCheckable(True)
+        self.setFixedSize(ANCHOR_CELL, ANCHOR_CELL)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def enterEvent(self, event) -> None:  # repinta a seta no hover
+        super().enterEvent(event)
+        self.update()
+
+    def leaveEvent(self, event) -> None:
+        super().leaveEvent(event)
+        self.update()
+
+    def _ink(self) -> QColor:
+        if self.isChecked():
+            return QColor("#ffffff")
+        if self.underMouse():
+            return QColor(theme.ACCENT)
+        return QColor(theme.TEXT_MUTED)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)  # caixa/borda/fundo pelo stylesheet
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        p.translate(rect.center().x() + 0.5, rect.center().y() + 0.5)
+        p.scale(rect.width() / 24.0, rect.height() / 24.0)
+        ink = self._ink()
+        if self._center:
+            # centro não tem sentido: marca de "usa o X/Y digitado"
+            p.setPen(Qt.NoPen)
+            p.setBrush(ink)
+            p.drawEllipse(QPointF(0.0, 0.0), 3.2, 3.2)
+            p.end()
+            return
+        dx, dy = self._c - 1, self._r - 1
+        length = math.hypot(dx, dy)
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux  # perpendicular, para a base da ponta
+        # ponta comprida e haste curta: a 14px uma seta "normal" perde a cabeça
+        # no antialiasing e vira um risco sem sentido (pior nas diagonais)
+        tip = QPointF(ux * 5.6, uy * 5.6)
+        base = QPointF(ux * 0.4, uy * 0.4)
+        pen = QPen(ink)
+        pen.setWidthF(2.4)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(-ux * 5.0, -uy * 5.0), base)
+        p.setPen(Qt.NoPen)
+        p.setBrush(ink)
+        p.drawPolygon(
+            QPolygonF(
+                [
+                    tip,
+                    QPointF(base.x() + px * 3.2, base.y() + py * 3.2),
+                    QPointF(base.x() - px * 3.2, base.y() - py * 3.2),
+                ]
+            )
+        )
+        p.end()
+
+
 class AnchorGrid(QWidget):
     """Grade 3x3 de direção (estilo CorelDRAW): clicar num sentido preenche o
     X/Y do duplicar com o tamanho da peça naquele eixo (cópia encostada). Emite
@@ -1451,30 +1531,40 @@ class AnchorGrid(QWidget):
         self._col, self._row = 1, 1  # centro
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(3)
+        grid.setSpacing(ANCHOR_GAP)
         self._btns = {}
         for r in range(3):
             for c in range(3):
-                b = QPushButton()
-                b.setObjectName("anchorDot")
-                b.setCheckable(True)
-                b.setFixedSize(14, 14)
-                b.setCursor(Qt.PointingHandCursor)
+                b = AnchorCell(c, r)
                 b.clicked.connect(lambda _=False, cc=c, rr=r: self._pick(cc, rr))
                 self._btns[(c, r)] = b
                 grid.addWidget(b, r, c)
         self._btns[(1, 1)].setChecked(True)
-        # trava o tamanho: 3x14 + 2x3 de espaco = 48px (senao a grade estica na
+        # trava o tamanho: 3 celulas + 2 espacos (senao a grade estica na
         # vertical ao lado dos campos X/Y e fica com aparencia bugada)
-        self.setFixedSize(48, 48)
+        side = ANCHOR_CELL * 3 + ANCHOR_GAP * 2
+        self.setFixedSize(side, side)
         self.setToolTip(
-            "Direção da cópia (estilo Corel): clique num sentido (→ ↓ etc.) e o\n"
-            "X/Y é preenchido com o tamanho da peça — a cópia sai encostada.\n"
-            "Depois ajuste X/Y para dar folga. Centro: usa o X/Y que você digitar."
+            "Direção da cópia (estilo Corel): clique numa seta e o X/Y é\n"
+            "preenchido com o tamanho da peça — a cópia sai encostada naquele\n"
+            "sentido. Depois ajuste X/Y para dar folga.\n"
+            "Centro (ponto): usa o X/Y que você digitar."
         )
         self.setStyleSheet(
-            "#anchorDot{border:1.5px solid #c7cdd8; border-radius:3px; background:#ffffff;}"
-            "#anchorDot:checked{background:#2563eb; border-color:#2563eb;}"
+            # o QSS global de QPushButton traz padding 7x16 + min-height 22 (=38px
+            # de altura). No Qt o min do stylesheet ganha do setFixedSize, entao as
+            # celulas saiam 18x38, sobrepostas — tem que zerar aqui.
+            # (o box do QSS mede o conteudo: desconta a borda dos dois lados)
+            f"#anchorDot,#anchorMid{{padding:0; margin:0;"
+            f" min-width:{ANCHOR_CELL - 2}px; max-width:{ANCHOR_CELL - 2}px;"
+            f" min-height:{ANCHOR_CELL - 2}px; max-height:{ANCHOR_CELL - 2}px;"
+            f" border:1px solid {theme.BORDER};"
+            f" border-radius:3px; background:{theme.SURFACE};}}"
+            f"#anchorMid{{background:{theme.SURFACE_ALT};}}"
+            f"#anchorDot:hover,#anchorMid:hover{{border-color:{theme.BORDER_STRONG};"
+            f" background:{theme.ACCENT_SOFT};}}"
+            f"#anchorDot:checked,#anchorMid:checked{{background:{theme.ACCENT};"
+            f" border-color:{theme.ACCENT};}}"
         )
 
     def _pick(self, c: int, r: int) -> None:
@@ -2325,8 +2415,7 @@ class MainWindow(QMainWindow):
         self._base_artworks = []
         self._sources = {}
         self._pixmaps = {}
-        self._piece_items = []
-        self._scene.clear()
+        self._clear_scene(notify=True)
         self._undo.clear()
         self._set_exports_enabled(False)
         self._status.setText("")
@@ -3620,9 +3709,7 @@ class MainWindow(QMainWindow):
         if self._result is not None:
             self._draw_preview()
         else:
-            self._piece_items = []
-            self._decor_items = []
-            self._scene.clear()
+            self._clear_scene(notify=True)
         self._update_property_bar()
         self._update_title()
         self._set_exports_enabled(self._result is not None)
@@ -4148,17 +4235,27 @@ class MainWindow(QMainWindow):
 
     def _on_anchor_direction(self, col: int, row: int) -> None:
         """Grade de âncora (estilo Corel): clicar num sentido preenche X/Y com o
-        TAMANHO da peça selecionada naquele eixo — a cópia sai ENCOSTADA no
-        sentido escolhido (→ ao lado, ↓ abaixo...). O usuário ajusta X/Y para
-        dar folga. Centro (1,1) não mexe nos valores."""
+        TAMANHO da SELEÇÃO naquele eixo — a cópia sai ENCOSTADA no sentido
+        escolhido (→ ao lado, ↓ abaixo...). O usuário ajusta X/Y para dar folga.
+        Centro (1,1) não mexe nos valores.
+
+        O passo é a caixa do conjunto, não a da primeira peça: com 3 peças
+        selecionadas lado a lado, → tem que pular as 3 (senão a cópia cai em
+        cima das outras duas)."""
         dirx, diry = col - 1, row - 1
         if not (dirx or diry):
             return
         sel = self._selected_pieces()
         if not sel:
             return
-        self._td_x.setValue(dirx * sel[0].rect().width())
-        self._td_y.setValue(diry * sel[0].rect().height())
+        # coordenadas de layout (sem o deslocamento do bloco): na tela dividida
+        # a mesma peça aparece na arte e na faca com dx diferente
+        x0 = min(p.scenePos().x() - p.dx for p in sel)
+        x1 = max(p.scenePos().x() - p.dx + p.rect().width() for p in sel)
+        y0 = min(p.scenePos().y() - p.dy for p in sel)
+        y1 = max(p.scenePos().y() - p.dy + p.rect().height() for p in sel)
+        self._td_x.setValue(dirx * (x1 - x0))
+        self._td_y.setValue(diry * (y1 - y0))
 
     def _preview_duplicate(self) -> None:
         self._transform_mode = "dup"
@@ -4240,6 +4337,9 @@ class MainWindow(QMainWindow):
             self._add_placed(add, text="duplicar (transformar)")
         finally:
             self._suppress_ghost = False
+        # fantasma do PRÓXIMO passo: clicando Aplicar em cadeia da pra ver onde
+        # a próxima cópia cai antes de clicar
+        self._refresh_transform_preview()
         self._toasts.success(f"{len(sel)} peça(s) x {copies} cópia(s)")
 
     def _apply_transform_grid(self) -> None:
@@ -6051,9 +6151,7 @@ class MainWindow(QMainWindow):
             # (senao _result fica desatualizado e o proximo drop/gerar não funciona).
             self._result = None
             self._loaded = False
-            self._scene.clear()
-            self._decor_items = []
-            self._piece_items = []
+            self._clear_scene(notify=True)  # nada sera redesenhado depois
             self._status_ctl.set_production(0, 0)
             self._alert.clear()
             # varredura 09/07: sem isto a barra Faca ficava visível sem nenhum
@@ -6716,7 +6814,7 @@ class MainWindow(QMainWindow):
                 if it.artwork_id in by_id
             ]
         if not instances:
-            self._scene.clear()
+            self._clear_scene(notify=True)
             self._alert.show_message(
                 AlertLevel.WARNING, "Nenhuma peça (verifique as quantidades)."
             )
@@ -6874,27 +6972,59 @@ class MainWindow(QMainWindow):
         y = p.scenePos().y() - p.dy
         return (p.sheet_index, p.artwork_id, round(x, 1), round(y, 1))
 
-    def _draw_preview(self) -> None:
-        # guarda a seleção para restaurar após o redesenho (continuar empurrando
-        # com as setas, desfazer/refazer sem perder o que estava selecionado).
-        selected_keys = {
-            self._piece_sel_key(p) for p in self._piece_items if p.isSelected()
-        }
+    def _clear_scene(self, *, notify: bool = False) -> None:
+        """Esvazia a cena SEM deixar wrapper Python apontando para item morto.
+
+        scene.clear() destroi os QGraphicsItem do lado C++. Dois jeitos de isso
+        virar heap corruption (0xc0000374 — o Windows mata o processo na hora,
+        sem traceback nenhum, foi o que derrubou o app ao excluir arquivo da
+        biblioteca):
+
+        1. alguma lista nossa continuar segurando os itens destruidos: quando o
+           wrapper e coletado o PySide tenta deletar de novo. So o _draw_preview
+           zerava tudo; os outros scene.clear() deixavam fantasmas, alças e a
+           lista de objetos apontando para lixo.
+        2. o clear() emite selectionChanged NO MEIO da destruicao; o nosso
+           handler responde criando alças/fantasmas dentro de uma cena que esta
+           sendo esvaziada — itens que nascem ja condenados. Por isso os sinais
+           ficam bloqueados durante o clear.
+
+        notify=True roda o handler UMA vez depois, com a cena vazia e estavel
+        (para quem termina sem redesenhar nada). Todo scene.clear() desta janela
+        passa por aqui — nao chame direto."""
+        from PySide6.QtCore import QSignalBlocker
+
         self._piece_items = []
-        self._obj_rows = []  # evita referenciar peças deletadas no scene.clear()
-        self._guide_preview_item = None  # invalidado pelo scene.clear()
+        self._obj_rows = []
+        self._guide_preview_item = None
         # itens decorativos (chapa branca, marcas, linhas de corte): precisam de
         # referência Python, senao o PySide os coleta e o Qt remove o item orfao
         # durante o laco de seleção (a chapa "sumia" ao clicar no vazio).
         self._decor_items = []
-        self._ghost_items = []  # scene.clear() apaga os fantasmas; zera as refs
-        self._resize_handles = []  # idem para as alças de redimensionar
-        self._node_handles = []    # e as alças de nó (Pontos)
+        self._ghost_items = []
+        self._resize_handles = []
+        self._node_handles = []
         self._resize_preview = None
+        with QSignalBlocker(self._scene):
+            self._scene.clear()
+        if notify:
+            self._on_selection_changed()
+
+    def _draw_preview(self) -> None:
+        # guarda a seleção para restaurar após o redesenho (continuar empurrando
+        # com as setas, desfazer/refazer sem perder o que estava selecionado).
+        # (pela SELEÇÃO da cena, não por _piece_items: em tela dividida/só-corte
+        # as peças não são interativas e ficam fora da lista — a seleção se
+        # perdia). Guardar so os NUMEROS: manter wrapper de item vivo depois do
+        # clear e receita de heap corruption (o PySide deleta de novo ao coletar).
+        antes = self._selected_pieces()
+        selected_keys = {self._piece_sel_key(p) for p in antes}
+        prefer_dx = min((p.dx for p in antes), default=None)
+        del antes  # nenhum wrapper de item atravessa o clear abaixo
         # NAO limpa o histórico aqui: senao excluir/duplicar/desfazer (que
         # redesenham) apagariam o próprio comando. O reset do histórico acontece
         # só quando o arranjo e regenerado (em _relayout).
-        self._scene.clear()
+        self._clear_scene()
         if self._result is None:
             return
         mode = self._view_mode.currentData()
@@ -6937,7 +7067,7 @@ class MainWindow(QMainWindow):
             # densidade/largura na aba Documento não pode jogar para a aba Peça).
             self._keep_tab = True
             try:
-                for p in self._piece_items:
+                for p in self._scene_pieces(prefer_dx):
                     if self._piece_sel_key(p) in selected_keys:
                         p.setSelected(True)
             finally:
@@ -7375,6 +7505,10 @@ class MainWindow(QMainWindow):
         As peças novas viram a seleção (Ctrl+D/Ctrl+V em cadeia, como no Corel)."""
         if not add_by_sheet:
             return
+        # em qual bloco o usuário estava (arte ou faca, na tela dividida): a
+        # seleção nova tem que cair no mesmo lugar que ele esta olhando
+        blocos = [p.dx for p in self._selected_pieces()]
+        prefer_dx = min(blocos) if blocos else None
         before = self._snapshot_sheets()
         by_id = {a.id: a for a in self._result.artworks}
         fp_cache: dict = {}  # footprint por id (QA-07: não recalcular por peça)
@@ -7392,9 +7526,36 @@ class MainWindow(QMainWindow):
                 used = max(used, placed.position.y + (fp.max_y - fp.min_y))
             sheets.append(Layout(layout.material, items, used))
         self._commit_arrangement(before, sheets, text)
-        self._select_pieces_at(add_by_sheet)
+        self._select_pieces_at(add_by_sheet, prefer_dx)
 
-    def _batch_select(self, predicate) -> None:
+    def _scene_pieces(self, prefer_dx: float | None = None) -> list:
+        """Peças selecionaveis da cena — UMA por posição lógica, em qualquer modo.
+
+        _piece_items só guarda as peças ARRASTAVEIS: em tela dividida e em
+        só-corte elas nascem não-interativas e ficam de fora. Quem selecionava
+        por ali (duplicar, Ctrl+A, restaurar seleção pós-redesenho) simplesmente
+        não achava nada nesses modos — o 'Aplicar' duplicava e deixava a cópia
+        SEM seleção, obrigando a clicar na peça de novo a cada cópia.
+
+        Na tela dividida a mesma peça existe duas vezes (bloco da arte e bloco
+        da faca, com dx diferente): fica só uma — a do bloco em que o usuário ja
+        estava (prefer_dx), senão a da arte. Sem isso um duplicar viraria dois."""
+        best: dict[tuple, object] = {}
+        for it in self._scene.items():
+            if not isinstance(it, PieceItem):
+                continue
+            key = self._piece_sel_key(it)
+            cur = best.get(key)
+            if cur is None:
+                best[key] = it
+            elif prefer_dx is None:
+                if it.dx < cur.dx:
+                    best[key] = it
+            elif abs(it.dx - prefer_dx) < abs(cur.dx - prefer_dx):
+                best[key] = it
+        return list(best.values())
+
+    def _batch_select(self, predicate, prefer_dx: float | None = None) -> None:
         """Seleciona em LOTE com os sinais da cena bloqueados (QAX-04).
 
         Cada setSelected disparava _on_selection_changed inteiro (O(n)); em
@@ -7406,14 +7567,15 @@ class MainWindow(QMainWindow):
         try:
             with QSignalBlocker(self._scene):
                 self._scene.clearSelection()
-                for piece in self._piece_items:
+                for piece in self._scene_pieces(prefer_dx):
                     if predicate(piece):
                         piece.setSelected(True)
         except RuntimeError:
             return  # cena já destruída (fechando)
         self._on_selection_changed()
 
-    def _select_pieces_at(self, add_by_sheet: dict) -> None:
+    def _select_pieces_at(self, add_by_sheet: dict,
+                          prefer_dx: float | None = None) -> None:
         """Seleciona as peças recem-adicionadas (a cópia vira a nova seleção)."""
         targets = {
             (idx, p.artwork_id, round(p.position.x, 2), round(p.position.y, 2))
@@ -7428,7 +7590,13 @@ class MainWindow(QMainWindow):
                 round(piece.scenePos().y() - piece.dy, 2),
             ) in targets
 
-        self._batch_select(_alvo)
+        # a cópia virar seleção NÃO pode jogar o usuário para a aba Peça: ele
+        # esta no Documento > Posição, clicando Aplicar em cadeia (estilo Corel)
+        self._keep_tab = True
+        try:
+            self._batch_select(_alvo, prefer_dx)
+        finally:
+            self._keep_tab = False
 
     # ---- adicionar arquivo da biblioteca a produção já gerada (arrastar) ----
     def _place_selected_on_sheet(self) -> None:

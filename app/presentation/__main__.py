@@ -34,6 +34,22 @@ _FILE_EXTS = (".pdf", ".png", ".jpg", ".jpeg", ".webp")
 _SPLASH_MIN_MS = 3000
 
 
+_crash_file = None  # handle do crash.log: precisa viver enquanto o app viver
+
+
+def _enable_crash_log(logs_dir: Path) -> None:
+    """Grava a pilha Python em logs/crash.log quando o processo morre de forma
+    violenta (segfault / corrupcao de heap do lado Qt). Esses tombos fecham a
+    janela sem escrever NADA no printnest.log — sem isto so sobra o Visualizador
+    de Eventos do Windows, que nao diz em que ponto do codigo estavamos."""
+    global _crash_file
+    import faulthandler
+
+    with contextlib.suppress(OSError):
+        _crash_file = (logs_dir / "crash.log").open("a", buffering=1, encoding="utf-8")
+        faulthandler.enable(file=_crash_file, all_threads=True)
+
+
 def _file_args(argv: list[str]) -> list[str]:
     """Caminhos de arquivo passados na linha de comando (ignora flags)."""
     return [
@@ -109,6 +125,7 @@ def main() -> int:
     store = SettingsStore(paths.config_file)
     settings = store.load_or_create()
     setup_logging(settings.log_level, paths.logs_dir)
+    _enable_crash_log(paths.logs_dir)
 
     app = QApplication(sys.argv)
     # a splash NATIVA (descompactacao do exe) ja cumpriu o papel: a partir daqui

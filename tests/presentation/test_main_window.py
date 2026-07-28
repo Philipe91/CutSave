@@ -1067,7 +1067,8 @@ def test_transformar_gerar_grade(qapp, tmp_path):
 
 
 def test_transformar_preview_fantasma(qapp, tmp_path):
-    # Preview "fantasma" aparece na cena e some ao aplicar (vira peca real).
+    # Preview "fantasma" aparece na cena; ao aplicar ele vira peca real e o
+    # fantasma passa a mostrar o PROXIMO passo (Aplicar em cadeia, estilo Corel).
     src = _n_page_pdf(tmp_path, 1, name="tp")
     window = _window(tmp_path)
     window._width.setValue(3000)
@@ -1084,8 +1085,10 @@ def test_transformar_preview_fantasma(qapp, tmp_path):
     assert len(window._ghost_items) == 3  # 3 copias fantasma
 
     window._apply_transform_duplicate()
-    assert window._ghost_items == []  # aplicou -> fantasmas somem
     assert sum(s.item_count for s in window._result.sheets) == 4  # original + 3
+    # as 3 copias viram a selecao: o fantasma ja mostra o que o proximo
+    # Aplicar faria (3 copias para cada uma das 3 selecionadas)
+    assert len(window._ghost_items) == 9
 
 
 def test_excluir_ultima_peca_remove_da_tela(qapp, tmp_path):
