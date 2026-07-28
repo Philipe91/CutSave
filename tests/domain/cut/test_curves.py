@@ -61,6 +61,32 @@ def test_canto_em_L_preservado_no_meio_da_curva():
     assert seg_saida.is_line(tol=1e-6)
 
 
+def _pilula(largura=120.0, altura=55.0, passos=24):
+    """Retangulo arredondado tipo logo em pilula: duas retas longas emendadas
+    em semicirculos (o caso que dava BARRIGA na faca)."""
+    r = altura / 2.0
+    cx0, cx1 = r, largura - r
+    pts = []
+    for k in range(passos + 1):  # ponta direita
+        a = -math.pi / 2 + math.pi * k / passos
+        pts.append(Point2D(cx1 + r * math.cos(a), r + r * math.sin(a)))
+    for k in range(passos + 1):  # ponta esquerda
+        a = math.pi / 2 + math.pi * k / passos
+        pts.append(Point2D(cx0 + r * math.cos(a), r + r * math.sin(a)))
+    return pts
+
+
+def test_reta_longa_emendada_em_arco_nao_ganha_barriga():
+    # A junta reta/arco NAO e canto (vira poucos graus), entao a tangente da
+    # reta e puxada para o arco. Com a alca valendo corda/3, a corda longa
+    # multiplicava esse errinho e a reta estufava para fora (0,5mm num logo
+    # de 120mm). A alca limitada pelo vizinho curto mantem a reta reta.
+    poly = flatten(cubic_segments(_pilula()), max_dev_mm=0.02)
+    meio_da_reta = [p for p in poly if 35.0 < p.x < 85.0 and p.y < 5.0]
+    assert meio_da_reta  # a borda de cima foi amostrada
+    assert max(abs(p.y) for p in meio_da_reta) < 0.05  # antes: 0,53 mm
+
+
 def test_flatten_respeita_o_desvio():
     segs = cubic_segments(_polygon_circle())
     dense = flatten(segs, max_dev_mm=0.05)

@@ -22,6 +22,9 @@ from app.domain.geometry import Point2D
 
 # virada (graus) acima da qual o no e tratado como canto vivo
 CORNER_DEG = 32.0
+# desvio (mm) abaixo do qual o trecho e reto de verdade: os controles vao para
+# cima da corda, entao o exportador emite LINHA (nao spline) e o corte sai reto
+LINE_SNAP_MM = 0.02
 _EPS = 1e-9
 
 
@@ -93,17 +96,36 @@ def cubic_segments(
             m = _unit(a[0] + b[0], a[1] + b[1])
             tin[i] = tout[i] = m if m != (0.0, 0.0) else b
 
+    lens = [
+        math.hypot(pts[(i + 1) % n].x - pts[i].x, pts[(i + 1) % n].y - pts[i].y)
+        for i in range(n)
+    ]
     segments: list[BezierSegment] = []
     for i in range(n):
         j = (i + 1) % n
         a, b = pts[i], pts[j]
-        d = math.hypot(b.x - a.x, b.y - a.y) / 3.0
-        segments.append(BezierSegment(
-            a,
-            Point2D(a.x + tout[i][0] * d, a.y + tout[i][1] * d),
-            Point2D(b.x - tin[j][0] * d, b.y - tin[j][1] * d),
-            b,
-        ))
+        # a alca e limitada pelo MENOR trecho vizinho, nao so pela corda deste.
+        # Numa reta longa emendada num arco fino (pilula/retangulo arredondado)
+        # a junta nao vira canto — a virada la e de poucos graus — entao a
+        # tangente da reta e puxada para a direcao do arco. Com a alca valendo
+        # corda/3, essa corda longa multiplicava o errinho de angulo e a reta
+        # ganhava BARRIGA (65mm de reta emendada em arco de 7 graus: 0,5mm para
+        # fora). Limitando pelo vizinho curto, a alca encolhe junto e o trecho
+        # volta a ser reto. Em curva de verdade os vizinhos tem tamanho parecido
+        # e nada muda.
+        d_out = min(lens[i], lens[(i - 1) % n]) / 3.0
+        d_in = min(lens[i], lens[j]) / 3.0
+        c1 = Point2D(a.x + tout[i][0] * d_out, a.y + tout[i][1] * d_out)
+        c2 = Point2D(b.x - tin[j][0] * d_in, b.y - tin[j][1] * d_in)
+        if (
+            _dist_point_line(c1, a, b) <= LINE_SNAP_MM
+            and _dist_point_line(c2, a, b) <= LINE_SNAP_MM
+        ):
+            # sobrou so um resto de desvio: assume reta exata (corte reto, e o
+            # exportador escreve LINHA em vez de spline)
+            c1 = Point2D(a.x + (b.x - a.x) / 3.0, a.y + (b.y - a.y) / 3.0)
+            c2 = Point2D(b.x - (b.x - a.x) / 3.0, b.y - (b.y - a.y) / 3.0)
+        segments.append(BezierSegment(a, c1, c2, b))
     return segments
 
 
