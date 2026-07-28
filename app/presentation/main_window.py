@@ -1474,7 +1474,7 @@ class AnchorCell(QPushButton):
 
     def _ink(self) -> QColor:
         if self.isChecked():
-            return QColor("#ffffff")
+            return QColor(theme.ICON_ON_ACCENT)  # seta sobre o azul
         if self.underMouse():
             return QColor(theme.ACCENT)
         return QColor(theme.TEXT_MUTED)
@@ -1552,6 +1552,12 @@ class AnchorGrid(QWidget):
             "sentido. Depois ajuste X/Y para dar folga.\n"
             "Centro (ponto): usa o X/Y que você digitar."
         )
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        """(Re)pinta as caixinhas com o tema ATUAL. Folha de widget congela a
+        cor na montagem; sem reaplicar, a ancora ficava BRANCA no tema escuro.
+        (As setas nao precisam: sao pintadas com os tokens a cada paintEvent.)"""
         self.setStyleSheet(
             # o QSS global de QPushButton traz padding 7x16 + min-height 22 (=38px
             # de altura). No Qt o min do stylesheet ganha do setFixedSize, entao as
@@ -1603,7 +1609,8 @@ class StatTile(QFrame):
         chip.setObjectName("stChip")
         chip.setFixedSize(24, 24)
         chip.setAlignment(Qt.AlignCenter)
-        chip.setPixmap(icons.pixmap(icon_name, theme.ACCENT, 15))
+        self._icon_name = icon_name
+        self._chip = chip
         top.addStretch()
         top.addWidget(chip)
         self.value = StatValue("—")
@@ -1613,11 +1620,21 @@ class StatTile(QFrame):
         lay.addLayout(top)
         lay.addWidget(self.value)
         lay.addWidget(cap)
+        self.apply_theme()
+
+    def apply_theme(self) -> None:
+        """(Re)pinta com os tokens do tema ATUAL — o icone do chip junto.
+
+        As cores eram chumbadas (#f6f8fb / #e7eefc / #111827): no tema escuro os
+        quatro blocos do Resumo ficavam BRANCOS no meio do painel. Folha de
+        widget congela a cor na montagem, entao isto tem de ser chamado de novo
+        na troca de tema (MainWindow._on_theme_changed)."""
+        self._chip.setPixmap(icons.pixmap(self._icon_name, theme.ACCENT, 15))
         self.setStyleSheet(
-            "#statTile{background:#f6f8fb; border-radius:14px;}"
-            "#stVal{font-size:15px; font-weight:700; color:#111827;}"
-            "#stCap{font-size:10px; color:#9ca3af;}"
-            "#stChip{background:#e7eefc; border-radius:7px;}"
+            f"#statTile{{background:{theme.SURFACE_ALT}; border-radius:14px;}}"
+            f"#stVal{{font-size:15px; font-weight:700; color:{theme.TEXT};}}"
+            f"#stCap{{font-size:10px; color:{theme.TEXT_MUTED};}}"
+            f"#stChip{{background:{theme.ACCENT_SOFT}; border-radius:7px;}}"
         )
 
     def set_value(self, value: str) -> None:
@@ -1718,6 +1735,7 @@ class MainWindow(QMainWindow):
         self._selected_is_image = False
         self._pf_loading = False        # carregando controles da peça (não gravar)
         self._keep_tab = False          # não trocar de aba durante reselecao
+        self._clearing_scene = False    # dentro do scene.clear(): não reagir
         self._result: ProductionResult | None = None
         self._thread: QThread | None = None
         self._worker: ProductionWorker | None = None
@@ -2254,6 +2272,12 @@ class MainWindow(QMainWindow):
         rail = getattr(self, "_props_tabs", None)
         if rail is not None:
             rail.refresh_icons()
+        # folha de widget nao acompanha o tema sozinha: repinta quem tem a sua
+        self._apply_doc_tabs_theme()
+        self._apply_resumo_theme()
+        ancora = getattr(self, "_td_anchor", None)
+        if ancora is not None:
+            ancora.apply_theme()
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         """Arquivos do Explorer soltos em QUALQUER ponto da janela entram na
@@ -2433,8 +2457,7 @@ class MainWindow(QMainWindow):
         self._table.setRowCount(0)
         self._paths = []
         for pfile in files:
-            # abrir projeto NAO pergunta paginas: a escolha ja vem salva nele
-            self.add_paths([pfile.path], perguntar_paginas=False)
+            self.add_paths([pfile.path])
             row = self._table.rowCount() - 1
             spin = self._table.cellWidget(row, 1)
             if spin is not None:
@@ -4072,13 +4095,20 @@ class MainWindow(QMainWindow):
         for hidden in (img, avan):
             hidden.setVisible(False)
             dl.addWidget(hidden)
-        dl.addWidget(self._build_doc_nav(sections))
+        # abas + conteudo num bloco SEM espaco entre eles: e o encosto que faz
+        # a aba parecer aba (a folha continua a aba ativa, como num fichario).
+        aba_bloco = QWidget()
+        abl = QVBoxLayout(aba_bloco)
+        abl.setContentsMargins(0, 0, 0, 0)
+        abl.setSpacing(0)
+        abl.addWidget(self._build_doc_nav(sections))
         self._doc_sections = []
         for _label, card in sections:
             card._header.setVisible(False)  # o cabeçalho virou a sub-aba
-            card.setStyleSheet("#card{border:none; background:transparent;}")
             self._doc_sections.append(card)
-            dl.addWidget(card)
+            abl.addWidget(card)
+        self._apply_doc_tabs_theme()  # cores das abas + da folha
+        dl.addWidget(aba_bloco)
         self._show_doc_section(0)  # Produção ativa
         dl.addStretch()
         self._doc_widget = document  # usado pelo Modo Compacto p/ achar os campos
@@ -4609,6 +4639,10 @@ class MainWindow(QMainWindow):
         soltar a seleção volta para Documento."""
         if not hasattr(self, "_props_tabs"):
             return
+        if self._clearing_scene:
+            # a cena esta sendo destruida: responder agora criaria alças e
+            # fantasmas dentro dela, itens que ja nascem condenados
+            return
         try:
             selected = self._scene.selectedItems()
         except RuntimeError:  # cena já destruida (fechando a janela)
@@ -4979,7 +5013,7 @@ class MainWindow(QMainWindow):
         htop.setContentsMargins(0, 0, 0, 0)
         hchip = QLabel()
         hchip.setAlignment(Qt.AlignCenter)
-        hchip.setPixmap(icons.pixmap("layers", "#ffffff", 16))
+        hchip.setPixmap(icons.pixmap("layers", theme.ICON_ON_ACCENT, 16))
         htop.addStretch()
         htop.addWidget(hchip)
         self._sum_material = StatValue("—")
@@ -5000,14 +5034,9 @@ class MainWindow(QMainWindow):
         hl.addWidget(self._sum_area)
         hl.addWidget(acap)
         hl.addStretch()
-        hero.setStyleSheet(
-            "#statHero{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "stop:0 #2563eb, stop:1 #4f46e5); border-radius:15px;}"
-            "#heroVal{font-size:19px; font-weight:800; color:#ffffff;}"
-            "#heroVal2{font-size:15px; font-weight:800; color:#ffffff; margin-top:10px;}"
-            "#heroCap{font-size:10px; color:#dbe5ff;}"
-            "#heroDiv{background:#5f79ea; border:none; margin-top:12px;}"
-        )
+        self._sum_hero = hero
+        self._sum_hero_chip = hchip
+        self._sum_hero_div = hdiv
 
         # blocos neutros com ícone
         self._sum_pecas = StatTile("copy", "Peças")
@@ -5033,7 +5062,39 @@ class MainWindow(QMainWindow):
         bl.setContentsMargins(0, 0, 0, theme.SPACE_SM)
         bl.setSpacing(0)
         bl.addLayout(grid)
+        self._apply_resumo_theme()
         return box
+
+    def _apply_resumo_theme(self) -> None:
+        """(Re)pinta o Resumo com os tokens do tema ATUAL.
+
+        O bloco azul e os quatro neutros tinham cor chumbada (#2563eb/#4f46e5,
+        #f6f8fb, #111827...): no tema escuro viravam manchas claras no meio do
+        painel. Chamado na montagem e em _on_theme_changed."""
+        hero = getattr(self, "_sum_hero", None)
+        if hero is not None:
+            # o gradiente do herói sai do acento: escurece um pouco a segunda
+            # parada para manter o mesmo degradê em qualquer acento escolhido
+            fim = QColor(theme.ACCENT).darker(125).name()
+            self._sum_hero_chip.setPixmap(
+                icons.pixmap("layers", theme.ICON_ON_ACCENT, 16)
+            )
+            hero.setStyleSheet(
+                "#statHero{background:qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+                f"stop:0 {theme.ACCENT}, stop:1 {fim}); border-radius:15px;}}"
+                f"#heroVal{{font-size:19px; font-weight:800;"
+                f" color:{theme.ICON_ON_ACCENT};}}"
+                f"#heroVal2{{font-size:15px; font-weight:800;"
+                f" color:{theme.ICON_ON_ACCENT}; margin-top:10px;}}"
+                f"#heroCap{{font-size:10px; color:{theme.ACCENT_SOFT};}}"
+                f"#heroDiv{{background:{fim}; border:none; margin-top:12px;}}"
+            )
+        for tile in (
+            getattr(self, "_sum_pecas", None), getattr(self, "_sum_chapas", None),
+            getattr(self, "_sum_faca", None), getattr(self, "_sum_reg", None),
+        ):
+            if tile is not None:
+                tile.apply_theme()
 
     def _build_producao_card(self) -> CollapsibleCard:
         """Secao 1 - Produção (sempre aberta): o que se usa 95% do tempo."""
@@ -5428,13 +5489,21 @@ class MainWindow(QMainWindow):
         return labeled(label, widget)
 
     def _build_doc_nav(self, sections) -> QFrame:
-        """Barra de sub-abas (segmented control) do painel Documento — a aba
-        ativa fica AZUL. Substitui os cabeçalhos do acordeão (U1 passo 2)."""
+        """Barra de sub-abas do painel Documento, estilo ABA DE FICHARIO.
+
+        Antes era um segmento com a ativa pintada de azul: parecia um botao
+        solto, e o cliente nao percebia que Produção/Acabamento/Registro sao
+        abas (28/07). Agora cada uma tem forma de aba — canto redondo so em
+        cima, sem borda embaixo (encosta na folha) e uma LOMBADA de 3px no
+        topo: cinza parada, azul-claro no hover, azul na ativa. O hover e o
+        que responde antes do clique e diz "isto aqui e clicavel".
+
+        Cores por token do tema (o hardcode antigo quebrava nos temas escuros)."""
         bar = QFrame()
         bar.setObjectName("docNav")
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lay.setSpacing(3)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
         self._doc_nav_btns = []
         for i, (label, _card) in enumerate(sections):
             b = QPushButton(label)
@@ -5444,14 +5513,43 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda _=False, idx=i: self._show_doc_section(idx))
             self._doc_nav_btns.append(b)
             lay.addWidget(b, 1)
-        bar.setStyleSheet(
-            "#docNav{background:#f1f3f8; border-radius:13px;}"
-            "#docTab{border:none; background:transparent; border-radius:10px;"
-            " padding:8px 2px; font-size:11px; font-weight:600; color:#6b7280;}"
-            "#docTab:hover{color:#111827;}"
-            "#docTab:checked{background:#2563eb; color:#ffffff;}"
-        )
+        self._doc_nav_bar = bar
         return bar
+
+    def _apply_doc_tabs_theme(self) -> None:
+        """(Re)pinta as sub-abas e a folha com os tokens do tema ATUAL.
+
+        Folha de widget guarda a cor no momento em que e montada; o tema troca
+        ao vivo (claro/escuro/midnight/carbon). Sem reaplicar aqui, as abas e o
+        conteudo ficavam BRANCOS num tema escuro — a mancha clara no meio do
+        painel escuro. Chamado na montagem e em _on_theme_changed."""
+        bar = getattr(self, "_doc_nav_bar", None)
+        if bar is not None:
+            bar.setStyleSheet(
+                "#docNav{background:transparent;}"
+                f"#docTab{{background:{theme.SURFACE_ALT}; color:{theme.TEXT_SECONDARY};"
+                f" border:1px solid {theme.BORDER}; border-bottom:none;"
+                f" border-top:3px solid {theme.BORDER_STRONG};"
+                " border-top-left-radius:7px; border-top-right-radius:7px;"
+                " border-bottom-left-radius:0; border-bottom-right-radius:0;"
+                " padding:6px 2px 8px; font-size:11px; font-weight:600;}"
+                f"#docTab:hover{{border-top-color:{theme.ACCENT_SOFT};"
+                f" color:{theme.TEXT};}}"
+                f"#docTab:checked{{background:{theme.SURFACE};"
+                f" border-top-color:{theme.ACCENT}; color:{theme.ACCENT};"
+                " font-weight:700;}"
+            )
+        # a secao visivel e a FOLHA da aba: borda sem o topo (quem fecha em
+        # cima e a propria aba) e canto redondo so embaixo
+        folha = (
+            f"#card{{background:{theme.SURFACE};"
+            f" border:1px solid {theme.BORDER}; border-top:none;"
+            " border-top-left-radius:0; border-top-right-radius:0;"
+            f" border-bottom-left-radius:{theme.RADIUS_CARD}px;"
+            f" border-bottom-right-radius:{theme.RADIUS_CARD}px;}}"
+        )
+        for card in getattr(self, "_doc_sections", ()):
+            card.setStyleSheet(folha)
 
     def _show_doc_section(self, index: int) -> None:
         """Mostra só a seção `index` do painel Documento (recolhe as demais) e
@@ -6075,11 +6173,8 @@ class MainWindow(QMainWindow):
             self._settings.last_dir = str(Path(paths[0]).parent)
             self._store.save(self._settings)
 
-    def add_paths(self, paths: list[str], *, perguntar_paginas: bool = True) -> None:
-        import os  # (o modulo importa 'os' localmente, como o resto da janela)
-
+    def add_paths(self, paths: list[str]) -> None:
         self._mark_dirty()
-        novos_multipagina = []
         for path in paths:
             # arquivo JA na biblioteca: NAO cria linha duplicada — soma +1 na
             # quantidade da linha existente. Duas linhas do mesmo caminho
@@ -6104,21 +6199,9 @@ class MainWindow(QMainWindow):
             self._table.setCellWidget(row, 1, spin)
             self._table.setRowHeight(row, 52)  # linha com respiro (miniatura 44)
             self._paths.append(path)
-            if self._pdf_page_count(path) > 1:
-                novos_multipagina.append(path)
-        # PDF de varias paginas: pergunta QUAIS entram, na hora de soltar. Vem
-        # tudo marcado — dar OK sem mexer e o comportamento de sempre. Cancelar
-        # tambem mantem todas; ninguem fica preso no dialogo.
-        # A guarda de janela invisivel/pytest e a mesma do resto (abrir projeto
-        # e a suite carregam PDF de varias paginas; dialogo modal ali travaria).
-        if (
-            perguntar_paginas
-            and novos_multipagina
-            and self.isVisible()
-            and not os.environ.get("PYTEST_CURRENT_TEST")
-        ):
-            for path in novos_multipagina:
-                self._pages_dialog(path, ao_importar=True)
+        # Soltar o PDF na biblioteca NAO pergunta as paginas (decisao do Philipe
+        # 28/07): trazer o arquivo tem de ser um gesto so. Quem quiser escolher
+        # usa o botao "Páginas do PDF..." ou o menu do botao direito na peca.
 
     @staticmethod
     def _file_type(path: str) -> str:
@@ -6380,7 +6463,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return 0
 
-    def _pages_dialog(self, path: str, *, ao_importar: bool = False) -> bool:
+    def _pages_dialog(self, path: str) -> bool:
         """Escolha de QUAIS paginas do PDF entram na area de trabalho.
 
         Miniaturas com caixa de marcar + Todas/Nenhuma/Inverter. Devolve True
@@ -6394,11 +6477,7 @@ class MainWindow(QMainWindow):
         dlg.setWindowTitle(f"Páginas — {Path(path).name}")
         dlg.resize(720, 540)
         root = QVBoxLayout(dlg)
-        topo = QLabel(
-            f"{total} páginas. Marque as que vão para a área de trabalho."
-            if not ao_importar else
-            f"Este PDF tem {total} páginas. Marque as que você quer usar."
-        )
+        topo = QLabel(f"{total} páginas. Marque as que vão para a área de trabalho.")
         topo.setProperty("role", "caption")
         root.addWidget(topo)
 
@@ -7203,9 +7282,12 @@ class MainWindow(QMainWindow):
 
         notify=True roda o handler UMA vez depois, com a cena vazia e estavel
         (para quem termina sem redesenhar nada). Todo scene.clear() desta janela
-        passa por aqui — nao chame direto."""
-        from PySide6.QtCore import QSignalBlocker
+        passa por aqui — nao chame direto.
 
+        A trava do (2) e uma FLAG nossa, nao QSignalBlocker na cena: bloquear os
+        sinais da cena calava tambem os que o QGraphicsView usa por dentro para
+        invalidar o viewport — o fundo da chapa "abaixava" e so voltava ao
+        minimizar/maximizar a janela (repaint forcado)."""
         self._piece_items = []
         self._obj_rows = []
         self._guide_preview_item = None
@@ -7217,8 +7299,11 @@ class MainWindow(QMainWindow):
         self._resize_handles = []
         self._node_handles = []
         self._resize_preview = None
-        with QSignalBlocker(self._scene):
+        self._clearing_scene = True
+        try:
             self._scene.clear()
+        finally:
+            self._clearing_scene = False
         if notify:
             self._on_selection_changed()
 

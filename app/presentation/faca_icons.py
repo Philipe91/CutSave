@@ -153,7 +153,7 @@ def _mode_pixmap(mode: str, cut: str, muted: str, accent: str, size: int) -> QPi
         f.setPixelSize(int(badge_r * 1.5))
         f.setBold(True)
         p.setFont(f)
-        p.setPen(QColor("#FFFFFF"))
+        p.setPen(QColor(theme.ICON_ON_ACCENT))  # letra sobre o círculo do acento
         p.drawText(
             int(bx - badge_r), int(by - badge_r), int(badge_r * 2), int(badge_r * 2),
             Qt.AlignCenter, "A",
@@ -618,7 +618,7 @@ def _cartela_pixmap(kind: str, cut: str, muted: str, accent: str,
         for j in range(rows + 1):
             y = sy0 + gy + j * ch
             p.drawLine(QPointF(sx0, y), QPointF(sx0 + sw, y))
-        ink = QColor("#000000")
+        ink = QColor(theme.MARK)  # marca de registro: some no tema escuro se preta
         p.setPen(Qt.NoPen)
         p.setBrush(QBrush(ink))
         d = min(w, h) * 0.045
