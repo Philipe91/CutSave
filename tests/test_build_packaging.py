@@ -83,6 +83,24 @@ def test_spec_empacota_o_arquivo_de_exemplo_do_tutorial():
     assert "!assets/exemplo/*.pdf" in gitignore, "excecao do .gitignore sumiu"
 
 
+def test_build_bat_entrega_o_que_o_leia_me_promete():
+    """O LEIA-ME lista o conteudo da pasta para o cliente. Se o build.bat nao
+    copiar um desses arquivos, o cliente abre a pasta procurando algo que nao
+    esta la — foi o que aconteceu com o PDF de instalacao do CorelDRAW, que
+    existia no repo e nunca era empacotado.
+
+    Confere os ARQUIVOS DE ORIGEM e se o build.bat manda copiar cada um."""
+    bat = (ROOT / "build.bat").read_text(encoding="utf-8", errors="ignore")
+    for origem, marca in (
+        (ROOT / "docs" / "cliente" / "LEIA-ME.txt", "LEIA-ME.txt"),
+        (ROOT / "docs" / "cliente" / "PLUGIN-CORELDRAW.pdf", "PLUGIN-CORELDRAW.pdf"),
+        (ROOT / "corel" / "instalar_plugin_corel.bat", "instalar_plugin_corel.bat"),
+        (ROOT / "corel" / "GUIA-CLIENTE.md", "GUIA-CLIENTE.md"),
+    ):
+        assert origem.exists(), f"faltando no repo: {origem.name}"
+        assert marca in bat, f"build.bat nao copia {marca} para o pacote do cliente"
+
+
 def test_build_bat_gera_a_splash():
     bat = (ROOT / "build.bat").read_text(encoding="utf-8")
     assert "make_splash.py" in bat

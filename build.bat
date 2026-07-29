@@ -32,12 +32,19 @@ if exist "docs\build\VERSAO.txt" copy /y "docs\build\VERSAO.txt" PrintNest_Build
 REM manual "Tutor IA": o cliente joga este PDF na IA preferida (ChatGPT,
 REM Claude, Gemini...) e ela vira um tutor do PrintNest que tira duvidas
 ".venv\Scripts\python.exe" tools\make_tutor_pdf.py "PrintNest_Build\Tutor IA - PrintNest.pdf"
+REM LEIA-ME do cliente: e ele que explica o SmartScreen e lista o conteudo da
+REM pasta. Ficava de fora, e o cliente abria a pasta sem porta de entrada.
+copy /y docs\cliente\LEIA-ME.txt PrintNest_Build\LEIA-ME.txt >nul
 REM pacote do plugin CorelDRAW (instalador + macro + guia + icone do botao)
 mkdir "PrintNest_Build\Plugin CorelDRAW"
 copy /y corel\instalar_plugin_corel.bat "PrintNest_Build\Plugin CorelDRAW\" >nul
 copy /y corel\PrintNest.bas "PrintNest_Build\Plugin CorelDRAW\" >nul
 if exist corel\PrintNest.gms copy /y corel\PrintNest.gms "PrintNest_Build\Plugin CorelDRAW\" >nul
 copy /y corel\GUIA-CLIENTE.md "PrintNest_Build\Plugin CorelDRAW\GUIA-CLIENTE.txt" >nul
+REM guia ILUSTRADO de instalacao do plugin (PDF). O LEIA-ME promete este
+REM arquivo ao cliente e ele nunca era copiado: quem usa Corel recebia so o
+REM texto, sem as imagens do passo a passo.
+copy /y docs\cliente\PLUGIN-CORELDRAW.pdf "PrintNest_Build\Plugin CorelDRAW\" >nul
 copy /y assets\printnest_symbol.png "PrintNest_Build\Plugin CorelDRAW\" >nul
 REM carimba a data/hora REAL desta build no VERSAO.txt (identifica cada exe)
 echo.>> PrintNest_Build\VERSAO.txt

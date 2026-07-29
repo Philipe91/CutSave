@@ -17,14 +17,17 @@ O QUE TEM NESTA PASTA
 ---------------------
 - PrintNest.exe ............ o programa
 - LEIA-ME.txt .............. este arquivo
-- Plugin CorelDRAW (PDF) ... passo a passo ILUSTRADO para
-  criar o botão do PrintNest dentro do CorelDRAW
-  (instala em 2 minutos; leia antes de usar com o Corel)
-- PRINTNEST-MENTOR-IA.md ... seu PROFESSOR PARTICULAR:
+- Tutor IA - PrintNest.pdf . seu PROFESSOR PARTICULAR:
   envie este arquivo em um chat de IA (Claude, ChatGPT...)
   e aperte Enter. A IA vira um especialista do PrintNest
   na hora e responde qualquer dúvida sua, passo a passo.
   Pode perguntar em português, do básico ao avançado.
+- VERSAO.txt ............... qual versão você tem
+- README.txt ............... requisitos e detalhes técnicos
+- Plugin CorelDRAW\ ........ pasta do plugin, com o passo a
+  passo ILUSTRADO em PDF (PLUGIN-CORELDRAW.pdf) para criar
+  o botão do PrintNest dentro do CorelDRAW. Instala em 2
+  minutos; leia antes de usar com o Corel.
 
 PRIMEIRO TRABALHO EM 5 PASSOS
 -----------------------------
