@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QRect, QSettings, Qt
+from PySide6.QtCore import QEvent, QRect, QSettings, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QFrame,
@@ -50,12 +50,22 @@ def mark_tour_done() -> None:
 class TourOverlay(QWidget):
     """Véu escuro com "janela" iluminando o alvo + balão explicativo."""
 
-    def __init__(self, window: QWidget, steps: list[TourStep]) -> None:
+    def __init__(
+        self, window: QWidget, steps: list[TourStep], *, mark_done: bool = True
+    ) -> None:
         super().__init__(window)
         self._steps = [s for s in steps if s.target is None or s.target is not None]
         self._index = 0
+        # mark_done=False: os tutoriais do menu Tutoriais reusam este overlay mas
+        # NAO podem marcar o tour de boas-vindas como visto — quem abriu um
+        # tutorial de recurso continua recebendo o tour na primeira abertura.
+        self._mark_done = mark_done
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setGeometry(window.rect())
+        # o overlay e filho da janela, mas filho NAO acompanha o resize do pai
+        # sozinho: sem isto, redimensionar no meio do tour deixava o veu do
+        # tamanho antigo (faixa clara na borda e furo fora de lugar)
+        window.installEventFilter(self)
 
         # balão (card) com título, texto, progresso e botões
         self._card = QFrame(self)
@@ -104,9 +114,19 @@ class TourOverlay(QWidget):
         self._apply_step()
 
     def _finish(self) -> None:
-        mark_tour_done()
+        if self._mark_done:
+            mark_tour_done()
+        parent = self.parentWidget()
+        if parent is not None:
+            parent.removeEventFilter(self)
         self.hide()
         self.deleteLater()
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        """Acompanha o resize da janela (ver installEventFilter no __init__)."""
+        if obj is self.parentWidget() and event.type() == QEvent.Resize:
+            self.setGeometry(obj.rect())
+        return super().eventFilter(obj, event)
 
     # ---- desenho ----
     def _current_hole(self) -> QRect | None:

@@ -148,7 +148,15 @@ from app.domain.model.placement import PlacedItem
 from app.domain.nesting.max_rects import MaxRectsPacker
 from app.infrastructure.importers.cv2_image_importer import Cv2ImageImporter
 from app.infrastructure.importers.pdfium_vector_extractor import PdfiumVectorExtractor
-from app.presentation import faca_icons, icons, measurements, messages, theme, units
+from app.presentation import (
+    faca_icons,
+    icons,
+    measurements,
+    messages,
+    theme,
+    tutorials,
+    units,
+)
 from app.presentation.panels import ribbon as ribbon_panel
 from app.presentation.panels.status_bar import StatusBarController
 from app.presentation.widgets import (
@@ -2064,6 +2072,22 @@ class MainWindow(QMainWindow):
                              "Ativar / ver / transferir a licenca do PrintNest")
         tour = self._act("Tour de boas-vindas", lambda: self._start_tour(force=True),
                          None, "Reapresenta o guia passo a passo do programa")
+        # Menu Tutoriais: o tour de boas-vindas ensina o fluxo UMA vez; aqui
+        # cada entrada ensina um recurso sob demanda, para quem já usa e travou
+        # num ponto ("como faço a marca de registro?").
+        m_tut = bar.addMenu("&Tutoriais")
+        self._tutorial_actions = []
+        for label, icon_name, builder in tutorials.TUTORIAIS:
+            act = self._act(
+                label, functools.partial(self._start_tutorial, builder), None,
+                f"Guia rápido: {label}",
+            )
+            act.setIcon(icons.icon(icon_name))
+            m_tut.addAction(act)
+            self._tutorial_actions.append(act)
+        m_tut.addSeparator()
+        m_tut.addAction(tour)
+
         m_ajuda = bar.addMenu("A&juda")
         m_ajuda.addAction(tour)
         m_ajuda.addSeparator()
@@ -2263,6 +2287,23 @@ class MainWindow(QMainWindow):
             ),
         ]
         TourOverlay(self, steps)
+
+    def _start_tutorial(self, builder) -> None:
+        """Abre um tutorial do menu Tutoriais (guia curto de UM recurso).
+
+        mark_done=False: abrir um tutorial NAO pode marcar o tour de
+        boas-vindas como visto — quem nunca viu o tour continua recebendo ele
+        na proxima abertura."""
+        from app.presentation.onboarding import TourOverlay
+
+        # dois overlays empilhados deixariam o veu duplo e o balao velho
+        # capturando o clique; o novo tutorial substitui o anterior
+        anterior = getattr(self, "_tour_overlay", None)
+        if anterior is not None:
+            with contextlib.suppress(RuntimeError):  # ja destruido pelo Qt
+                anterior.hide()
+                anterior.deleteLater()
+        self._tour_overlay = TourOverlay(self, builder(self), mark_done=False)
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
