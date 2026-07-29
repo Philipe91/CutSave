@@ -71,6 +71,7 @@ def guiado(window) -> list[TourStep]:
             "O arquivo está na biblioteca, mas ainda não está na produção. "
             "Clique em Colocar na chapa.",
             espera=_sinal(window, "_btn_place", "clicked"),
+            preparar=_abrir_biblioteca(window),
         ),
         TourStep(
             w("_view"), "Duas peças de um arquivo só",
@@ -133,21 +134,33 @@ def _alvo(window, *names):
     return resolver
 
 
-def _botao_da_acao(window, name: str):
+def _menu(window, titulo: str):
+    """(barra de menus, retângulo do menu `titulo`), para apontar um CAMINHO.
+
+    Item de menu não é widget, então não dá para iluminar direto: isto ilumina
+    a fatia da barra onde aquele menu vive."""
+    barra = window.menuBar()
+    alvo = titulo.lower()
+    for act in barra.actions():
+        if act.text().replace("&", "").lower().startswith(alvo):
+            return barra, barra.actionGeometry(act)
+    return None
+
+
+def _botao_da_acao(window, name: str, menu: str = ""):
     """Função que devolve o botão da RIBBON que dispara aquela QAction.
 
-    Modo Corte e Centro de Exportação não moram em menu: são botões da barra
-    de cima. Procurar pela ação evita apontar um caminho que não existe. Este
-    tutorial chegou a mandar o usuário abrir "Ferramentas → Modo Corte", e o
-    Modo Corte nunca esteve nesse menu."""
+    Cai para o MENU quando o botão não está à vista: em monitor pequeno a barra
+    de cima joga os grupos que não cabem para dentro do "»", e o botão fica
+    escondido. Sem essa saída o tutorial apontava para o nada justamente em
+    quem mais precisa dele."""
     def resolver():
         acao = getattr(window, name, None)
-        if acao is None:
-            return None
-        for btn in window.findChildren(QToolButton):
-            if btn.defaultAction() is acao and btn.isVisible():
-                return btn
-        return None
+        if acao is not None:
+            for btn in window.findChildren(QToolButton):
+                if btn.defaultAction() is acao and btn.isVisible():
+                    return btn
+        return _menu(window, menu) if menu else None
     return resolver
 
 
@@ -173,8 +186,22 @@ def _abrir_documento(window, secao: int):
     """Abre a aba Documento na sub-aba pedida (0 Produção, 1 Acabamento,
     2 Registro), para o controle do passo estar na tela quando o balão apontar."""
     def preparar():
+        # o painel pode estar recolhido (F9/F11 ou tela estreita): sem
+        # reabrir, o balão apontaria para um controle que não está na tela
+        window._set_propriedades_visivel(True)
         window._props_tabs.setCurrentIndex(0)
         window._show_doc_section(secao)
+    return preparar
+
+
+def _abrir_biblioteca(window):
+    """Reabre a biblioteca antes de apontar para um botão que mora nela.
+
+    Em monitor estreito ela abre recolhida — e o passo pediria um clique num
+    botão invisível, que foi exatamente a reclamação de 28/07 ("só aparece a
+    mensagem, não mostra onde clicar")."""
+    def preparar():
+        window._set_biblioteca_visivel(True)
     return preparar
 
 
@@ -282,7 +309,7 @@ def _registro(window) -> list[TourStep]:
             "limpo.",
         ),
         TourStep(
-            _botao_da_acao(window, "_act_export_center"),
+            _botao_da_acao(window, "_act_export_center", "arquivo"),
             "Elas vão no arquivo exportado",
             "O PDF de impressão sai com as marcas impressas e o arquivo de "
             "corte sai com elas na mesma coordenada. É isso que casa os dois.\n\n"
@@ -300,7 +327,7 @@ def _modo_corte(window) -> list[TourStep]:
             "Vou te mostrar onde ele fica.",
         ),
         TourStep(
-            _botao_da_acao(window, "_act_modo_corte"), "O botão é este",
+            _botao_da_acao(window, "_act_modo_corte", "ferramentas"), "O botão é este",
             "Fica na barra de cima, no grupo Corte. Ele abre numa janela "
             "própria, separada da produção de impressão.",
         ),
@@ -314,7 +341,7 @@ def _modo_corte(window) -> list[TourStep]:
             "controladora espera.",
         ),
         TourStep(
-            _botao_da_acao(window, "_act_modo_corte"), "Abra agora",
+            _botao_da_acao(window, "_act_modo_corte", "ferramentas"), "Abra agora",
             "Clique no Modo Corte. O tutorial termina aqui, para você "
             "explorar a janela à vontade.",
             espera=_sinal_de_acao(window, "_act_modo_corte"),
@@ -328,17 +355,20 @@ def _paginas_e_recorte(window) -> list[TourStep]:
             _alvo(window, "_btn_pages"), "Escolher páginas do PDF",
             "PDF com 50 páginas e você só quer 3? Abra Páginas do PDF... e "
             "marque quais entram na produção. As outras nem são importadas.",
+            preparar=_abrir_biblioteca(window),
         ),
         TourStep(
             _alvo(window, "_btn_crop"), "Recortar bordas",
             "Recortar páginas ou imagem... corta as bordas em milímetros. "
             "Serve para tirar marcas de corte, sangria ou moldura que vieram "
             "no arquivo e não fazem parte da arte.",
+            preparar=_abrir_biblioteca(window),
         ),
         TourStep(
             _alvo(window, "_table"), "Botão direito na peça",
             "O menu do botão direito na peça (ou na linha da biblioteca) tem "
             "os mesmos atalhos, sem precisar procurar no painel.",
+            preparar=_abrir_biblioteca(window),
         ),
         TourStep(
             None, "O arquivo original nunca é alterado",
@@ -351,7 +381,7 @@ def _paginas_e_recorte(window) -> list[TourStep]:
 def _exportar(window) -> list[TourStep]:
     return [
         TourStep(
-            _botao_da_acao(window, "_act_export_center"), "O botão é este",
+            _botao_da_acao(window, "_act_export_center", "arquivo"), "O botão é este",
             "Fica na barra de cima, no grupo Exportar. Também está no menu "
             "Arquivo, e o atalho é Ctrl+E.\n\n"
             "Um lugar só para sair com tudo: escolha quais chapas exportar "
@@ -373,7 +403,7 @@ def _exportar(window) -> list[TourStep]:
             "útil para reposição sem refazer a chapa inteira.",
         ),
         TourStep(
-            _botao_da_acao(window, "_act_export_center"), "Abra agora",
+            _botao_da_acao(window, "_act_export_center", "arquivo"), "Abra agora",
             "Clique no Centro de Exportação (ou aperte Ctrl+E). O tutorial "
             "termina aqui.",
             espera=_sinal_de_acao(window, "_act_export_center"),

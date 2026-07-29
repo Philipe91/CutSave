@@ -15,6 +15,7 @@ from PySide6.QtCore import (
     QPointF,
     QRect,
     QRectF,
+    QSettings,
     QSize,
     Qt,
     QThread,
@@ -76,6 +77,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QSplitter,
@@ -162,6 +164,7 @@ from app.presentation.panels.status_bar import StatusBarController
 from app.presentation.widgets import (
     Alert,
     AlertLevel,
+    CollapseStrip,
     CollapsibleCard,
     IconRailTabs,
     MeasureField,
@@ -178,6 +181,23 @@ IMAGE_FILE_FILTER = (
 )
 
 RULER_SIZE = 24
+
+# painéis recolhidos ficam em QSettings, não no projeto: é preferência de quem
+# usa a máquina (o monitor é dele), não característica do arquivo aberto
+_ORG_PAINEIS = "PrintNest"
+_APP_PAINEIS = "PrintNest"
+
+
+def _lembrar_painel(nome: str, visivel: bool) -> None:
+    QSettings(_ORG_PAINEIS, _APP_PAINEIS).setValue(f"paineis/{nome}", "1" if visivel else "0")
+
+
+def _painel_lembrado(nome: str) -> bool | None:
+    """None = o usuário nunca escolheu (aí vale o tamanho da tela)."""
+    valor = QSettings(_ORG_PAINEIS, _APP_PAINEIS).value(f"paineis/{nome}", None)
+    if valor is None:
+        return None
+    return str(valor) == "1"
 
 # Fluxo de CARTELAS pausado (16/07/2026, decisão do Philipe: "tá dando
 # trabalho demais — deixe para planos futuros"). O flag esconde TODAS as
@@ -2014,6 +2034,29 @@ class MainWindow(QMainWindow):
         for action in (zoom_in, zoom_out, zoom_page, zoom_sel, None, hand, None,
                        limpar_guias):
             m_exib.addSeparator() if action is None else m_exib.addAction(action)
+        # recolher painéis (mecanismo dos dockers do CorelDRAW): em monitor
+        # pequeno é o que devolve espaço para a chapa — ~300px cada um
+        m_exib.addSeparator()
+        self._act_biblioteca = QAction("Biblioteca", self, checkable=True)
+        self._act_biblioteca.setChecked(True)
+        self._act_biblioteca.setShortcut(QKeySequence("F9"))
+        self._act_biblioteca.setToolTip(
+            "Mostra ou recolhe o painel da esquerda (F9).\n"
+            "Recolhido, sobra uma faixa com o nome — clique nela para voltar."
+        )
+        self._act_biblioteca.triggered.connect(self._set_biblioteca_visivel)
+        m_exib.addAction(self._act_biblioteca)
+
+        self._act_propriedades = QAction("Painel de propriedades", self, checkable=True)
+        self._act_propriedades.setChecked(True)
+        self._act_propriedades.setShortcut(QKeySequence("F11"))
+        self._act_propriedades.setToolTip(
+            "Mostra ou recolhe o painel da direita (F11).\n"
+            "Recolhido, o trilho de ícones fica na tela: clique num ícone para voltar."
+        )
+        self._act_propriedades.triggered.connect(self._set_propriedades_visivel)
+        m_exib.addAction(self._act_propriedades)
+
         # ferramenta Pontos (F10): editar os nós da linha de corte
         pontos = QAction("Pontos — editar nós da faca", self)
         pontos.setCheckable(True)
@@ -2031,6 +2074,11 @@ class MainWindow(QMainWindow):
         m_ferr.addAction(gerar)
         m_ferr.addAction(gerar_faca)
         m_ferr.addAction(pontos)
+        m_ferr.addSeparator()
+        # Modo Corte vivia SÓ na barra de cima. Em monitor pequeno a barra joga
+        # os grupos que não cabem para dentro do "»" e o recurso simplesmente
+        # sumia da vista. No menu ele está sempre alcançável.
+        m_ferr.addAction(modo_corte)
 
         # Opções (ao lado de Ajuda): unidade de medida (cm/mm)
         m_opt = bar.addMenu("O&pções")  # Alt+P (Alt+O já e do menu Organizar; QA-09)
@@ -2378,8 +2426,153 @@ class MainWindow(QMainWindow):
                 anterior.deleteLater()
         self._tour_overlay = TourOverlay(self, builder(self), mark_done=False)
 
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._ajustar_teto_do_painel()
+
+    # ============ recolher os painéis laterais (dockers do Corel) ============
+    def _set_biblioteca_visivel(self, on: bool, lembrar: bool = True) -> None:
+        """Mostra/esconde a biblioteca, deixando a faixa fina no lugar.
+
+        Recolhida ela devolve ~300px para a chapa — num notebook de 1366 a
+        área de trabalho passa de 418 para 722px, e num 1366 a 125% de 144
+        para 448px. É o maior ganho de espaço disponível na janela.
+        """
+        if getattr(self, "_library_wrap", None) is None:
+            return
+        splitter = getattr(self, "_main_splitter", None)
+        if on is False and self._library_wrap.isVisible() and splitter is not None:
+            self._largura_biblioteca = max(240, splitter.sizes()[0])
+        self._library_wrap.setVisible(on)
+        self._library_strip.setVisible(not on)
+        act = getattr(self, "_act_biblioteca", None)
+        if act is not None and act.isChecked() != on:
+            act.setChecked(on)  # setChecked não reemite triggered: sem recursão
+        alvo = getattr(self, "_largura_biblioteca", 300) if on else CollapseStrip.LARGURA
+        self._largura_no_splitter(0, alvo)
+        if lembrar:
+            _lembrar_painel("biblioteca", on)
+
+    def _set_propriedades_visivel(self, on: bool, lembrar: bool = True) -> None:
+        """Recolhe o painel de campos para o trilho de ícones.
+
+        O trilho continua na tela: é a "aba" que o Corel deixa no lugar do
+        docker recolhido, e clicar num ícone reabre na seção clicada.
+        """
+        tabs = getattr(self, "_props_tabs", None)
+        wrap = getattr(self, "_props_wrap", None)
+        if tabs is None or wrap is None:
+            return
+        # a ação é sincronizada ANTES: set_collapsed emite collapsedChanged e
+        # o ouvinte usa a ação para saber que o pedido veio daqui (sem isso,
+        # clicar no ícone do trilho entrava em recursão)
+        act = getattr(self, "_act_propriedades", None)
+        if act is not None and act.isChecked() != on:
+            act.setChecked(on)
+        tabs.set_collapsed(not on)
+        # o mínimo de 300px do painel impediria a janela de entregar o espaço
+        wrap.setMinimumWidth(300 if on else 0)
+        alvo = self._teto_do_painel() if on else tabs.rail_width()
+        self._largura_no_splitter(2, alvo)
+        self._ajustar_teto_do_painel()
+        if lembrar:
+            _lembrar_painel("propriedades", on)
+
+    def _largura_no_splitter(self, indice: int, alvo: int) -> None:
+        """Dá a largura 'alvo' a um painel e devolve a diferença para a chapa.
+
+        Aplicada duas vezes de propósito. O QSplitter recusa encolher um
+        widget abaixo do mínimo que ele conhece NAQUELE instante, e logo após
+        esconder o conteúdo o Qt ainda não recalculou esse mínimo — a primeira
+        chamada parava em 158px em vez de 46. A segunda roda depois do passe
+        de layout, quando o mínimo já é o do trilho.
+        """
+        splitter = getattr(self, "_main_splitter", None)
+        if splitter is None:
+            return
+
+        def aplicar() -> None:
+            tam = splitter.sizes()
+            if len(tam) != 3 or tam[indice] == alvo:
+                return
+            tam[1] = max(120, tam[1] + (tam[indice] - alvo))
+            tam[indice] = alvo
+            splitter.setSizes(tam)
+
+        aplicar()
+        QTimer.singleShot(0, aplicar)
+
+    def _on_props_collapsed(self, recolhido: bool) -> None:
+        """O usuário clicou no ícone ativo do trilho: sincroniza menu e larguras."""
+        act = getattr(self, "_act_propriedades", None)
+        if act is not None and act.isChecked() == (not recolhido):
+            return  # o pedido veio de _set_propriedades_visivel; nada a fazer
+        self._set_propriedades_visivel(not recolhido)
+
+    def _teto_do_painel(self) -> int:
+        return max(300, min(620, int(self.width() * 0.44)))
+
+    def _restaurar_paineis(self) -> None:
+        """Estado inicial dos painéis: o que o usuário escolheu, ou a tela.
+
+        Sem escolha registrada, uma janela estreita (<1200px) abre com a
+        biblioteca recolhida — é o caso do notebook da loja, onde os três
+        painéis juntos deixavam a chapa com 144px. A partir do primeiro F9 a
+        escolha dele manda, em qualquer monitor.
+        """
+        biblioteca = _painel_lembrado("biblioteca")
+        if biblioteca is None:
+            biblioteca = self.width() >= 1200
+        # lembrar=False: recolher por causa do tamanho da tela não pode virar
+        # "escolha do usuário", senão ele nunca mais veria a biblioteca aberta
+        # ao levar o arquivo para um monitor grande
+        if not biblioteca:
+            self._set_biblioteca_visivel(False, lembrar=False)
+        propriedades = _painel_lembrado("propriedades")
+        if propriedades is False:
+            self._set_propriedades_visivel(False, lembrar=False)
+
+    def _ajustar_teto_do_painel(self) -> None:
+        """O painel de campos nunca pode comer mais que ~44% da janela.
+
+        Ele precisa de ~590px para não cortar "Chapas"/"Registro" e o botão
+        Aplicar, mas num notebook de 1092px isso deixava a chapa com 180px de
+        largura — sem espaço para trabalhar. Aqui o teto acompanha a janela:
+        monitor grande mostra o painel inteiro, monitor pequeno devolve
+        espaço para a chapa e o painel rola na horizontal.
+        """
+        # a biblioteca também cede: com ela fixa em 300 a chapa ficava com
+        # 175px num notebook a 125%, estreita demais para trabalhar
+        biblioteca = getattr(self, "_library_wrap", None)
+        if biblioteca is not None:
+            biblioteca.setMaximumWidth(max(220, min(320, int(self.width() * 0.21))))
+
+        wrap = getattr(self, "_props_wrap", None)
+        tabs = getattr(self, "_props_tabs", None)
+        if wrap is None:
+            return
+        if tabs is not None and tabs.is_collapsed():
+            return  # recolhido o painel é do tamanho do trilho; teto não vale
+        teto = self._teto_do_painel()
+        anterior = wrap.maximumWidth()
+        if teto == anterior:
+            return
+        wrap.setMaximumWidth(teto)
+        # se o painel estava colado no teto antigo, ele acompanha o novo; sem
+        # isto a janela cresce de volta e ele fica estreito para sempre
+        splitter = getattr(self, "_main_splitter", None)
+        if splitter is not None and teto > anterior and wrap.width() >= anterior - 2:
+            tam = splitter.sizes()
+            if len(tam) == 3:
+                tam[1] = max(200, tam[1] - (teto - tam[2]))
+                tam[2] = teto
+                splitter.setSizes(tam)
+
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
+        if not getattr(self, "_paineis_restaurados", False):
+            self._paineis_restaurados = True
+            self._restaurar_paineis()
         if not getattr(self, "_tour_checked", False):
             self._tour_checked = True
             QTimer.singleShot(800, self._start_tour)
@@ -2773,7 +2966,57 @@ class MainWindow(QMainWindow):
             with contextlib.suppress(Exception):
                 self.open_project(last)
 
+    @staticmethod
+    def _painel_rolavel(conteudo: QWidget, minimo: int = 160) -> QScrollArea:
+        """Põe uma página do painel dentro de uma área de rolagem.
+
+        Sem isto a página herdava a altura mínima do próprio conteúdo (a aba
+        Seleção pedia 619px) e isso EMPURRAVA a altura mínima da janela inteira:
+        num notebook de 768px, ou num Full HD a 125%, a janela não cabia na
+        tela e o usuário ficava sem parte dos controles.
+
+        A rolagem horizontal é 'quando precisar', não desligada: com ela
+        desligada o conteúdo era espremido abaixo do próprio mínimo e os
+        botões apareciam CORTADOS (medido em 1092x614: faltavam 124px no
+        'Recortar páginas ou imagem...'). Cortar informação é o pior caso —
+        antes uma barrinha de rolagem."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setWidget(conteudo)
+        scroll.setMinimumHeight(minimo)
+        return scroll
+
     # ==================== Barra de Propriedades contextual (V2.0 Fase A) =======
+    def _build_property_bar_scroll(self) -> QWidget:
+        """A barra de propriedades dentro de um rolamento HORIZONTAL.
+
+        Ela junta o bloco Projeto/Objeto/Grupo com a barra da Faca e, COM
+        ARQUIVO CARREGADO, exigia 2662px de largura mínima. Resultado medido em
+        29/07: a janela não descia de 2678px e nem num Full HD cabia — no
+        monitor pequeno da loja os controles eram cortados e sumiam.
+
+        Rolando na horizontal, monitor grande fica idêntico ao de antes e
+        monitor pequeno mostra tudo, só que deslizando. Nada some.
+        """
+        bar = self._build_property_bar()
+        scroll = QScrollArea()
+        scroll.setWidget(bar)
+        # widgetResizable respeita a largura MÍNIMA da barra: ela não é
+        # espremida, o rolamento é que aparece quando a janela é estreita
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # espaço reservado para a barra de rolagem, senão ela cobriria os botões
+        # quando aparecesse
+        altura = bar.minimumHeight() + scroll.horizontalScrollBar().sizeHint().height()
+        scroll.setFixedHeight(altura)
+        self._prop_bar_scroll = scroll
+        return scroll
+
     def _build_property_bar(self) -> QWidget:
         """Barra horizontal abaixo da ribbon que muda com a seleção (estilo Corel):
         sem seleção -> Projeto; 1 peça -> Objeto (X/Y editaveis, L/A, girar,
@@ -3966,19 +4209,40 @@ class MainWindow(QMainWindow):
         self._status = QLabel("")  # compat interno (mensagens antigas); não exibido
         self._status.hide()
 
-        library = self._build_library_panel()
+        # a biblioteca empilha 5 botões + a tabela e exigia 394px de altura,
+        # empurrando a altura mínima da janela. Rolável, ela encolhe em monitor
+        # pequeno sem esconder botão nenhum.
+        library = self._painel_rolavel(self._build_library_panel(), 200)
+        self._library_wrap = library  # teto acompanha o tamanho da janela
+        # recolhida, a biblioteca vira uma faixa fina com o nome (o "docker
+        # recolhido" do Corel). Vale ~300px de chapa em qualquer monitor.
+        self._library_strip = CollapseStrip(
+            "Biblioteca", lambda: self._set_biblioteca_visivel(True)
+        )
+        self._library_strip.hide()
+        library_box = QWidget()
+        lb = QHBoxLayout(library_box)
+        lb.setContentsMargins(0, 0, 0, 0)
+        lb.setSpacing(0)
+        lb.addWidget(library, 1)
+        lb.addWidget(self._library_strip)
+        self._library_box = library_box
         work = self._build_work_area()
         properties = self._build_properties_panel()
 
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(library)
+        splitter.addWidget(library_box)
         splitter.addWidget(work)
         splitter.addWidget(properties)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
-        splitter.setSizes([300, 780, 320])
+        # 320 no painel direito cortava o conteúdo (que pede 542 + trilho de
+        # ícones) em TODO monitor. A área de trabalho é quem cede, porque ela
+        # tem zoom e rolagem; o painel de campos, não.
+        splitter.setSizes([300, 700, 600])
         splitter.setChildrenCollapsible(False)
+        self._main_splitter = splitter
 
         self._alert = Alert()
         self._progress = QProgressBar()
@@ -3990,7 +4254,7 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(theme.SPACE_SM, theme.SPACE_SM, theme.SPACE_SM, 0)
         root.setSpacing(theme.SPACE_SM)
         root.addWidget(self._build_tab_bar())        # abas de trabalho (multi-projeto)
-        root.addWidget(self._build_property_bar())  # barra contextual (Projeto/Objeto/Grupo)
+        root.addWidget(self._build_property_bar_scroll())  # barra contextual
         root.addWidget(self._alert)
         root.addWidget(self._progress)
         root.addWidget(splitter, 1)
@@ -4263,11 +4527,22 @@ class MainWindow(QMainWindow):
         self._doc_widget = document  # usado pelo Modo Compacto p/ achar os campos
         doc_scroll = QScrollArea()
         doc_scroll.setWidgetResizable(True)
-        doc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # 'quando precisar' e não desligada: sem ela os cartões do topo e os
+        # campos ficavam cortados na direita em monitor pequeno
+        doc_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         doc_scroll.setWidget(document)
+        # sem isto o painel herdava a altura mínima do conteúdo (617px) e
+        # EMPURRAVA a altura mínima da janela: num notebook de 768px (ou Full HD
+        # a 125%) a janela não cabia na tela. Agora ele rola, que é para o que
+        # a área de rolagem existe.
+        doc_scroll.setMinimumHeight(160)
 
         # aba Seleção: pilha interna (vazio / peça / grupo)
         self._sel_stack = QStackedWidget()
+        # a pilha nao pode herdar a altura minima da maior pagina (a de peca
+        # pedia 619px e empurrava a altura minima da JANELA): quem rola e a
+        # area de rolagem em volta, adicionada logo abaixo
+        self._sel_stack.setMinimumHeight(120)
         hint = QLabel("Clique numa peça na área de trabalho para ver medidas e ações.")
         hint.setWordWrap(True)
         hint.setProperty("role", "caption")
@@ -4285,14 +4560,23 @@ class MainWindow(QMainWindow):
         # quando o painel ficava estreito; icone nao depende da largura.
         self._props_tabs = IconRailTabs()
         self._props_tabs.addTab(doc_scroll, "file-text", "Documento")
-        self._props_tabs.addTab(self._sel_stack, "mouse-pointer", "Seleção")
-        self._props_tabs.addTab(self._build_object_page(), "layers", "Objeto")
+        self._props_tabs.addTab(
+            self._painel_rolavel(self._sel_stack), "mouse-pointer", "Seleção"
+        )
+        self._props_tabs.addTab(
+            self._painel_rolavel(self._build_object_page()), "layers", "Objeto"
+        )
         # aba "Transformar" removida (27/07): a "Posição (duplicar)" foi para a
         # sub-aba Produção; o preview fantasma agora vale na aba Documento.
         if CARTELAS_ENABLED:
-            self._props_tabs.addTab(self._build_cartelas_tab(), "scissors", "Cartelas")
+            self._props_tabs.addTab(
+                self._painel_rolavel(self._build_cartelas_tab()), "scissors", "Cartelas"
+            )
         # ao sair da aba Transformar, some com os fantasmas
         self._props_tabs.currentChanged.connect(lambda _: self._refresh_transform_preview())
+        # clicar no ícone ativo do trilho recolhe/reabre: o menu Exibir e as
+        # larguras do splitter precisam acompanhar
+        self._props_tabs.collapsedChanged.connect(self._on_props_collapsed)
 
         wrap = QWidget()
         wl = QVBoxLayout(wrap)
@@ -4303,8 +4587,19 @@ class MainWindow(QMainWindow):
         # campos manterem a mesma area util de antes (280px de conteudo)
         # largura mínima maior: o resumo em blocos precisa de espaço para não
         # cortar "Chapas"/"Registro" (pedido 27/07: "tem que ficar sempre assim").
-        wrap.setMinimumWidth(400)
-        wrap.setMaximumWidth(452)
+        # 400px de mínimo travavam a janela em telas pequenas: num monitor de
+        # 1366 (ou Full HD a 125%) o painel comia quase metade da largura e a
+        # área de trabalho sumia. O tamanho CONFORTÁVEL continua 400 (é o que a
+        # janela abre), mas ele pode encolher quando não há espaço.
+        # O conteúdo do Documento (duas grades de campos lado a lado) exige
+        # 542px + o trilho de ícones. Com o teto em 452 ele era CORTADO em
+        # qualquer monitor, inclusive Full HD — medido em 29/07: "Chapas",
+        # "Registro" e o botão Aplicar ficavam fora da área visível. O teto
+        # agora cabe o conteúdo; quem aperta é a área de trabalho, que é
+        # elástica, e em tela minúscula o painel ainda rola.
+        wrap.setMinimumWidth(300)
+        wrap.setMaximumWidth(620)
+        self._props_wrap = wrap
         return wrap
 
     # ==================== Aba "Transformar" (duplicação inteligente) ==========
@@ -5043,7 +5338,22 @@ class MainWindow(QMainWindow):
 
         header = QLabel("Biblioteca")
         header.setProperty("role", "cardTitle")  # QSS: acompanha o tema ao vivo
-        lay.addWidget(header)
+        # setinha de recolher ao lado do título: é onde a pessoa procura, sem
+        # precisar descobrir o F9 nem o menu Exibir
+        # com borda e fundo próprios: sem isso ele parecia decoração do título
+        self._btn_recolher_lib = QToolButton()
+        self._btn_recolher_lib.setObjectName("collapseBtn")
+        self._btn_recolher_lib.setIcon(icons.icon("chevron-left", theme.ICON, 14))
+        self._btn_recolher_lib.setIconSize(QSize(14, 14))
+        self._btn_recolher_lib.setFixedSize(24, 22)
+        self._btn_recolher_lib.setCursor(Qt.PointingHandCursor)
+        self._btn_recolher_lib.setToolTip("Recolher a biblioteca (F9)")
+        self._btn_recolher_lib.clicked.connect(lambda: self._set_biblioteca_visivel(False))
+        linha_header = QHBoxLayout()
+        linha_header.setContentsMargins(0, 0, 0, 0)
+        linha_header.addWidget(header, 1)
+        linha_header.addWidget(self._btn_recolher_lib)
+        lay.addLayout(linha_header)
 
         self._btn_add = QPushButton("  Adicionar arquivos")
         self._btn_add.setIcon(icons.icon("plus", theme.ICON_ON_ACCENT))
@@ -5347,7 +5657,11 @@ class MainWindow(QMainWindow):
         self._auto_smooth.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._auto_offset = LengthSpin(-100, 100)
         self._auto_offset.valueChanged.connect(lambda _: self._relayout(renest=False))
-        self._auto_ignore_white = QCheckBox("Remover fundo automático (imagens opacas)")
+        # rótulo curto de propósito: com o texto longo este checkbox sozinho
+        # exigia 516px e puxava a largura mínima do painel Documento para 542,
+        # o que cortava "Chapas"/"Registro" mesmo em Full HD. O caso das
+        # imagens opacas continua explicado na dica abaixo.
+        self._auto_ignore_white = QCheckBox("Remover fundo automático")
         self._auto_ignore_white.setToolTip(
             "Detecta a cor do fundo pela borda e a remove (branco, escuro ou colorido).\n"
             "Desmarcado: a faca fica no retângulo da imagem inteira."

@@ -386,6 +386,13 @@ def build_app_qss() -> str:
     }}
     QToolButton#railBtn:hover {{ background: {HOVER}; }}
     QToolButton#railBtn:checked {{ background: {ACCENT_SOFT}; }}
+    /* botao de recolher painel: precisa PARECER botao. Sem borda ele passava
+       batido e o unico jeito de recolher era um clique que ninguem descobre */
+    QToolButton#collapseBtn {{
+        border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
+        background: {SURFACE}; padding: 0;
+    }}
+    QToolButton#collapseBtn:hover {{ background: {HOVER}; border-color: {ACCENT}; }}
     QLabel#railTitle {{
         background: {SURFACE_ALT};
         border-bottom: 1px solid {BORDER};

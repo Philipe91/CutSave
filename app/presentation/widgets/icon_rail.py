@@ -61,9 +61,25 @@ class IconRailTabs(QWidget):
         rl.setSpacing(theme.SPACE_XS)
         rl.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
 
+        # botão de recolher no TOPO do trilho: é a "aba" visível do docker.
+        # Aberto ele aponta para fora (recolher), recolhido aponta para dentro
+        # (trazer de volta) — sem ele, recolher dependia de clicar no ícone já
+        # aceso, que é um gesto que ninguém descobre sozinho.
+        self._btn_collapse = QToolButton()
+        self._btn_collapse.setObjectName("collapseBtn")
+        self._btn_collapse.setFixedSize(_BTN, 22)
+        self._btn_collapse.setIconSize(QSize(14, 14))
+        self._btn_collapse.setCursor(Qt.PointingHandCursor)
+        self._btn_collapse.clicked.connect(lambda: self.set_collapsed(not self._collapsed))
+        rl.addWidget(self._btn_collapse)
+
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
-        self._group.idClicked.connect(self.setCurrentIndex)
+        self._group.idClicked.connect(self._on_rail_clicked)
+
+        self._content = content       # some quando o painel recolhe
+        self._collapsed = False
+        self._paint_collapse_button()
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -126,6 +142,48 @@ class IconRailTabs(QWidget):
         if index == self.currentIndex():
             self._title.setText(text)
 
+    # ---------------- recolher (mecanismo dos dockers do Corel) ----------------
+    collapsedChanged = Signal(bool)  # noqa: N815
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    def rail_width(self) -> int:
+        """Largura do trilho — é o tamanho do painel quando recolhido."""
+        return self._rail.width() or self._rail.sizeHint().width()
+
+    def set_collapsed(self, on: bool) -> None:
+        """Recolhe o painel deixando só o trilho de ícones.
+
+        É o "Collapse docker" do CorelDRAW: recolhido sobra a aba, e clicar
+        nela reabre. Aqui a aba já existe — é o trilho — então recolher é só
+        esconder o conteúdo. Vale ~300px de volta para a chapa, que num
+        notebook de 1366 é a diferença entre 418px e 722px de área de
+        trabalho.
+        """
+        if on == self._collapsed:
+            return
+        self._collapsed = on
+        self._content.setVisible(not on)
+        # grupo exclusivo não deixa desmarcar o botão aceso; solto por um
+        # instante para o trilho poder ficar sem nenhum aceso quando recolhido
+        self._group.setExclusive(False)
+        for i, btn in enumerate(self._buttons):
+            btn.setChecked(not on and i == self.currentIndex())
+        self._group.setExclusive(True)
+        self._paint_collapse_button()
+        self.collapsedChanged.emit(on)
+
+    def _on_rail_clicked(self, index: int) -> None:
+        """Recolhido, qualquer ícone reabre. Aberto, o ícone ATIVO recolhe."""
+        if self._collapsed:
+            self.set_collapsed(False)
+            self.setCurrentIndex(index)
+        elif index == self.currentIndex():
+            self.set_collapsed(True)
+        else:
+            self.setCurrentIndex(index)
+
     # ---------------- interno ----------------
     def _on_current_changed(self, index: int) -> None:
         if 0 <= index < len(self._buttons):
@@ -144,6 +202,15 @@ class IconRailTabs(QWidget):
         for i in range(len(self._buttons)):
             self._paint_button(i)
 
+    def _paint_collapse_button(self) -> None:
+        """A seta aponta para onde o painel vai: fora recolhe, dentro reabre."""
+        nome = "chevron-left" if self._collapsed else "chevron-right"
+        self._btn_collapse.setIcon(icons.icon(nome, theme.ICON, 14))
+        self._btn_collapse.setToolTip(
+            "Mostrar o painel (F11)" if self._collapsed else "Recolher o painel (F11)"
+        )
+
     def refresh_icons(self) -> None:
         """Trocou o tema: re-renderiza os ícones com as cores novas."""
         self._paint_all()
+        self._paint_collapse_button()
