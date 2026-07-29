@@ -29,6 +29,8 @@ from app.domain.cut.vector import is_knife_color
 
 # (caminho absoluto, mtime_ns, tamanho) -> caminho a usar (original se nada a tirar)
 _cache: dict[tuple, str] = {}
+# ((chave do arquivo), pagina) -> (caminho, indice) de uma copia de UMA pagina
+_page_cache: dict[tuple, tuple[str, int]] = {}
 _lock = threading.Lock()
 _tmpdir: str | None = None
 
@@ -45,10 +47,8 @@ def knife_free_pdf(path: str) -> str:
     tamanho): arquivo editado fora gera cópia nova."""
     if Path(path).suffix.lower() != ".pdf":
         return path
-    try:
-        st = os.stat(path)
-        key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
-    except OSError:
+    key = _file_key(path)
+    if key is None:
         return path
     with _lock:
         hit = _cache.get(key)
@@ -61,6 +61,80 @@ def knife_free_pdf(path: str) -> str:
             result = path  # qualquer problema: imprime como veio
         _cache[key] = result
         return result
+
+
+def _file_key(path: str):
+    """Identidade do arquivo em cache: caminho + mtime + tamanho (editado
+    fora do app gera copia nova). None se o arquivo sumiu."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (os.path.abspath(path), st.st_mtime_ns, st.st_size)
+
+
+def knife_free_page(path: str, page_index: int) -> tuple[str, int]:
+    """(caminho, indice) de uma copia sem faca contendo SO a pagina pedida.
+
+    Existe porque limpar o documento INTEIRO para mostrar uma pagina e caro:
+    o pikepdf reparseia o content stream de todas as paginas (medido: 4,3s
+    num PDF de 60 paginas A3), e a miniatura da biblioteca precisava de UMA.
+    Quem varre o documento todo (a producao) continua no knife_free_pdf, que
+    amortiza o strip uma vez so.
+
+    Sem traco magenta (ou em qualquer erro), devolve o ORIGINAL e o indice
+    original — nunca quebra a renderizacao."""
+    if Path(path).suffix.lower() != ".pdf":
+        return path, page_index
+    key = _file_key(path)
+    if key is None:
+        return path, page_index
+    with _lock:
+        inteiro = _cache.get(key)
+        if inteiro is not None:
+            # a copia limpa do documento todo ja existe: sai de graca, e com
+            # a numeracao de paginas original
+            return inteiro, page_index
+        hit = _page_cache.get((key, page_index))
+        if hit is not None:
+            return hit
+        result = (path, page_index)
+        try:
+            out = _strip_knife_page(path, page_index)
+            if out is not None:
+                result = (out, 0)  # a copia tem UMA pagina: indice sempre 0
+        except Exception:
+            result = (path, page_index)  # qualquer problema: mostra como veio
+        _page_cache[(key, page_index)] = result
+        return result
+
+
+def _strip_knife_page(path: str, page_index: int) -> str | None:
+    """Copia de UMA pagina sem os tracos magenta; None se nao havia o que tirar
+    (ou se a pagina nao existe)."""
+    global _tmpdir
+    with pikepdf.open(path) as src:
+        if not (0 <= page_index < len(src.pages)):
+            return None
+        out_pdf = pikepdf.new()
+        out_pdf.pages.append(src.pages[page_index])
+        page = out_pdf.pages[0]
+        try:
+            instructions = pikepdf.parse_content_stream(page)
+        except Exception:
+            return None  # stream exotico: pagina fica como esta
+        ops, changed = _filter_instructions(instructions, page)
+        if not changed:
+            return None
+        page.Contents = out_pdf.make_stream(pikepdf.unparse_content_stream(ops))
+        if _tmpdir is None:
+            _tmpdir = tempfile.mkdtemp(prefix="printnest-faca-")
+        out_path = os.path.join(
+            _tmpdir,
+            f"p{len(_page_cache)}-{page_index}-{Path(path).stem}-sem-faca.pdf",
+        )
+        out_pdf.save(out_path)
+    return out_path
 
 
 def _strip_knife_strokes(path: str) -> str | None:

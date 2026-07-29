@@ -28,6 +28,7 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QIcon,
+    QImage,
     QKeySequence,
     QPainter,
     QPainterPath,
@@ -1018,6 +1019,36 @@ class GuideItem(QGraphicsLineItem):
         return super().itemChange(change, value)
 
 
+def _render_page_images(renderer, keys, box, on_progress=None) -> dict:
+    """Rasteriza cada (caminho, pagina) direto em QImage — sem passar por PNG.
+
+    O caminho antigo gerava PNG e o Qt decodificava logo em seguida: num PDF
+    de 60 paginas A3 eram 21s codificando + 4s decodificando dentro de 29s de
+    janela travada, e 217 MB de bytes de PNG vivos junto com os pixmaps.
+
+    QImage (ao contrario de QPixmap) pode ser criada FORA da thread da UI, por
+    isso serve tanto ao ProductionWorker quanto ao caminho blocking.
+
+    O caminho antigo compartilhava um pixmap so entre paginas de conteudo
+    IDENTICO (dedup pelos bytes do PNG, que ele ja tinha em maos). Aqui isso
+    sairia caro: comparar exige percorrer os 7 MB crus de cada pagina, medido
+    em 1,7s num PDF de 60 paginas — cobrado em TODO import para economizar
+    memoria num caso raro (quem tem a mesma arte repetida usa a quantidade da
+    biblioteca, nao um PDF com N paginas iguais). Cada pagina tem seu pixmap."""
+    images: dict = {}
+    total = len(keys)
+    for index, (path, page) in enumerate(keys, start=1):
+        data, width, height = renderer.render_raw(path, page, box=box)
+        # .copy(): o QImage nao vira dono do buffer Python — sem a copia o
+        # bytes e coletado e a imagem passa a apontar para memoria liberada
+        images[(path, page)] = QImage(
+            data, width, height, width * 4, QImage.Format_RGBA8888
+        ).copy()
+        if on_progress is not None:
+            on_progress(index, total)
+    return images
+
+
 class ProductionWorker(QObject):
     """Importa + monta produção e rasteriza as páginas, fora da thread da UI."""
 
@@ -1048,14 +1079,14 @@ class ProductionWorker(QObject):
                 pages=self._pages,
             )
             unique = sorted(set(result.sources.values()))
-            png_map = {}
-            for index, (path, page) in enumerate(unique, start=1):
-                png_map[(path, page)] = self._renderer.render_png(path, page, box=self._box)
-                self.progress.emit(index, len(unique))
+            images = _render_page_images(
+                self._renderer, unique, self._box,
+                on_progress=lambda done, total: self.progress.emit(done, total),
+            )
         except Exception as exc:  # reportado a UI
             self.failed.emit(str(exc))
             return
-        self.finished.emit((result, png_map))
+        self.finished.emit((result, images))
 
 
 def _block_wheel(event) -> None:
@@ -6215,8 +6246,12 @@ class MainWindow(QMainWindow):
         pixmap = QPixmap()
         try:
             if Path(path).suffix.lower() == ".pdf":
+                # only_page: um icone de 48px nao justifica limpar a faca do
+                # documento INTEIRO — em PDF de 60 paginas isso travava a
+                # janela por 4,3s so para soltar o arquivo na biblioteca
                 data = self._renderer.render_png(
-                    path, 0, dpi=18, box=self._import_box.currentData()
+                    path, 0, dpi=18, box=self._import_box.currentData(),
+                    only_page=True,
                 )
                 pixmap.loadFromData(data, "PNG")
             else:
@@ -6892,11 +6927,11 @@ class MainWindow(QMainWindow):
                     pages=pages_map,
                 )
                 unique = sorted(set(result.sources.values()))
-                png_map = {key: self._renderer.render_png(key[0], key[1], box=box) for key in unique}
+                images = _render_page_images(self._renderer, unique, box)
             except Exception as exc:
                 self._on_failed(str(exc))
                 return
-            self._load_production(result, png_map)
+            self._load_production(result, images)
             return
 
         self._set_busy(True)
@@ -6983,12 +7018,20 @@ class MainWindow(QMainWindow):
             }
         self._pixmaps = {}
         by_bytes: dict[bytes, QPixmap] = {}
-        for key, data in png_map.items():
-            pixmap = by_bytes.get(data)
-            if pixmap is None:
-                pixmap = QPixmap()
-                pixmap.loadFromData(data, "PNG")
-                by_bytes[data] = pixmap
+        # CONSOME o mapa (esvazia): sem isso a QImage de cada pagina ficaria
+        # viva junto com o QPixmap ja convertido e o pico de memoria dobrava
+        # (60 paginas A3 = 428 MB de cada lado). O mapa e sempre descartavel:
+        # so existe entre a rasterizacao e esta conversao.
+        for key in list(png_map):
+            data = png_map.pop(key)
+            if isinstance(data, QImage):
+                pixmap = QPixmap.fromImage(data)
+            else:  # PNG cru (compatibilidade: chamadas antigas e testes)
+                pixmap = by_bytes.get(data)
+                if pixmap is None:
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(data, "PNG")
+                    by_bytes[data] = pixmap
             self._pixmaps[key] = pixmap
         self._loaded = True
         self._set_exports_enabled(True)
@@ -8093,10 +8136,12 @@ class MainWindow(QMainWindow):
         for key in set(result1.sources.values()):
             if key not in self._pixmaps:
                 try:
-                    data = self._renderer.render_png(key[0], key[1], box=box)
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(data, "PNG")
-                    self._pixmaps[key] = pixmap
+                    # sem round-trip de PNG (mesmo motivo do _render_page_images):
+                    # arrastar um PDF grande para uma produção já montada pagava
+                    # o mesmo encode/decode inútil, página por página
+                    data, w, h = self._renderer.render_raw(key[0], key[1], box=box)
+                    image = QImage(data, w, h, w * 4, QImage.Format_RGBA8888)
+                    self._pixmaps[key] = QPixmap.fromImage(image)
                 except Exception:  # miniatura/render opcional; segue sem pixmap
                     pass
         return list(result1.artworks)
