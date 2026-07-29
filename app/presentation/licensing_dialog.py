@@ -74,25 +74,48 @@ class ActivationDialog(QDialog):
         )
         lay.addWidget(self._code_field)
 
-        # pedido automatico: e-mail pronto para o robo de ativacao responder
+        # Pedido da chave. O botao principal abre o GMAIL NO NAVEGADOR, ja
+        # preenchido: o "mailto:" antigo dependia de ter um programa de e-mail
+        # configurado, e na loja (24/07) a maioria nao tem — o Windows jogava no
+        # navegador e nao acontecia nada, travando o cliente na porta de entrada.
+        lay.addWidget(self._caption("3. Peça a sua chave (escolha uma opção):"))
+        gmail_btn = QPushButton("  Abrir o Gmail com o pedido pronto")
+        gmail_btn.setProperty("accent", "true")
+        gmail_btn.setToolTip(
+            "Abre o Gmail no navegador com o e-mail ja escrito (ID desta "
+            "maquina + seu codigo de compra). E so clicar em Enviar."
+        )
+        gmail_btn.clicked.connect(self._request_by_gmail)
+        lay.addWidget(gmail_btn)
+
         req_row = QHBoxLayout()
-        req_btn = QPushButton("Pedir minha chave por e-mail")
+        req_btn = QPushButton("Usar meu programa de e-mail")
         req_btn.setToolTip(
-            "Abre um e-mail pronto (com o ID desta maquina e o seu codigo de "
-            f"compra) para {ACTIVATION_EMAIL}. So enviar: a chave chega em "
-            "ate alguns minutos."
+            "Para quem tem Outlook, Thunderbird ou similar configurado no PC."
         )
         req_btn.clicked.connect(self._request_by_email)
         req_row.addWidget(req_btn)
-        req_copy = QPushButton("Copiar pedido")
+        req_copy = QPushButton("Copiar o texto do pedido")
         req_copy.setToolTip(
-            "Copia o texto do pedido para colar no seu e-mail ou webmail, caso "
-            "o botao ao lado nao abra o programa de e-mail."
+            "Copia o pedido para voce colar em qualquer e-mail ou webmail."
         )
         req_copy.clicked.connect(self._copy_request)
         req_row.addWidget(req_copy)
         req_row.addStretch()
         lay.addLayout(req_row)
+
+        # o endereco tem de ser COPIAVEL: antes era so texto de dica e quem
+        # abria o webmail na mao tinha de digitar de memoria
+        mail_row = QHBoxLayout()
+        mail_row.addWidget(self._caption("Enviar para:"))
+        self._mail_field = QLineEdit(ACTIVATION_EMAIL)
+        self._mail_field.setReadOnly(True)
+        mail_row.addWidget(self._mail_field, 1)
+        mail_copy = QPushButton("Copiar")
+        mail_copy.setToolTip("Copia o endereço de e-mail da ativação")
+        mail_copy.clicked.connect(self._copy_email)
+        mail_row.addWidget(mail_copy)
+        lay.addLayout(mail_row)
 
         # colar a chave
         lay.addWidget(self._caption("3. Cole aqui a chave de licença que você recebeu:"))
@@ -146,41 +169,61 @@ class ActivationDialog(QDialog):
             f"&body={quote(self._request_text())}"
         )
 
+    def _request_gmail_url(self) -> str:
+        """Compositor do Gmail NO NAVEGADOR, ja preenchido.
+
+        Nao depende de programa de e-mail instalado, que e o caso da maioria
+        das maquinas de loja. Quem nao usa Gmail tem os outros dois botoes."""
+        return (
+            "https://mail.google.com/mail/?view=cm&fs=1"
+            f"&to={quote(ACTIVATION_EMAIL)}"
+            f"&su={quote(self._request_subject())}"
+            f"&body={quote(self._request_text())}"
+        )
+
+    def _copy_email(self) -> None:
+        QApplication.clipboard().setText(ACTIVATION_EMAIL)
+        QMessageBox.information(
+            self, "Copiado", f"Endereço copiado:\n{ACTIVATION_EMAIL}"
+        )
+
+    def _request_by_gmail(self) -> None:
+        if self._code_looks_like_id():
+            self._avisar_codigo_trocado()
+            return
+        QDesktopServices.openUrl(QUrl(self._request_gmail_url()))
+
     def _code_looks_like_id(self) -> bool:
         """True se o campo de codigo recebeu o ID da Maquina por engano."""
         code = self._code_field.text().strip()
         return bool(code) and code == self._m.machine_id
 
+    def _avisar_codigo_trocado(self) -> None:
+        QMessageBox.warning(
+            self, "Ativacao",
+            "O campo 2 recebeu o ID da Máquina, mas ali vai o CÓDIGO DE "
+            "COMPRA (PNC-...), que chegou no e-mail/recibo da compra.\n"
+            "O ID da Máquina já entra sozinho no pedido.",
+        )
+
     def _request_by_email(self) -> None:
         if self._code_looks_like_id():
-            QMessageBox.warning(
-                self, "Ativacao",
-                "O campo 2 recebeu o ID da Máquina, mas ali vai o CÓDIGO DE "
-                "COMPRA (PNC-...), que chegou no e-mail/recibo da compra.\n"
-                "O ID da Máquina já entra sozinho no pedido.",
-            )
+            self._avisar_codigo_trocado()
             return
         if not QDesktopServices.openUrl(QUrl(self._request_mailto())):
             self._copy_request()
 
     def _copy_request(self) -> None:
         if self._code_looks_like_id():
-            QMessageBox.warning(
-                self, "Ativacao",
-                "O campo 2 recebeu o ID da Máquina, mas ali vai o CÓDIGO DE "
-                "COMPRA (PNC-...), que chegou no e-mail/recibo da compra.\n"
-                "O ID da Máquina já entra sozinho no pedido.",
-            )
+            self._avisar_codigo_trocado()
             return
         QApplication.clipboard().setText(self._request_text())
         QMessageBox.information(
             self, "Pedido copiado",
             "O texto do pedido foi copiado.\n\n"
-            "Sem programa de e-mail no PC? Abra o seu webmail no navegador "
-            "(Gmail, Outlook, Yahoo...), crie um novo e-mail para\n"
+            "Abra o seu e-mail no navegador, crie uma mensagem nova para\n"
             f"{ACTIVATION_EMAIL}\n"
-            "cole o pedido (Ctrl+V) no corpo e envie. "
-            "A chave chega em ate alguns minutos.",
+            "cole o pedido (Ctrl+V) e envie. A chave chega em minutos.",
         )
 
     def _activate(self) -> None:
