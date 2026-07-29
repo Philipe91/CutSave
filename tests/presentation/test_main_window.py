@@ -1,4 +1,5 @@
 import os
+import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -53,6 +54,22 @@ def _window(tmp_path):
         store,
         settings,
     )
+
+
+def _esperar_geracao(window, timeout: float = 30.0) -> None:
+    """Espera a geracao em thread do DROP terminar.
+
+    Soltar arquivo virou assincrono para a janela nao congelar (PDF de 60
+    paginas travava ~19s). Quem precisa do resultado na linha seguinte espera
+    aqui — mesmo padrao do Organizar do Modo Corte. Automacao que quer mesmo
+    sincrono chama generate(blocking=True) direto."""
+    app = QApplication.instance()
+    deadline = time.time() + timeout
+    while window.generating() and time.time() < deadline:
+        app.processEvents()
+    for _ in range(5):  # drena finished -> _load_production na thread da UI
+        app.processEvents()
+    assert not window.generating(), "a geracao em thread nao terminou no tempo"
 
 
 def _vector_cut_pdf(tmp_path):
@@ -1694,6 +1711,7 @@ def test_redimensionar_atualiza_na_hora(qapp, tmp_path):
     window._height.setValue(2000)
     window.add_paths([src])
     window._add_file_to_production(src, QPointF(10, 10))
+    _esperar_geracao(window)
     piece = window._piece_items[0]
     window._selected_path = window._path_of(piece.artwork_id)
 
@@ -1713,6 +1731,7 @@ def test_arrastar_segundo_arquivo_organiza_nesting(qapp, tmp_path):
     window._height.setValue(2000)
     window.add_paths([a, b])
     window._add_file_to_production(a, QPointF(10, 10))
+    _esperar_geracao(window)  # o 1o drop monta a producao em thread
     window._add_file_to_production(b, QPointF(50, 50))  # arrasta b (3 paginas)
 
     bpos = [
@@ -1736,6 +1755,7 @@ def test_soltar_arquivo_sem_faca_e_gerar_depois(qapp, tmp_path):
     window._height.setValue(2000)
     window.add_paths([src])
     window._add_file_to_production(src, QPointF(10, 10))  # arrasta (soltar)
+    _esperar_geracao(window)
 
     assert window._result is not None
     assert not any(a.has_cut for a in window._result.artworks)  # SEM faca
@@ -1775,6 +1795,7 @@ def test_arrastar_um_arquivo_abre_so_ele(qapp, tmp_path):
     assert window._result is None  # nada gerado ainda
 
     window._add_file_to_production(b, QPointF(10, 10))  # arrasta so o b
+    _esperar_geracao(window)
     na_producao = {window._path_of(art.id) for art in window._result.artworks}
     assert na_producao == {b}  # SO o arquivo arrastado
 
@@ -2204,6 +2225,11 @@ def test_cartelas_fluxo_mimaki_iecho(qapp, tmp_path, monkeypatch):
     w._cart_gap.setValue(0.0)
     w._cart_margin.setValue(5.0)
     w._cart_on.setChecked(True)
+    # marcar "Produzir em cartelas" sem producao ja dispara generate() EM
+    # THREAD (_cartela_toggled); esperar aqui evita que o generate abaixo caia
+    # na guarda de "gerando" — antes as duas geracoes corriam juntas e a thread
+    # ficava viva sem ninguem colher o resultado
+    _esperar_geracao(w)
     w.generate(blocking=True)
 
     # toda peça respeita a origem da grade (20,20) + respiro interno (5)
@@ -2284,6 +2310,7 @@ def test_jpeg_cmyk_vai_para_a_chapa(qapp, tmp_path):
     w.add_paths([str(jpg)])
     w._table.setCurrentCell(0, 0)
     w._on_library_drop(QPointF(50, 50))  # arrastar da biblioteca p/ o canvas
+    _esperar_geracao(w)
     assert w._result is not None
     assert sum(s.item_count for s in w._result.sheets) == 1
     w.generate(blocking=True)  # com faca
@@ -2309,6 +2336,7 @@ def test_b1_multi_drop_da_biblioteca(qapp, tmp_path):
 
     # sem produção: o drop gera com os DOIS arquivos selecionados
     w._on_library_drop(QPointF(50, 50))
+    _esperar_geracao(w)  # 1o drop monta a producao em thread
     assert w._result is not None
     assert sum(s.item_count for s in w._result.sheets) == 2
 
@@ -2333,6 +2361,7 @@ def test_u1_colocar_na_chapa_botao_e_duplo_clique(qapp, tmp_path):
     # sem seleção, o botão coloca TODOS os arquivos (primeira viagem)
     w._table.clearSelection()
     w._btn_place.click()
+    _esperar_geracao(w)  # 1a viagem monta a producao em thread
     assert w._result is not None
     assert sum(s.item_count for s in w._result.sheets) == 2
 

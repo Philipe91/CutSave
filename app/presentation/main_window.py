@@ -6876,6 +6876,14 @@ class MainWindow(QMainWindow):
         # (usado ao arrastar UM arquivo para a área de trabalho vazia).
         # faca=False -> monta a produção SO com a arte (sem faca); a faca e
         # gerada depois ao clicar "Gerar Faca" (arrastar = soltar sem faca).
+        # Com o drop rodando em thread, um segundo drop podia entrar aqui com a
+        # geração anterior viva: o self._thread era sobrescrito, o QThread antigo
+        # perdia a última referência Python e o Qt abortava o processo com
+        # "QThread: Destroyed while thread is still running". Mesma guarda que o
+        # Organizar do Modo Corte já usa.
+        if self.generating():
+            self._toasts.info("Gerando a produção — aguarde terminar")
+            return
         target_paths = paths if paths is not None else self._paths
         if not target_paths:
             QMessageBox.warning(self, "PrintNest", "Adicione ao menos um arquivo.")
@@ -6949,6 +6957,11 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
         self._thread.start()
+
+    def generating(self) -> bool:
+        """Ha uma geracao rodando em thread agora (drop ou F5)."""
+        thread = self._thread
+        return thread is not None and thread.isRunning()
 
     def _set_busy(self, busy: bool) -> None:
         self._act_generate.setEnabled(not busy)
@@ -8071,7 +8084,10 @@ class MainWindow(QMainWindow):
             # ainda não gerou: o drop monta a produção com os arquivos
             # SELECIONADOS (não todos), e SEM faca. A faca surge depois ao
             # clicar "Gerar Faca". O usuário organiza dali.
-            self.generate(blocking=True, paths=paths, faca=False)
+            # EM THREAD: um PDF de 60 páginas congelava a janela por ~19s antes
+            # das peças aparecerem. Quem precisa do resultado na linha seguinte
+            # (testes/automação) chama generate(blocking=True) direto.
+            self.generate(paths=paths, faca=False)
             return
         step = NUDGE_SUPER_MM
         for n, path in enumerate(paths):
@@ -8087,7 +8103,9 @@ class MainWindow(QMainWindow):
             # ainda não gerou: o drop monta a produção com SOMENTE o arquivo
             # arrastado (não todos), e SEM faca (soltar sem faca). A faca surge
             # depois ao clicar "Gerar Faca". O usuário organiza dali.
-            self.generate(blocking=True, paths=[path], faca=False)
+            # Em thread pelo mesmo motivo do _on_library_drop: a janela não pode
+            # congelar no gesto de soltar (eram ~19s com PDF de 60 páginas).
+            self.generate(paths=[path], faca=False)
             return
         bases = [b for b in self._base_artworks if self._path_of(b.id) == path]
         if not bases:  # arquivo ainda não importado -> importa agora
@@ -8768,8 +8786,15 @@ class MainWindow(QMainWindow):
         novos = [p for p in valid if p not in self._paths]
         if novos:
             self.add_paths(novos)
-        for p in valid:
-            self._add_file_to_production(p, QPointF(20.0, 20.0))
+        if self._result is None or not self._loaded:
+            # Entrada de AUTOMAÇÃO: monta a produção de uma vez e SÍNCRONA. O
+            # laço abaixo depende do resultado já existir — com a geração do
+            # drop em thread, o 2º arquivo cairia na guarda de "gerando" e
+            # seria descartado em silêncio (só o 1º chegaria na chapa).
+            self.generate(blocking=True, paths=valid, faca=False)
+        else:
+            for p in valid:
+                self._add_file_to_production(p, QPointF(20.0, 20.0))
         self._fit_view()  # enquadra para o arquivo recebido aparecer na tela
         self._toasts.success(f"{len(valid)} arquivo(s) recebido(s) do CorelDRAW")
 
