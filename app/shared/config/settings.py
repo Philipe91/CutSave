@@ -48,6 +48,11 @@ class AppSettings:
     # faca: "auto" (decide pelo tipo da arte) | "rect" | "contour" |
     # "contour_smooth" | "contour_simplify" | "vector" (faca do cliente)
     faca_mode: str = "auto"
+    # Endereco do manifesto de versao (JSON com versao/url/notas). VAZIO =
+    # recurso desligado, o app nao faz requisicao nenhuma. Preencha com a URL
+    # onde voce publica o versao.json; veja docs/produto/ATUALIZACAO.md.
+    update_url: str = ""
+    update_check_on_start: bool = True  # avisa na abertura quando ha versao nova
 
     def to_dict(self) -> dict:
         return asdict(self)

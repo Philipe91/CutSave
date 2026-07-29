@@ -2098,9 +2098,15 @@ class MainWindow(QMainWindow):
         m_tut.addSeparator()
         m_tut.addAction(tour)
 
+        atualizar = self._act(
+            "Procurar atualizações...", self._check_updates_manual, None,
+            "Confere se há uma versão mais nova do PrintNest",
+        )
+        atualizar.setIcon(icons.icon("download"))
         m_ajuda = bar.addMenu("A&juda")
         m_ajuda.addAction(tour)
         m_ajuda.addSeparator()
+        m_ajuda.addAction(atualizar)
         m_ajuda.addAction(licenca)
         m_ajuda.addAction(sobre)
 
@@ -2298,6 +2304,35 @@ class MainWindow(QMainWindow):
         ]
         TourOverlay(self, steps)
 
+    def _updater(self):
+        """UpdateChecker da janela (criado na primeira vez que precisa)."""
+        checker = getattr(self, "_update_checker", None)
+        if checker is None:
+            from app.presentation.update_check import UpdateChecker
+            checker = UpdateChecker(self)
+            self._update_checker = checker
+        return checker
+
+    def _update_url(self) -> str:
+        """Endereço do manifesto: o do config.json do cliente, se houver, senão
+        o que foi embutido no executável (URL_MANIFESTO_PADRAO)."""
+        from app.infrastructure.updates import url_efetiva
+        return url_efetiva(getattr(self._settings, "update_url", ""))
+
+    def _check_updates_manual(self) -> None:
+        """Ajuda -> Procurar atualizações: responde SEMPRE, inclusive quando
+        está tudo em dia (check manual mudo parece que quebrou)."""
+        self._updater().checar_em_segundo_plano(self._update_url(), manual=True)
+
+    def _check_updates_on_start(self) -> None:
+        """Aviso na abertura, se configurado. Silencioso quando não há nada,
+        quando está offline ou quando o usuário já dispensou esta versão."""
+        if not getattr(self._settings, "update_check_on_start", True):
+            return
+        url = self._update_url()
+        if url:
+            self._updater().checar_em_segundo_plano(url)
+
     def _start_tutorial_guiado(self) -> None:
         """Tutorial guiado: põe o arquivo de exemplo na biblioteca e passa a
         mão na massa para o aluno (o overlay abre um buraco clicável no
@@ -2348,6 +2383,9 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_tour_checked", False):
             self._tour_checked = True
             QTimer.singleShot(800, self._start_tour)
+            # depois do tour: quem abre pela 1a vez ve o guia, nao um aviso de
+            # atualização. A consulta roda em thread e some sozinha se falhar.
+            QTimer.singleShot(3000, self._check_updates_on_start)
 
     def _show_theme_dialog(self) -> None:
         """Opções → Personalizar Interface... (Theme Engine, live preview)."""
@@ -7064,6 +7102,11 @@ class MainWindow(QMainWindow):
         if thread is not None and thread.isRunning():
             thread.quit()
             thread.wait(10000)  # geracao normal termina em segundos
+        # mesma armadilha da geração: a consulta de atualização também roda em
+        # QThread e não pode sobreviver à janela
+        checker = getattr(self, "_update_checker", None)
+        if checker is not None:
+            checker.encerrar()
         super().closeEvent(event)
 
     def _set_exports_enabled(self, enabled: bool) -> None:
