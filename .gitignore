@@ -15,6 +15,10 @@ data/
 # Artes de clientes e arquivos gerados (nao versionar)
 *.pdf
 *.dxf
+# EXCECAO: o arquivo do tutorial guiado e RECURSO do produto, nao arte de
+# cliente. Sem ele versionado, um clone limpo (ou o build) sai sem o exemplo e
+# o tutorial guiado quebra na mao de quem instalou.
+!assets/exemplo/*.pdf
 
 # Build / distribuicao (gerados pelo PyInstaller / build.bat)
 PrintNest_Build/

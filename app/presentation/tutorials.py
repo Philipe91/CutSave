@@ -19,6 +19,101 @@ from collections.abc import Callable
 
 from app.presentation.onboarding import TourStep
 
+# gerado por assets/make_exemplo.py e versionado junto do app
+_ARQUIVO_EXEMPLO = "assets/exemplo/exemplo-printnest.pdf"
+
+
+def caminho_exemplo():
+    """PDF de exemplo do tutorial guiado (None se não veio no pacote).
+
+    Vive em assets/, que o PyInstaller empacota inteira — então o mesmo
+    caminho vale rodando do código e do .exe instalado."""
+    from app.shared.resources import resource_path
+
+    caminho = resource_path(_ARQUIVO_EXEMPLO)
+    return caminho if caminho.exists() else None
+
+
+def _sinal(window, name, sinal):
+    """Sinal `sinal` do widget `name` da janela, ou None se ele não existe.
+
+    None faz o passo virar narrado (com "Próximo") em vez de mão na massa —
+    é a saída segura para um controle que mudou de nome ou não foi montado."""
+    widget = getattr(window, name, None)
+    if widget is None:
+        return None
+    return getattr(widget, sinal, None)
+
+
+def guiado(window) -> list[TourStep]:
+    """Tutorial guiado: o aluno FAZ o fluxo com o arquivo de exemplo.
+
+    Os alvos aqui usam getattr direto (sem filtrar por visível, ao contrário
+    de _alvo): a barra da Faca só aparece depois que há peça na chapa, e o
+    TourOverlay já resolve a posição do buraco na hora de MOSTRAR o passo —
+    quando o controle já está na tela."""
+    def w(name):
+        return getattr(window, name, None)
+
+    return [
+        TourStep(
+            None, "Vamos fazer um adesivo, do zero",
+            "Coloquei um arquivo de exemplo na sua biblioteca: um adesivo "
+            "redondo de 9 × 9 cm, com duas artes. Em quatro passos você leva "
+            "ele até o arquivo pronto para a impressora e para a máquina de "
+            "corte.\n\n"
+            "Faça você mesmo. Eu aviso o que clicar.",
+        ),
+        TourStep(
+            w("_btn_place"), "1. Coloque na chapa",
+            "O arquivo está na biblioteca, mas ainda não está na produção. "
+            "Clique em Colocar na chapa.",
+            espera=_sinal(window, "_btn_place", "clicked"),
+        ),
+        TourStep(
+            w("_view"), "Duas peças de um arquivo só",
+            "As duas páginas do PDF viraram duas peças, já encaixadas na "
+            "chapa. É assim com qualquer PDF: cada página vira uma peça, e o "
+            "PrintNest aproveita o material sozinho.",
+        ),
+        TourStep(
+            w("_ct_gerar"), "2. Gere a faca",
+            "Agora o contorno de corte. Clique no botão azul Gerar Faca.",
+            espera=_sinal(window, "_ct_gerar", "clicked"),
+        ),
+        TourStep(
+            w("_ct_mode"), "3. Escolha Contorno justo",
+            "Repare que a borda do adesivo é ondulada. Abra o Tipo de faca e "
+            "escolha Contorno justo: a linha de corte vai abraçar cada onda "
+            "da arte, em vez de passar reto por fora.\n\n"
+            "É esse ajuste que separa um adesivo recortado na forma de um "
+            "adesivo quadrado.",
+            espera=_sinal(window, "_ct_mode", "currentIndexChanged"),
+            quando=lambda: (
+                getattr(window, "_ct_mode", None) is not None
+                and window._ct_mode.currentData() == "contour"
+            ),
+        ),
+        TourStep(
+            w("_view"), "Viu a diferença?",
+            "A faca agora segue o desenho, onda por onda. Compare com o "
+            "Retângulo (corte reto) se quiser ver os dois lado a lado.",
+        ),
+        TourStep(
+            w("_ct_offset"), "4. Experimente a sangria",
+            "Sangria afasta a faca da arte. Suba para 2 mm e veja a linha "
+            "abrir em volta do adesivo. É o que evita cortar a arte quando a "
+            "máquina desalinha um fio.",
+            espera=_sinal(window, "_ct_offset", "valueChanged"),
+        ),
+        TourStep(
+            w("_ribbon"), "Pronto para produzir",
+            "É só isso. Ctrl+E abre o Centro de Exportação: de lá saem o PDF "
+            "de impressão, com as marcas de registro, e o DXF de corte, um "
+            "casando com o outro.",
+        ),
+    ]
+
 
 def _alvo(window, *names):
     """1o widget existente E visível entre os nomes dados (senão None).
@@ -37,7 +132,7 @@ def _faca(window) -> list[TourStep]:
         TourStep(
             None, "A faca é o contorno de corte",
             "É a linha que a sua máquina segue para recortar a peça. O "
-            "PrintNest cria essa linha sozinho a partir da arte — você só "
+            "PrintNest cria essa linha sozinho a partir da arte. Você só "
             "ajusta como ela deve sair.",
         ),
         TourStep(
@@ -55,7 +150,7 @@ def _faca(window) -> list[TourStep]:
         TourStep(
             _alvo(window, "_ct_smooth", "_ct_nodes"), "3. Suavizar e nós",
             "Suavizar arredonda os cantinhos do contorno detectado. Nós da "
-            "faca controla quantos pontos a linha terá — menos nós, corte "
+            "faca controla quantos pontos a linha terá. Menos nós, corte "
             "mais rápido e macio na máquina.",
         ),
         TourStep(
@@ -72,19 +167,19 @@ def _faca_do_cliente(window) -> list[TourStep]:
         TourStep(
             None, "Quando a faca já vem no arquivo",
             "Muito arquivo de gráfica já traz a linha de corte desenhada em "
-            "MAGENTA 100% (só traço, sem preenchimento) — o mesmo que o RIP "
+            "MAGENTA 100% (só traço, sem preenchimento), o mesmo que o RIP "
             "chama de CutContour. O PrintNest lê essa linha e usa como faca.",
         ),
         TourStep(
             _alvo(window, "_ct_mode", "_faca_mode"), "Escolha Faca do cliente",
             "Com esse tipo, o desenho do cliente é a verdade: nada de "
             "simplificar, suavizar ou reduzir nós. Sai exatamente a faca que "
-            "ele mandou — era o que fazia o cliente reclamar de \"outra faca\".",
+            "ele mandou. Era o que fazia o cliente reclamar de \"outra faca\".",
         ),
         TourStep(
             _alvo(window, "_view"), "A linha magenta não imprime",
             "Ela é instrução de corte, não arte. O PrintNest a remove do "
-            "preview e do PDF de impressão automaticamente — mas ela continua "
+            "preview e do PDF de impressão automaticamente, mas ela continua "
             "valendo como faca no arquivo de corte.",
         ),
         TourStep(
@@ -110,7 +205,7 @@ def _registro(window) -> list[TourStep]:
         TourStep(
             _alvo(window, "_props_tabs", "_view"), "Confira antes de exportar",
             "As marcas aparecem no preview da chapa. Vale conferir se nenhuma "
-            "peça está por cima delas — a leitora precisa enxergar o alvo "
+            "peça está por cima delas: a leitora precisa enxergar o alvo "
             "limpo.",
         ),
         TourStep(
@@ -132,7 +227,7 @@ def _modo_corte(window) -> list[TourStep]:
         TourStep(
             None, "Organizar encaixa sozinho",
             "O botão Organizar roda o encaixe (nesting) e aproveita o máximo "
-            "da chapa. Ele roda em segundo plano, com barra de progresso — a "
+            "da chapa. Ele roda em segundo plano, com barra de progresso, e a "
             "janela continua respondendo.",
         ),
         TourStep(
@@ -157,8 +252,8 @@ def _paginas_e_recorte(window) -> list[TourStep]:
         ),
         TourStep(
             _alvo(window, "_btn_crop"), "Recortar bordas",
-            "Recortar páginas ou imagem... corta as bordas em milímetros — "
-            "serve para tirar marcas de corte, sangria ou moldura que vieram "
+            "Recortar páginas ou imagem... corta as bordas em milímetros. "
+            "Serve para tirar marcas de corte, sangria ou moldura que vieram "
             "no arquivo e não fazem parte da arte.",
         ),
         TourStep(
@@ -169,7 +264,7 @@ def _paginas_e_recorte(window) -> list[TourStep]:
         TourStep(
             None, "O arquivo original nunca é alterado",
             "O recorte é aplicado numa cópia temporária. Seu PDF no disco "
-            "continua intacto — dá para desfazer o recorte quando quiser.",
+            "continua intacto. Dá para desfazer o recorte quando quiser.",
         ),
     ]
 
@@ -193,7 +288,7 @@ def _exportar(window) -> list[TourStep]:
         ),
         TourStep(
             None, "Exportar só o que está selecionado",
-            "Selecionou uma peça e apertou Ctrl+E? Dá para exportar só ela — "
+            "Selecionou uma peça e apertou Ctrl+E? Dá para exportar só ela, "
             "útil para reposição sem refazer a chapa inteira.",
         ),
     ]

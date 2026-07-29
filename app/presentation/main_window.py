@@ -2076,6 +2076,14 @@ class MainWindow(QMainWindow):
         # cada entrada ensina um recurso sob demanda, para quem já usa e travou
         # num ponto ("como faço a marca de registro?").
         m_tut = bar.addMenu("&Tutoriais")
+        guiado = self._act(
+            "Tutorial guiado (com arquivo de exemplo)", self._start_tutorial_guiado,
+            None, "Faça o fluxo inteiro você mesmo, com um arquivo de exemplo",
+        )
+        guiado.setIcon(icons.icon("zap"))
+        m_tut.addAction(guiado)
+        m_tut.addSeparator()
+        self._act_tutorial_guiado = guiado
         self._tutorial_actions = []
         for label, icon_name, builder in tutorials.TUTORIAIS:
             act = self._act(
@@ -2287,6 +2295,34 @@ class MainWindow(QMainWindow):
             ),
         ]
         TourOverlay(self, steps)
+
+    def _start_tutorial_guiado(self) -> None:
+        """Tutorial guiado: põe o arquivo de exemplo na biblioteca e passa a
+        mão na massa para o aluno (o overlay abre um buraco clicável no
+        controle da vez e só avança quando ele faz).
+
+        O arquivo é carregado ANTES dos passos porque o 1º passo já manda
+        clicar em Colocar na chapa — sem ele na biblioteca não haveria o que
+        colocar."""
+        exemplo = tutorials.caminho_exemplo()
+        if exemplo is None:
+            # pacote sem o exemplo (build antigo): avisa em vez de abrir um
+            # tutorial que manda clicar em algo que não existe
+            QMessageBox.information(
+                self, "PrintNest",
+                "O arquivo de exemplo não veio nesta instalação.\n"
+                "Os demais tutoriais do menu continuam disponíveis.",
+            )
+            return
+        caminho = str(exemplo)
+        if caminho not in self._paths:
+            self.add_paths([caminho])
+        # deixa a linha do exemplo selecionada: "Colocar na chapa" sem seleção
+        # jogaria TODOS os arquivos da biblioteca, e o aluno pode já ter os
+        # dele ali
+        linha = self._paths.index(caminho)
+        self._table.setCurrentCell(linha, 0)
+        self._start_tutorial(tutorials.guiado)
 
     def _start_tutorial(self, builder) -> None:
         """Abre um tutorial do menu Tutoriais (guia curto de UM recurso).
@@ -2855,6 +2891,7 @@ class MainWindow(QMainWindow):
         gerar.setProperty("accent", "true")
         gerar.setToolTip("Gera/recria a faca das peças (Shift+F5)")
         gerar.clicked.connect(self._regenerate_faca)
+        self._ct_gerar = gerar  # referência p/ o tutorial guiado iluminar/esperar
         cl.addWidget(gerar)
 
         # Tipo de faca (dropdown) — espelho do controle do Documento
