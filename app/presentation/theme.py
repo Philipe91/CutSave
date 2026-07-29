@@ -393,6 +393,14 @@ def build_app_qss() -> str:
         background: {SURFACE}; padding: 0;
     }}
     QToolButton#collapseBtn:hover {{ background: {HOVER}; border-color: {ACCENT}; }}
+    /* alca de recolher NO DIVISOR (pedido de 29/07: as setas dentro do painel
+       passavam batidas). Fica no meio da linha que separa os paineis, que e
+       onde a mao vai — e por isso tem de ter contorno visivel. */
+    QToolButton#handleBtn {{
+        border: 1px solid {BORDER_STRONG}; border-radius: 4px;
+        background: {SURFACE};
+    }}
+    QToolButton#handleBtn:hover {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; }}
     QLabel#railTitle {{
         background: {SURFACE_ALT};
         border-bottom: 1px solid {BORDER};

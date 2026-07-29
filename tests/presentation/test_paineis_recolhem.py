@@ -218,6 +218,46 @@ def test_o_trilho_tem_botao_visivel_de_recolher(janela, qapp):
     assert w._act_propriedades.isChecked() is True
 
 
+def test_alca_no_divisor_recolhe_e_reabre(janela, qapp):
+    """Pedido do Philipe (29/07): a alca tem de estar NO DIVISOR, no meio.
+
+    Ele marcou de vermelho as duas linhas — biblioteca|chapa e chapa|painel.
+    Botao dentro do painel passava batido.
+    """
+    from app.presentation.widgets.splitter_alcas import _Alca
+
+    w = janela
+    sp = w._main_splitter
+    for indice, nome in ((1, "biblioteca"), (2, "painel de campos")):
+        alca = sp.handle(indice)
+        assert isinstance(alca, _Alca), f"o divisor da {nome} nao tem alca"
+        assert alca._btn.isVisible(), f"a alca da {nome} nao esta na tela"
+        assert not alca._btn.icon().isNull(), f"a alca da {nome} esta sem seta"
+        assert alca._btn.width() >= 12 and alca._btn.height() >= 40, (
+            f"alca da {nome} pequena demais: "
+            f"{alca._btn.width()}x{alca._btn.height()}"
+        )
+        # e ela fica no MEIO da altura, nao colada no topo
+        centro = alca._btn.y() + alca._btn.height() / 2
+        assert abs(centro - alca.height() / 2) <= 2, (
+            f"a alca da {nome} nao esta centralizada na vertical"
+        )
+
+    sp.handle(1)._btn.click()
+    _assentar(qapp)
+    assert not w._library_wrap.isVisible(), "a alca nao recolheu a biblioteca"
+    sp.handle(1)._btn.click()
+    _assentar(qapp)
+    assert w._library_wrap.isVisible(), "a mesma alca nao trouxe de volta"
+
+    sp.handle(2)._btn.click()
+    _assentar(qapp)
+    assert w._props_tabs.is_collapsed(), "a alca nao recolheu o painel"
+    sp.handle(2)._btn.click()
+    _assentar(qapp)
+    assert not w._props_tabs.is_collapsed()
+
+
 def test_tutorial_reabre_o_painel_recolhido(janela, qapp):
     """Passo que aponta para botao recolhido apontaria para o nada.
 

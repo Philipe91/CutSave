@@ -80,7 +80,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSpinBox,
-    QSplitter,
     QStackedWidget,
     QTabBar,
     QTableWidget,
@@ -168,6 +167,7 @@ from app.presentation.widgets import (
     CollapsibleCard,
     IconRailTabs,
     MeasureField,
+    SplitterComAlcas,
     ToastManager,
     labeled,
 )
@@ -2450,6 +2450,7 @@ class MainWindow(QMainWindow):
             act.setChecked(on)  # setChecked não reemite triggered: sem recursão
         alvo = getattr(self, "_largura_biblioteca", 300) if on else CollapseStrip.LARGURA
         self._largura_no_splitter(0, alvo)
+        self._main_splitter.atualizar_alcas()  # a seta troca de direção
         if lembrar:
             _lembrar_painel("biblioteca", on)
 
@@ -2474,6 +2475,7 @@ class MainWindow(QMainWindow):
         wrap.setMinimumWidth(300 if on else 0)
         alvo = self._teto_do_painel() if on else tabs.rail_width()
         self._largura_no_splitter(2, alvo)
+        self._main_splitter.atualizar_alcas()  # a seta troca de direção
         self._ajustar_teto_do_painel()
         if lembrar:
             _lembrar_painel("propriedades", on)
@@ -4230,7 +4232,7 @@ class MainWindow(QMainWindow):
         work = self._build_work_area()
         properties = self._build_properties_panel()
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = SplitterComAlcas(Qt.Horizontal)
         splitter.addWidget(library_box)
         splitter.addWidget(work)
         splitter.addWidget(properties)
@@ -4243,6 +4245,26 @@ class MainWindow(QMainWindow):
         splitter.setSizes([300, 700, 600])
         splitter.setChildrenCollapsible(False)
         self._main_splitter = splitter
+        # alça 1 = linha entre biblioteca e chapa; alça 2 = entre chapa e
+        # painel de campos. A seta aponta para o lado em que o painel vai.
+        splitter.registrar_alca(
+            1,
+            lambda: self._set_biblioteca_visivel(not self._library_wrap.isVisible()),
+            lambda: "chevron-left" if self._library_wrap.isVisible() else "chevron-right",
+            lambda: (
+                "Recolher a biblioteca (F9)" if self._library_wrap.isVisible()
+                else "Mostrar a biblioteca (F9)"
+            ),
+        )
+        splitter.registrar_alca(
+            2,
+            lambda: self._set_propriedades_visivel(self._props_tabs.is_collapsed()),
+            lambda: "chevron-right" if not self._props_tabs.is_collapsed() else "chevron-left",
+            lambda: (
+                "Mostrar o painel (F11)" if self._props_tabs.is_collapsed()
+                else "Recolher o painel (F11)"
+            ),
+        )
 
         self._alert = Alert()
         self._progress = QProgressBar()

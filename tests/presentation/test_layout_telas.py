@@ -113,7 +113,11 @@ def test_paineis_laterais_deixam_espaco_para_a_chapa(janela_com_arquivo, qapp, l
         f"em {apelido} os paineis ocupam {lados}px de {larg} — sobra pouco "
         f"para a chapa"
     )
-    assert w._view.width() >= 140, (
+    # 120 e nao 140: as alcas de recolher no divisor (pedido de 29/07) sao
+    # visiveis de proposito e custam ~20px de largura no total. Na pratica
+    # este e o caso em que a biblioteca ABRE RECOLHIDA (janela < 1200px), e
+    # ai a chapa fica com ~500px — ver test_paineis_recolhem.
+    assert w._view.width() >= 120, (
         f"em {apelido} a area de trabalho ficou com {w._view.width()}px"
     )
 
