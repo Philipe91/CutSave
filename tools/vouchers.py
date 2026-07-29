@@ -80,11 +80,22 @@ class VoucherStore:
         return codes
 
     def find(self, code: str) -> dict | None:
-        """Registro do codigo (normalizado) ou None se nao existir."""
+        """Registro do codigo (normalizado) ou None se nao existir.
+
+        RELE o arquivo antes de procurar: o robo fica dias no ar e os codigos
+        de uma venda nova sao gerados DEPOIS que ele subiu. Sem esta releitura
+        ele so conhecia os codigos que existiam quando iniciou, e recusava
+        cliente pagante com "codigo nao reconhecido"."""
+        self._load()
         return self._data.get(normalize(code))
 
     def redeem(self, code: str, machine_id: str, customer: str, key: str) -> None:
-        """Marca o codigo como usado por 'machine_id' e guarda a chave emitida."""
+        """Marca o codigo como usado por 'machine_id' e guarda a chave emitida.
+
+        Rele antes de gravar porque o _save escreve o dicionario INTEIRO: com a
+        copia velha em memoria, a primeira ativacao apagaria do disco todo
+        codigo gerado depois que o robo subiu."""
+        self._load()
         rec = self._data[normalize(code)]
         rec.update(
             used=True,
