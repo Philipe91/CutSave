@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from PySide6.QtWidgets import QToolButton
+
 from app.presentation.onboarding import TourStep
 
 # gerado por assets/make_exemplo.py e versionado junto do app
@@ -116,15 +118,64 @@ def guiado(window) -> list[TourStep]:
 
 
 def _alvo(window, *names):
-    """1o widget existente E visível entre os nomes dados (senão None).
+    """Função que devolve o 1º widget VISÍVEL entre os nomes dados.
 
-    Aceita vários nomes porque o mesmo assunto tem controle diferente
-    conforme a aba aberta; o balão cai no centro se nenhum estiver à vista."""
-    for name in names:
-        widget = getattr(window, name, None)
-        if widget is not None and widget.isVisible():
-            return widget
-    return None
+    Devolve função, não widget: o TourOverlay resolve na hora de mostrar o
+    passo, depois que o `preparar` abriu a aba onde o controle mora. Resolver
+    na montagem era o defeito antigo (controle em sub-aba fechada virava None
+    e o balão só centralizava, sem apontar nada)."""
+    def resolver():
+        for name in names:
+            widget = getattr(window, name, None)
+            if widget is not None and widget.isVisible():
+                return widget
+        return None
+    return resolver
+
+
+def _botao_da_acao(window, name: str):
+    """Função que devolve o botão da RIBBON que dispara aquela QAction.
+
+    Modo Corte e Centro de Exportação não moram em menu: são botões da barra
+    de cima. Procurar pela ação evita apontar um caminho que não existe. Este
+    tutorial chegou a mandar o usuário abrir "Ferramentas → Modo Corte", e o
+    Modo Corte nunca esteve nesse menu."""
+    def resolver():
+        acao = getattr(window, name, None)
+        if acao is None:
+            return None
+        for btn in window.findChildren(QToolButton):
+            if btn.defaultAction() is acao and btn.isVisible():
+                return btn
+        return None
+    return resolver
+
+
+def _sinal_de_acao(window, name: str):
+    """Sinal `triggered` de uma QAction da janela, ou None se ela não existe."""
+    acao = getattr(window, name, None)
+    return None if acao is None else acao.triggered
+
+
+def _sub_aba(window, indice: int):
+    """Função que devolve o botão da sub-aba (Produção/Acabamento/Registro).
+
+    São uma LISTA (_doc_nav_btns), por isso não dá para pegar por nome."""
+    def resolver():
+        botoes = getattr(window, "_doc_nav_btns", None) or []
+        if indice < len(botoes) and botoes[indice].isVisible():
+            return botoes[indice]
+        return None
+    return resolver
+
+
+def _abrir_documento(window, secao: int):
+    """Abre a aba Documento na sub-aba pedida (0 Produção, 1 Acabamento,
+    2 Registro), para o controle do passo estar na tela quando o balão apontar."""
+    def preparar():
+        window._props_tabs.setCurrentIndex(0)
+        window._show_doc_section(secao)
+    return preparar
 
 
 def _faca(window) -> list[TourStep]:
@@ -137,27 +188,32 @@ def _faca(window) -> list[TourStep]:
         ),
         TourStep(
             _alvo(window, "_ct_mode", "_faca_mode"), "1. Tipo de faca",
-            "Automático segue o desenho da arte. Retangular corta na caixa "
-            "da peça. Faca do cliente usa a linha magenta que já veio no "
-            "arquivo (tem um tutorial só para ela).",
+            "Automático segue o desenho da arte. Contorno justo abraça a "
+            "silhueta. Retângulo corta na caixa da peça. Faca do cliente usa "
+            "a linha magenta que já veio no arquivo, e tem tutorial só dela.",
+            preparar=_abrir_documento(window, 0),
         ),
         TourStep(
-            _alvo(window, "_ct_offset"), "2. Sangria (offset)",
+            _alvo(window, "_ct_offset", "_offset"), "2. Sangria (offset)",
             "Afasta a faca da arte para fora (valor positivo) ou puxa para "
             "dentro (negativo). Positivo evita cortar a arte quando a "
             "máquina desalinha um fio; 0 corta exatamente no contorno.",
+            preparar=_abrir_documento(window, 0),
         ),
         TourStep(
-            _alvo(window, "_ct_smooth", "_ct_nodes"), "3. Suavizar e nós",
+            _alvo(window, "_ct_smooth", "_ct_nodes", "_faca_nodes"),
+            "3. Suavizar e nós",
             "Suavizar arredonda os cantinhos do contorno detectado. Nós da "
             "faca controla quantos pontos a linha terá. Menos nós, corte "
             "mais rápido e macio na máquina.",
+            preparar=_abrir_documento(window, 0),
         ),
         TourStep(
-            _alvo(window, "_prop_bar"), "4. Gerar",
-            "Clique no botão azul GERAR FACA. Com uma peça selecionada, os "
-            "ajustes valem só para o arquivo dela; sem seleção, valem para o "
-            "documento inteiro.",
+            _alvo(window, "_ct_gerar", "_prop_bar"), "4. Gerar",
+            "É este o botão azul. Com uma peça selecionada, os ajustes valem "
+            "só para o arquivo dela; sem seleção, valem para o documento "
+            "inteiro.\n\n"
+            "A barra da Faca só aparece quando há arquivo na produção.",
         ),
     ]
 
@@ -172,9 +228,16 @@ def _faca_do_cliente(window) -> list[TourStep]:
         ),
         TourStep(
             _alvo(window, "_ct_mode", "_faca_mode"), "Escolha Faca do cliente",
+            "Abra o Tipo de faca e escolha Faca do cliente (vetor do PDF).\n\n"
             "Com esse tipo, o desenho do cliente é a verdade: nada de "
             "simplificar, suavizar ou reduzir nós. Sai exatamente a faca que "
             "ele mandou. Era o que fazia o cliente reclamar de \"outra faca\".",
+            espera=_sinal(window, "_faca_mode", "currentIndexChanged"),
+            quando=lambda: (
+                getattr(window, "_faca_mode", None) is not None
+                and window._faca_mode.currentData() == "vector"
+            ),
+            preparar=_abrir_documento(window, 0),
         ),
         TourStep(
             _alvo(window, "_view"), "A linha magenta não imprime",
@@ -183,9 +246,10 @@ def _faca_do_cliente(window) -> list[TourStep]:
             "valendo como faca no arquivo de corte.",
         ),
         TourStep(
-            _alvo(window, "_ct_offset", "_ct_radius"), "Ajustes opcionais",
+            _alvo(window, "_ct_offset", "_offset", "_ct_radius"), "Ajustes opcionais",
             "Sangria e raio dos cantos continuam disponíveis se você QUISER "
             "mexer. Se não mexer, a faca sai igualzinha à do arquivo.",
+            preparar=_abrir_documento(window, 0),
         ),
     ]
 
@@ -195,23 +259,34 @@ def _registro(window) -> list[TourStep]:
         TourStep(
             None, "Marcas de registro",
             "São os alvos que a máquina de corte procura para saber onde a "
-            "chapa está. Sem elas o corte sai torto em relação à impressão.",
+            "chapa está. Sem elas o corte sai torto em relação à impressão.\n\n"
+            "Vou te mostrar onde ficam.",
+        ),
+        TourStep(
+            _sub_aba(window, 2), "Aqui: painel Documento, sub-aba Registro",
+            "Já abri para você. É nesta sub-aba que as marcas são configuradas.",
+            preparar=_abrir_documento(window, 2),
         ),
         TourStep(
             _alvo(window, "_reg_type"), "Escolha o tipo da sua máquina",
-            "Cada máquina lê um padrão diferente. Escolha o da sua e as "
-            "marcas aparecem na chapa na hora, já nas posições certas.",
+            "Cada máquina lê um padrão diferente. Abra a lista e escolha o da "
+            "sua: as marcas aparecem na chapa na hora, já nas posições certas.\n\n"
+            "Escolha uma opção para seguir.",
+            espera=_sinal(window, "_reg_type", "currentIndexChanged"),
+            preparar=_abrir_documento(window, 2),
         ),
         TourStep(
-            _alvo(window, "_props_tabs", "_view"), "Confira antes de exportar",
+            _alvo(window, "_view"), "Confira antes de exportar",
             "As marcas aparecem no preview da chapa. Vale conferir se nenhuma "
             "peça está por cima delas: a leitora precisa enxergar o alvo "
             "limpo.",
         ),
         TourStep(
-            _alvo(window, "_ribbon"), "Elas vão no arquivo exportado",
+            _botao_da_acao(window, "_act_export_center"),
+            "Elas vão no arquivo exportado",
             "O PDF de impressão sai com as marcas impressas e o arquivo de "
-            "corte sai com elas na mesma coordenada. É isso que casa os dois.",
+            "corte sai com elas na mesma coordenada. É isso que casa os dois.\n\n"
+            "A exportação é por aqui, no Centro de Exportação.",
         ),
     ]
 
@@ -221,24 +296,28 @@ def _modo_corte(window) -> list[TourStep]:
         TourStep(
             None, "Modo Corte (laser / CNC)",
             "É um fluxo SEPARADO, para quem corta sem impressão: você monta "
-            "só as peças de corte na chapa e exporta o vetor. Abre em janela "
-            "própria, pelo menu Ferramentas → Modo Corte.",
+            "só as peças de corte na chapa e exporta o vetor.\n\n"
+            "Vou te mostrar onde ele fica.",
         ),
         TourStep(
-            None, "Organizar encaixa sozinho",
-            "O botão Organizar roda o encaixe (nesting) e aproveita o máximo "
-            "da chapa. Ele roda em segundo plano, com barra de progresso, e a "
-            "janela continua respondendo.",
+            _botao_da_acao(window, "_act_modo_corte"), "O botão é este",
+            "Fica na barra de cima, no grupo Corte. Ele abre numa janela "
+            "própria, separada da produção de impressão.",
         ),
         TourStep(
-            None, "Mover e girar na mão",
-            "Não gostou do encaixe? Arraste as peças e gire com as setas. O "
-            "que você ajustar na mão é respeitado na exportação.",
+            None, "O que você faz lá dentro",
+            "Importa SVG, PDF ou texto; o botão Organizar roda o encaixe e "
+            "aproveita o máximo da chapa (em segundo plano, com barra de "
+            "progresso). Não gostou? Arraste as peças e gire com as setas: o "
+            "ajuste manual é respeitado na exportação.\n\n"
+            "No fim sai o DXF, cada peça um contorno fechado, do jeito que a "
+            "controladora espera.",
         ),
         TourStep(
-            None, "Exportar o corte",
-            "Sai em DXF (ou PDF de faca) para a sua máquina. Cada peça vira "
-            "um contorno fechado, do jeito que a controladora espera.",
+            _botao_da_acao(window, "_act_modo_corte"), "Abra agora",
+            "Clique no Modo Corte. O tutorial termina aqui, para você "
+            "explorar a janela à vontade.",
+            espera=_sinal_de_acao(window, "_act_modo_corte"),
         ),
     ]
 
@@ -272,7 +351,9 @@ def _paginas_e_recorte(window) -> list[TourStep]:
 def _exportar(window) -> list[TourStep]:
     return [
         TourStep(
-            _alvo(window, "_ribbon"), "Centro de Exportação (Ctrl+E)",
+            _botao_da_acao(window, "_act_export_center"), "O botão é este",
+            "Fica na barra de cima, no grupo Exportar. Também está no menu "
+            "Arquivo, e o atalho é Ctrl+E.\n\n"
             "Um lugar só para sair com tudo: escolha quais chapas exportar "
             "(com miniatura para conferir) e o formato.",
         ),
@@ -290,6 +371,12 @@ def _exportar(window) -> list[TourStep]:
             None, "Exportar só o que está selecionado",
             "Selecionou uma peça e apertou Ctrl+E? Dá para exportar só ela, "
             "útil para reposição sem refazer a chapa inteira.",
+        ),
+        TourStep(
+            _botao_da_acao(window, "_act_export_center"), "Abra agora",
+            "Clique no Centro de Exportação (ou aperte Ctrl+E). O tutorial "
+            "termina aqui.",
+            espera=_sinal_de_acao(window, "_act_export_center"),
         ),
     ]
 

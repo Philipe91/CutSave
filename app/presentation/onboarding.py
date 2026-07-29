@@ -44,13 +44,28 @@ class TourStep:
     Serve para exigir a escolha CERTA e não qualquer mexida. Um combo dispara
     currentIndexChanged em qualquer opção; com `quando` o tutorial só segue
     quando o aluno escolheu a que foi pedida.
+
+    `target` aceita três formas, e as duas últimas existem porque a primeira
+    não dava conta de mostrar o CAMINHO:
+    - um widget;
+    - uma FUNÇÃO que devolve o widget, resolvida na hora de mostrar o passo.
+      Alvo resolvido cedo demais era o bug: controle dentro de sub-aba fechada
+      ainda não estava visível, virava None e o balão só centralizava, sem
+      apontar nada;
+    - uma função que devolve `(widget, retângulo)`, para iluminar um pedaço do
+      widget. É como um item de MENU é apontado: menu não é widget, então o
+      alvo é a barra de menus mais o retângulo daquele menu.
+
+    `preparar` roda ANTES de resolver o alvo: abre a aba/seção onde o controle
+    mora, para ele existir na tela quando o balão apontar.
     """
 
-    target: QWidget | None
+    target: object | None
     title: str
     text: str
     espera: object | None = None
     quando: object | None = None
+    preparar: object | None = None
 
 
 def tour_done() -> bool:
@@ -172,16 +187,36 @@ class TourOverlay(QWidget):
         return super().eventFilter(obj, event)
 
     # ---- desenho ----
-    def _current_hole(self) -> QRect | None:
-        step = self._steps[self._index]
-        if step.target is None or not step.target.isVisible():
+    def _resolver_alvo(self):
+        """(widget, retângulo dentro dele) do passo atual, ou None.
+
+        Resolve AGORA, não na montagem dos passos: o controle pode ter acabado
+        de aparecer (ver `preparar` em TourStep)."""
+        alvo = self._steps[self._index].target
+        if callable(alvo):
+            alvo = alvo()
+        if alvo is None:
             return None
-        top_left = step.target.mapTo(self.parentWidget(), step.target.rect().topLeft())
-        r = QRect(top_left, step.target.rect().size())
-        return r.adjusted(-6, -6, 6, 6)
+        widget, rect = alvo if isinstance(alvo, tuple) else (alvo, None)
+        if widget is None or not widget.isVisible():
+            return None
+        return widget, (widget.rect() if rect is None else rect)
+
+    def _current_hole(self) -> QRect | None:
+        alvo = self._resolver_alvo()
+        if alvo is None:
+            return None
+        widget, rect = alvo
+        top_left = widget.mapTo(self.parentWidget(), rect.topLeft())
+        return QRect(top_left, rect.size()).adjusted(-6, -6, 6, 6)
 
     def _apply_step(self) -> None:
         step = self._steps[self._index]
+        if step.preparar is not None:
+            # abre a aba/seção do controle. Falha aqui não pode derrubar o
+            # tutorial: no pior caso o balão aponta o centro, como antes.
+            with contextlib.suppress(Exception):
+                step.preparar()
         self._title.setText(step.title)
         self._body.setText(step.text)
         self._dots.setText(f"{self._index + 1} de {len(self._steps)}")

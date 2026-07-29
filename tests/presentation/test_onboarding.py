@@ -223,6 +223,58 @@ def test_tutorial_guiado_avanca_quando_o_aluno_faz(tmp_path):
     assert tour._index == indice
 
 
+def test_todo_passo_com_alvo_realmente_aponta_algo(tmp_path):
+    # ESTE e o teste que faltava. Um alvo que nao resolve vira balao
+    # centralizado: o tutorial FALA mas nao MOSTRA onde clicar. Foi assim que
+    # os tutoriais de Modo Corte e de Registro sairam mudos — o alvo era
+    # filtrado por "visivel" cedo demais (sub-aba fechada) ou nem existia
+    # (Modo Corte e botao da ribbon, nao item de menu).
+    from app.presentation import tutorials
+    from app.presentation.onboarding import TourOverlay
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    import tests.presentation.test_main_window as t
+
+    w = t._window(tmp_path)
+    w.resize(1500, 950)
+    w.show()  # sem mostrar, TUDO seria invisivel e o teste passaria de mentira
+    app.processEvents()
+    # producao montada: a barra da Faca so existe com peca na chapa
+    w.add_paths([t._two_page_pdf(tmp_path)])
+    w.generate(blocking=True)
+    app.processEvents()
+
+    roteiros = [(rot, b) for rot, _ic, b in tutorials.TUTORIAIS]
+    roteiros.append(("Tutorial guiado", tutorials.guiado))
+
+    falhas, mudos = [], []
+    for label, builder in roteiros:
+        passos = builder(w)
+        overlay = TourOverlay(w, passos, mark_done=False)
+        apontou = 0
+        for i, passo in enumerate(passos):
+            overlay._desconectar()
+            overlay._index = i
+            overlay._apply_step()  # roda o `preparar` (abre aba/sub-aba)
+            app.processEvents()
+            resolveu = overlay._resolver_alvo() is not None
+            apontou += resolveu
+            if passo.target is not None and not resolveu:
+                falhas.append(f"  {label} / passo {i + 1}: {passo.title}")
+        overlay._finish()
+        # Um tutorial inteiro sem apontar nada e o defeito de 29/07: so texto,
+        # sem mostrar o caminho. A checagem por passo NAO pega isso sozinha,
+        # porque um alvo que falhou na montagem ja chega aqui como None e
+        # passa por "narrado de proposito".
+        if apontou < 2:
+            mudos.append(f"  {label}: so {apontou} passo(s) apontando")
+
+    assert not falhas, "passos que prometem apontar e nao apontam:\n" + "\n".join(falhas)
+    assert not mudos, "tutoriais que so narram, sem mostrar onde:\n" + "\n".join(mudos)
+    w.close()
+
+
 def test_passo_so_avanca_com_a_escolha_certa(temp_settings):
     # o passo do "Contorno justo" escuta currentIndexChanged, que dispara em
     # QUALQUER opcao. O filtro `quando` faz o tutorial so seguir na opcao pedida.

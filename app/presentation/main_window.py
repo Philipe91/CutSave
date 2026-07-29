@@ -1875,6 +1875,7 @@ class MainWindow(QMainWindow):
         modo_corte = self._act("Modo Corte", self._open_cut_mode, None,
                                "Nesting pelo contorno REAL (laser/CNC): importa SVG, PDF "
                                "ou texto, encaixa as peças e exporta o DXF")
+        self._act_modo_corte = modo_corte  # o tutorial aponta e espera o clique
         rem = self._act("Remover arquivo da biblioteca", self.remove_selected, None,
                         "Remove o arquivo selecionado da lista da biblioteca")
         dup = self._act("Duplicar", self._duplicate_selected, "Ctrl+D",
@@ -1924,6 +1925,7 @@ class MainWindow(QMainWindow):
                             "Envia as peças selecionadas para tras das demais")
         exp_center = self._act("Centro de Exportação...", self._open_export_center, "Ctrl+E",
                                "Escolhe as chapas (com previa) e o formato de exportação")
+        self._act_export_center = exp_center  # o tutorial aponta e espera o clique
         exp_pdf = self._act("Exportar PDF de impressao...", self.export_pdf, "Ctrl+P",
                             "Gera o PDF de impressao (Imprimir)")
         exp_dxf = self._act("Exportar DXF (único)...", self.export_dxf, None,
