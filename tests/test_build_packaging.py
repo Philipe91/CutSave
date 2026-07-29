@@ -61,6 +61,28 @@ def test_spec_configura_a_tela_de_abertura():
     assert '"tkinter",' not in spec
 
 
+def test_spec_empacota_o_arquivo_de_exemplo_do_tutorial():
+    """O tutorial guiado depende do PDF de exemplo. Se ele nao for junto no
+    .exe, o tutorial abre mandando clicar em algo que nao existe — e isso so
+    apareceria na maquina de quem instalou, nunca rodando do codigo.
+
+    Reproduz a mesma varredura do spec (assets/**, menos .py) em vez de
+    confiar no olho: e assim que da para saber ANTES de empacotar."""
+    exemplo = ROOT / "assets" / "exemplo" / "exemplo-printnest.pdf"
+    assert exemplo.exists(), "assets/exemplo/exemplo-printnest.pdf sumiu do repo"
+
+    datas = [
+        p for p in (ROOT / "assets").rglob("*")
+        if p.is_file() and p.suffix.lower() != ".py"
+    ]
+    assert exemplo in datas, "o spec nao levaria o exemplo para o executavel"
+
+    # o .gitignore tem *.pdf global (arte de cliente): sem a excecao, um clone
+    # limpo sai sem o exemplo e a build gera um .exe quebrado
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "!assets/exemplo/*.pdf" in gitignore, "excecao do .gitignore sumiu"
+
+
 def test_build_bat_gera_a_splash():
     bat = (ROOT / "build.bat").read_text(encoding="utf-8")
     assert "make_splash.py" in bat
