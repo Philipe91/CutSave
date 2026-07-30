@@ -1,0 +1,11 @@
+--- rodada 1: montando janela
+--- rodada 1: importando 64 paginas...
+--- rodada 1: import levou 0.1s
+rodada 1: geracao em voo no momento do close = True (progresso 120/400, fase de render = True)
+rodada 1: fechou em 0.06s | thread ainda viva = False
+--- rodada 2: montando janela
+--- rodada 2: importando 64 paginas...
+--- rodada 2: import levou 0.0s
+rodada 2: geracao em voo no momento do close = True (progresso 120/400, fase de render = True)
+rodada 2: fechou em 0.08s | thread ainda viva = False
+caixas de dialogo que apareceram: ['Há alterações não salvas neste trabalho.', 'Há alterações não salvas neste trabalho.']

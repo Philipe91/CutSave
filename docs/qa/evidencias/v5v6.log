@@ -1,0 +1,20 @@
+=== V5a: trabalho sujo em aba INATIVA ===
+aba 1 suja? True
+depois de salvar a aba 2 -> dirty da aba ativa: False
+sessoes com dirty: [True, False]
+caixas ao fechar: [('Há trabalho não salvo em outra(s) aba(s).', 'Fechar o PrintNest descarta o que não foi salvo.', ['Cancelar', 'Fechar mesmo assim'])]
+V5a -> APROVADO
+
+=== V5b: Modo Corte descarta arranjo ===
+caixas ao dar Esc SEM exportar: [('Fechar o Modo Corte descarta o arranjo organizado.', 'O arranjo ainda não foi enviado ao Corel nem exportado.', ['Continuar aqui', 'Fechar mesmo assim'])]
+caixas ao dar Esc DEPOIS de exportar: []
+V5b -> APROVADO
+
+=== V6: exportacoes durante a geracao ===
+antes da nova geracao: 9/9 exportacoes habilitadas
+durante: 0/9 habilitadas
+tooltip durante: '(Aguarde a geração terminar)'
+depois: 9/9 habilitadas
+V6 -> APROVADO
+
+RESUMO: V5a=OK V5b=OK V6=OK

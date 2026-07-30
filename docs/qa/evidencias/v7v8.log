@@ -1,0 +1,29 @@
+=== V7: Ajuda -> Procurar atualizacoes (com rede) ===
+versao do app: 1.0.0
+URL embutida  : https://gist.githubusercontent.com/Philipe91/00110a87efa02d4256ea0755ac621236/raw/manifesto.json
+URL efetiva da janela: https://gist.githubusercontent.com/Philipe91/00110a87efa02d4256ea0755ac621236/raw/manifesto.json
+resposta em 0.10s
+mensagem: ['Você já está na versão mais recente (1.0.0).']
+V7 -> APROVADO
+
+=== V8a: config.json corrompido ===
+config valido criado: True
+config truncado. conteudo: '{"unit": "cm", "sheet_w'
+app subiu com padroes: True
+quebrado preservado como .corrompido: True
+config novo e valido: True
+MainWindow construida apos o config corrompido: True
+
+=== V8b: salvar projeto e atomico ===
+salvou: True | .tmp deixado para tras: []
+save interrompido devolveu False; arquivo anterior intacto: True (980 bytes)
+avisou o usuario: ['Falha ao salvar o projeto: C:\\Users\\PCFECH~1\\AppData\\Local\\Temp\\claude\\c--projetos-Cutph\\52969366-0ea0-4aa1-b1ba-d9dcda06d7e6\\scratchpad\\v8_home\\trabalho.printnest']
+
+RESUMO: V7=OK V8a=OK V8b=OK
+
+=== extra: numeracao dos passos da Ativacao ===
+   1. Envie este ID da Máquina para comprar/ativar:
+   2. Cole o seu código de compra (veio no e-mail/recibo da compra):
+   3. Peça a sua chave (escolha uma opção):
+   4. Cole aqui a chave de licença que você recebeu:
+numeracao lida: ['1', '2', '3', '4'] -> APROVADO
