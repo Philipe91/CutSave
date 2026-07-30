@@ -1047,7 +1047,14 @@ class GuideItem(QGraphicsLineItem):
         return super().itemChange(change, value)
 
 
-def _render_page_images(renderer, keys, box, on_progress=None) -> dict:
+class _GeracaoCancelada(BaseException):
+    """Sinal interno: o usuário fechou a janela no meio da geração.
+
+    Herda de BaseException de propósito — nenhum "except Exception" no meio
+    do pipeline pode engolir o cancelamento."""
+
+
+def _render_page_images(renderer, keys, box, on_progress=None, should_stop=None) -> dict:
     """Rasteriza cada (caminho, pagina) direto em QImage — sem passar por PNG.
 
     O caminho antigo gerava PNG e o Qt decodificava logo em seguida: num PDF
@@ -1066,6 +1073,8 @@ def _render_page_images(renderer, keys, box, on_progress=None) -> dict:
     images: dict = {}
     total = len(keys)
     for index, (path, page) in enumerate(keys, start=1):
+        if should_stop is not None and should_stop():
+            raise _GeracaoCancelada()
         data, width, height = renderer.render_raw(path, page, box=box)
         # .copy(): o QImage nao vira dono do buffer Python — sem a copia o
         # bytes e coletado e a imagem passa a apontar para memoria liberada
@@ -1083,6 +1092,7 @@ class ProductionWorker(QObject):
     progress = Signal(int, int)
     finished = Signal(object)
     failed = Signal(str)
+    stopped = Signal()  # cancelado pelo fechamento da janela — sem resultado
 
     def __init__(self, pipeline, renderer, paths, material, offset, sheet_height, box,
                  sensitivity=50.0, ignore_white=True, pages=None):
@@ -1097,22 +1107,40 @@ class ProductionWorker(QObject):
         self._sensitivity = sensitivity
         self._ignore_white = ignore_white
         self._pages = pages
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Chamada da thread da UI (closeEvent). Um bool basta: o loop de
+        import/render checa a flag no próximo passo e para."""
+        self._cancelled = True
+
+    def _emit_progress(self, done: int, total: int) -> None:
+        if self._cancelled:
+            raise _GeracaoCancelada()
+        self.progress.emit(done, total)
 
     def run(self) -> None:
         try:
             result = self._pipeline.execute(
                 self._paths, self._material, self._offset, self._sheet_height, self._box,
-                on_progress=lambda done, total: self.progress.emit(done, total),
+                on_progress=self._emit_progress,
                 sensitivity=self._sensitivity, ignore_white=self._ignore_white,
                 pages=self._pages,
             )
             unique = sorted(set(result.sources.values()))
             images = _render_page_images(
                 self._renderer, unique, self._box,
-                on_progress=lambda done, total: self.progress.emit(done, total),
+                on_progress=self._emit_progress,
+                should_stop=lambda: self._cancelled,
             )
+        except _GeracaoCancelada:
+            self.stopped.emit()
+            return
         except Exception as exc:  # reportado a UI
             self.failed.emit(str(exc))
+            return
+        if self._cancelled:
+            self.stopped.emit()
             return
         self.finished.emit((result, images))
 
@@ -1821,7 +1849,7 @@ class MainWindow(QMainWindow):
         # unidade certa (LengthSpin le units.unit() ao ser criado).
         units.set_unit(getattr(settings, "unit", units.CM))
 
-        self.setWindowTitle("PrintNest Premium")
+        self.setWindowTitle("PrintNest Pro")
         self.setAcceptDrops(True)  # arquivos do Explorer em qualquer ponto da janela
         self._build_ui()
         self._illustrate_all()  # miniaturas ilustrativas (nós, registro, caixas...)
@@ -2648,8 +2676,8 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         from app import __version__
         QMessageBox.about(
-            self, "PrintNest Premium",
-            f"<b>PrintNest Premium</b> — versão {__version__}<br><br>"
+            self, "PrintNest Pro",
+            f"<b>PrintNest Pro</b> — versão {__version__}<br><br>"
             "Preparação de produção gráfica: faca, nesting e "
             "exportação PDF/DXF.",
         )
@@ -2658,7 +2686,7 @@ class MainWindow(QMainWindow):
     def _update_title(self) -> None:
         from app import __version__
         name = Path(self._project_path).name if self._project_path else "Sem título"
-        self.setWindowTitle(f"PrintNest Premium v{__version__} — {name}")
+        self.setWindowTitle(f"PrintNest Pro v{__version__} — {name}")
 
     def _collect_project(self) -> ProjectDocument:
         """Captura o estado atual (arquivos + parametros) como ProjectDocument."""
@@ -2843,24 +2871,48 @@ class MainWindow(QMainWindow):
     def _mark_dirty(self) -> None:
         self._dirty = True
 
-    def _confirm_discard(self, acao: str) -> bool:
+    def _confirm_discard(self, acao: str, include_tabs: bool = False) -> bool:
         """Pergunta antes de descartar trabalho não salvo. True = prosseguir.
 
         Só pergunta quando ha algo a perder E a janela esta em uso real
         (suites offscreen/pytest nunca podem abrir modal — travaria o CI).
+        include_tabs: fechar a JANELA considera também o trabalho sujo das
+        outras abas (o dirty é por aba; Novo/Abrir só descartam a aba ativa).
         """
         import os
-        if not getattr(self, "_dirty", False):
-            return True
-        if not (self._paths or (self._result is not None and self._result.sheets)):
+        ativo_sujo = bool(getattr(self, "_dirty", False)) and bool(
+            self._paths or (self._result is not None and self._result.sheets)
+        )
+        outras_sujas = include_tabs and any(
+            s.get("dirty") and (s.get("paths") or s.get("result") is not None)
+            for i, s in enumerate(getattr(self, "_sessions", []))
+            if s is not None and i != getattr(self, "_active_tab", -1)
+        )
+        if not (ativo_sujo or outras_sujas):
             return True
         if os.environ.get("PYTEST_CURRENT_TEST") or not self.isVisible():
             return True
+        if not ativo_sujo:
+            # só abas INATIVAS têm trabalho sujo: "Salvar" aqui salvaria a aba
+            # errada — a escolha honesta é fechar mesmo assim ou voltar
+            box = QMessageBox(self)
+            box.setWindowTitle("PrintNest")
+            box.setIcon(QMessageBox.Warning)
+            box.setText("Há trabalho não salvo em outra(s) aba(s).")
+            box.setInformativeText(acao)
+            b_close = box.addButton("Fechar mesmo assim", QMessageBox.DestructiveRole)
+            b_canc = box.addButton("Cancelar", QMessageBox.RejectRole)
+            box.setDefaultButton(b_canc)
+            box.exec()
+            return box.clickedButton() is b_close
         box = QMessageBox(self)
         box.setWindowTitle("PrintNest")
         box.setIcon(QMessageBox.Warning)
         box.setText("Há alterações não salvas neste trabalho.")
-        box.setInformativeText(acao)
+        box.setInformativeText(
+            f"{acao}\n(Outras abas também têm trabalho não salvo.)"
+            if outras_sujas else acao
+        )
         b_save = box.addButton("Salvar", QMessageBox.AcceptRole)
         box.addButton("Descartar", QMessageBox.DestructiveRole)
         b_canc = box.addButton("Cancelar", QMessageBox.RejectRole)
@@ -4072,6 +4124,9 @@ class MainWindow(QMainWindow):
             "faca_corner": self._faca_corner,
             "guides": [list(g) for g in self._guides],
             "widgets": self._capture_widget_values(),
+            # cada aba carrega o proprio "nao salvo" — antes o flag era global
+            # e salvar a aba B fazia o trabalho sujo da aba A fechar sem aviso
+            "dirty": getattr(self, "_dirty", False),
         }
 
     def _blank_session(self) -> dict:
@@ -4082,6 +4137,7 @@ class MainWindow(QMainWindow):
             origins={}, pixmaps={}, file_sizes={}, page_crops={}, baked_crops={},
             crop_cache={}, file_overrides={}, piece_rotations={}, faca_manual={},
             faca_on=False, loaded=False, project_path=None, guides=[],
+            dirty=False,
         )
         return s
 
@@ -4146,6 +4202,9 @@ class MainWindow(QMainWindow):
         self._update_property_bar()
         self._update_title()
         self._set_exports_enabled(self._result is not None)
+        # Por ULTIMO: o redesenho acima pode disparar _mark_dirty colateral —
+        # trocar de aba nao pode sujar a aba de destino.
+        self._dirty = bool(s.get("dirty", False))
 
     def _on_tab_changed(self, index: int) -> None:
         if self._switching_tab or index < 0 or index == self._active_tab:
@@ -6825,9 +6884,14 @@ class MainWindow(QMainWindow):
         if is_pdf:
             try:
                 import pypdfium2 as pdfium
-                doc = pdfium.PdfDocument(path)
-                total = len(doc)
-                doc.close()
+                from app.infrastructure.pdfium_boxes import PDFIUM_LOCK
+
+                # pdfium não é thread-safe: o worker de geração pode estar
+                # usando a lib neste momento (heap corruption sem o lock).
+                with PDFIUM_LOCK:
+                    doc = pdfium.PdfDocument(path)
+                    total = len(doc)
+                    doc.close()
             except Exception:
                 QMessageBox.warning(self, "PrintNest", "Não foi possível abrir o PDF.")
                 return
@@ -6944,10 +7008,13 @@ class MainWindow(QMainWindow):
             return 0
         try:
             import pypdfium2 as pdfium
+            from app.infrastructure.pdfium_boxes import PDFIUM_LOCK
 
-            doc = pdfium.PdfDocument(path)
-            total = len(doc)
-            doc.close()
+            # pdfium não é thread-safe: segurar o mesmo lock do worker.
+            with PDFIUM_LOCK:
+                doc = pdfium.PdfDocument(path)
+                total = len(doc)
+                doc.close()
             return total
         except Exception:
             return 0
@@ -7410,6 +7477,7 @@ class MainWindow(QMainWindow):
         self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._thread.quit)
         self._worker.failed.connect(self._thread.quit)
+        self._worker.stopped.connect(self._thread.quit)
         self._thread.start()
 
     def generating(self) -> bool:
@@ -7426,7 +7494,9 @@ class MainWindow(QMainWindow):
         de destruir a janela (QA-08). Sem isso o Qt aborta o processo com
         "QThread: Destroyed while thread is still running" — visto como
         "o programa fechou sozinho" na máquina do usuário."""
-        if not self._confirm_discard("Fechar o PrintNest descarta o que não foi salvo."):
+        if not self._confirm_discard(
+            "Fechar o PrintNest descarta o que não foi salvo.", include_tabs=True
+        ):
             event.ignore()
             return
         # solta o sinal do ThemeManager (singleton vive além da janela; sem
@@ -7436,8 +7506,11 @@ class MainWindow(QMainWindow):
             _tm().theme_changed.disconnect(self._on_theme_changed)
         thread = self._thread
         if thread is not None and thread.isRunning():
+            worker = getattr(self, "_worker", None)
+            if worker is not None:
+                worker.cancel()  # o worker para na página corrente, não no fim
             thread.quit()
-            thread.wait(10000)  # geracao normal termina em segundos
+            thread.wait(10000)  # com o cancel, retorna no máximo em uma página
         # mesma armadilha da geração: a consulta de atualização também roda em
         # QThread e não pode sobreviver à janela
         checker = getattr(self, "_update_checker", None)

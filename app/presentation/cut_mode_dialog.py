@@ -59,6 +59,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -384,7 +385,10 @@ class CutModeDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Modo Corte (laser/CNC)")
-        self.setMinimumSize(900, 600)
+        # 540 e nao 600: em notebook 1366x768 com escala 125% a altura util e
+        # ~545px logicos — com 600 os botoes Enviar/Exportar/Fechar ficavam
+        # FORA da tela (e este dialogo abre sozinho pela macro do Corel).
+        self.setMinimumSize(900, 540)
 
         self._svg = svg_importer or SvgVectorImporter()
         self._pdf = pdf_importer or PdfVectorImporter()
@@ -406,6 +410,9 @@ class CutModeDialog(QDialog):
         # mostrada, e a pilha de desfazer (chapa, indice, PlacedItem antigo)
         self._gfx_by_index: dict[tuple[int, int], _CutPieceItem] = {}
         self._undo: list[tuple[int, int, PlacedItem]] = []
+        # o arranjo desta sessao ja foi enviado ao Corel ou exportado? Sem
+        # isso, fechar descarta minutos de nesting — pergunta antes (C8)
+        self._work_exported = False
 
         root = QHBoxLayout(self)
         root.setContentsMargins(theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD, theme.SPACE_MD)
@@ -443,7 +450,10 @@ class CutModeDialog(QDialog):
         self._piece_view = _HintView(self._piece_scene, "Prévia da peça selecionada")
         self._piece_view.setRenderHint(QPainter.Antialiasing)
         self._piece_view.setBackgroundBrush(QBrush(QColor(theme.SURFACE_ALT)))
-        self._piece_view.setFixedHeight(150)
+        # maximo (nao fixo): em tela baixa a previa encolhe em vez de empurrar
+        # os botoes do rodape para fora da janela
+        self._piece_view.setMinimumHeight(90)
+        self._piece_view.setMaximumHeight(150)
         self._piece_view.setToolTip("Prévia da peça selecionada")
         col.addWidget(self._piece_view)
 
@@ -504,7 +514,17 @@ class CutModeDialog(QDialog):
         col.addLayout(sheet_row)
 
         self._params = self._build_params()
-        col.addWidget(self._params)
+        # Em notebook 1366x768 @125% (~545px logicos uteis) o bloco inteiro de
+        # parametros nao cabe: ele ROLA em vez de empurrar Organizar/Enviar/
+        # Exportar para fora da tela (mesmo padrao do _painel_rolavel).
+        params_scroll = QScrollArea()
+        params_scroll.setWidget(self._params)
+        params_scroll.setWidgetResizable(True)
+        params_scroll.setFrameShape(QScrollArea.NoFrame)
+        params_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        params_scroll.setMinimumHeight(110)
+        params_scroll.setMaximumHeight(self._params.sizeHint().height() + 8)
+        col.addWidget(params_scroll)
 
         # "imagem de carregamento": barra indeterminada, visivel so enquanto
         # a thread do nesting trabalha.
@@ -1114,6 +1134,7 @@ class CutModeDialog(QDialog):
         def run() -> None:
             svg = self.export_svg(os.path.join(tempfile.gettempdir(), "printnest_layout.svg"))
             send_file_to_corel(svg)
+            self._work_exported = True
             QMessageBox.information(
                 self,
                 "Modo Corte",
@@ -1129,6 +1150,7 @@ class CutModeDialog(QDialog):
 
         def run() -> None:
             result = self.export(path)
+            self._work_exported = True
             QMessageBox.information(
                 self,
                 "Modo Corte",
@@ -1145,6 +1167,8 @@ class CutModeDialog(QDialog):
         if self._nest_thread is not None:
             self._status.setText("Aguarde terminar de organizar para fechar.")
             return
+        if not self._confirma_descartar_arranjo():
+            return
         super().reject()
 
     def closeEvent(self, event) -> None:
@@ -1152,7 +1176,30 @@ class CutModeDialog(QDialog):
             event.ignore()
             self._status.setText("Aguarde terminar de organizar para fechar.")
             return
+        if not self._confirma_descartar_arranjo():
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    def _confirma_descartar_arranjo(self) -> bool:
+        """True = pode fechar. Um Esc acidental descartava minutos de nesting
+        + retoques manuais sem volta (o dialogo e recriado do zero); com
+        arranjo organizado e nada enviado/exportado, confirma antes."""
+        if not self._layouts or self._work_exported:
+            return True
+        # suites offscreen/pytest nunca podem abrir modal (travaria o CI)
+        if os.environ.get("PYTEST_CURRENT_TEST") or not self.isVisible():
+            return True
+        box = QMessageBox(self)
+        box.setWindowTitle("Modo Corte")
+        box.setIcon(QMessageBox.Warning)
+        box.setText("Fechar o Modo Corte descarta o arranjo organizado.")
+        box.setInformativeText("O arranjo ainda não foi enviado ao Corel nem exportado.")
+        b_close = box.addButton("Fechar mesmo assim", QMessageBox.DestructiveRole)
+        box.addButton("Continuar aqui", QMessageBox.RejectRole)
+        box.setDefaultButton(box.buttons()[-1])
+        box.exec()
+        return box.clickedButton() is b_close
 
     def _guarded(self, action) -> None:
         """Erro de dominio/importacao vira caixa de aviso — nunca traceback na

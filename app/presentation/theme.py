@@ -199,7 +199,7 @@ def build_app_qss() -> str:
     QMainWindow, QDialog {{ background: {BG}; }}
     QToolTip {{
         background: {TEXT};
-        color: #ffffff;
+        color: {BG};
         border: none;
         border-radius: {RADIUS_SM}px;
         padding: 6px 9px;
@@ -286,7 +286,7 @@ def build_app_qss() -> str:
     /* CTA primario (azul) */
     QPushButton[accent="true"] {{
         background: {ACCENT}; border: 1px solid {ACCENT};
-        color: #ffffff; font-weight: 600;
+        color: {ICON_ON_ACCENT}; font-weight: 600;
     }}
     QPushButton[accent="true"]:hover {{
         background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER};
@@ -482,7 +482,7 @@ def build_app_qss() -> str:
     QToolButton:pressed {{ background: {ACCENT_SOFT}; }}
     QToolButton:checked {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; color: {ACCENT}; }}
     QToolButton[accent="true"] {{
-        background: {ACCENT}; color: #ffffff; border-color: {ACCENT}; font-weight: 600;
+        background: {ACCENT}; color: {ICON_ON_ACCENT}; border-color: {ACCENT}; font-weight: 600;
     }}
     QToolButton[accent="true"]:hover {{ background: {ACCENT_HOVER}; }}
 

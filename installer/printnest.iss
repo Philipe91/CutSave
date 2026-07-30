@@ -1,5 +1,5 @@
 ; ============================================================
-;  PrintNest Premium - instalador Windows (Inno Setup 6)
+;  PrintNest Pro - instalador Windows (Inno Setup 6)
 ;
 ;  Build em 2 passos (ver docs/build/BUILD.md):
 ;    1) build.bat                       -> gera PrintNest_Build\
@@ -12,11 +12,10 @@
 ;  derrubar a ativacao.
 ; ============================================================
 
-#define MyAppName "PrintNest Premium"
+#define MyAppName "PrintNest Pro"
 ; ATENCAO: alinhar com app/__init__.py (__version__) e docs/build/VERSAO.txt.
 #define MyAppVersion "1.0.0"
-; Preencher com a razao social / nome do vendedor (decisao do Philipe).
-#define MyAppPublisher "PrintNest"
+#define MyAppPublisher "PrintNest — Philipe Fernandes"
 #define MyAppExeName "PrintNest.exe"
 
 [Setup]

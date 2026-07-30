@@ -55,6 +55,11 @@ def pytest_sessionfinish(session, exitstatus) -> None:
             # suite para sempre no offscreen. Aqui nao ha trabalho a salvar.
             if hasattr(widget, "_dirty"):
                 widget._dirty = False
+            # o dirty agora e POR ABA (fica no snapshot da sessao): zera as
+            # sessoes tambem, senao o closeEvent agregaria e abriria o modal
+            for s in getattr(widget, "_sessions", []) or []:
+                if isinstance(s, dict):
+                    s["dirty"] = False
             widget.close()
     app.processEvents()
 

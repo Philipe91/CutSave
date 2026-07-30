@@ -1,94 +1,96 @@
-CONTRATO DE LICENCA DE USUARIO FINAL (EULA) - PRINTNEST
-Ultima atualizacao: 06/07/2026
+﻿CONTRATO DE LICENÇA DE USUÁRIO FINAL (EULA) — PRINTNEST PRO
+Última atualização: 30/07/2026
 
-Este Contrato de Licenca de Usuario Final ("Contrato") e celebrado entre
-[RAZAO SOCIAL / NOME DO VENDEDOR], inscrito(a) no CNPJ/CPF sob o no
-[NUMERO], com sede em [CIDADE/UF] ("Licenciante"), e a pessoa fisica ou
-juridica que adquire a licenca ("Cliente"). Ao instalar, ativar ou usar o
-software PrintNest ("Software"), o Cliente declara ter lido e aceito este
-Contrato.
+Este Contrato de Licença de Usuário Final ("Contrato") é celebrado entre o
+desenvolvedor e vendedor do PrintNest Pro, identificado no comprovante de
+compra e nos canais oficiais de venda ("Licenciante"), e a pessoa física ou
+jurídica que adquire a licença ("Cliente"). Ao instalar, ativar ou usar o
+software PrintNest Pro ("Software"), o Cliente declara ter lido e aceito
+este Contrato.
 
-1. O QUE VOCE ESTA COMPRANDO
+1. O QUE VOCÊ ESTÁ COMPRANDO
 
-1.1. O Cliente adquire uma LICENCA DE USO do Software - nao a propriedade
-do programa, do codigo-fonte ou da marca, que permanecem do Licenciante.
+1.1. O Cliente adquire uma LICENÇA DE USO do Software — não a propriedade
+do programa, do código-fonte ou da marca, que permanecem do Licenciante.
 
-1.2. A licenca e perpetua (paga uma unica vez), individual e vinculada a
-1 (um) computador por chave de ativacao ("node-locked"). A ativacao usa um
-identificador tecnico do computador do Cliente (ID da Maquina).
+1.2. A licença é perpétua (paga uma única vez), individual e vinculada a
+1 (um) computador por chave de ativação ("node-locked"). A ativação usa um
+identificador técnico do computador do Cliente (ID da Máquina).
 
-1.3. A licenca da direito ao uso comercial do Software na atividade do
-Cliente (ex.: grafica), sem limite de trabalhos produzidos.
+1.3. A licença dá direito ao uso comercial do Software na atividade do
+Cliente (ex.: gráfica), sem limite de trabalhos produzidos.
 
-2. O QUE A LICENCA NAO PERMITE
+2. O QUE A LICENÇA NÃO PERMITE
 
-E vedado ao Cliente:
+É vedado ao Cliente:
 - copiar, distribuir, alugar, sublicenciar, revender ou compartilhar o
-  Software ou a chave de licenca com terceiros;
+  Software ou a chave de licença com terceiros;
 - realizar engenharia reversa, descompilar, modificar ou criar obras
   derivadas do Software, bem como burlar ou tentar burlar o sistema de
-  ativacao;
+  ativação;
 - usar uma mesma chave em mais de um computador simultaneamente.
 
-O descumprimento autoriza o cancelamento da licenca, sem prejuizo das
-medidas legais cabiveis.
+O descumprimento autoriza o cancelamento da licença, sem prejuízo das
+medidas legais cabíveis.
 
 3. TROCA DE COMPUTADOR
 
-O Cliente pode transferir a licenca para outro computador seu: basta usar
-a funcao "Desativar" no computador antigo e solicitar a ativacao no novo
-(via suporte ou ativacao automatica). Em caso de defeito/perda do
-computador antigo, o suporte fara a transferencia mediante verificacao.
+O Cliente pode transferir a licença para outro computador seu: basta usar
+a função "Desativar" no computador antigo e solicitar a ativação no novo
+(via suporte ou ativação automática). Em caso de defeito/perda do
+computador antigo, o suporte fará a transferência mediante verificação.
 
-4. ATUALIZACOES E SUPORTE
+4. ATUALIZAÇÕES E SUPORTE
 
-4.1. O Licenciante podera disponibilizar atualizacoes do Software a seu
-criterio. [DEFINIR: atualizacoes incluidas por X meses/anos ou vitalicias]
+4.1. As atualizações de correção e de melhoria da versão 1.x estão
+incluídas na licença, sem custo adicional. Novas versões principais
+(2.0 em diante) poderão ser oferecidas como compra ou upgrade à parte,
+a critério do Licenciante.
 
-4.2. O suporte e prestado por e-mail e WhatsApp (contatos no fim deste
-documento), em dias uteis, em horario comercial, sem garantia de tempo de
+4.2. O suporte é prestado por e-mail e WhatsApp (contatos no fim deste
+documento), em dias úteis, em horário comercial, sem garantia de tempo de
 resposta.
 
-5. GARANTIA E DEVOLUCAO
+5. GARANTIA E DEVOLUÇÃO
 
-5.1. Compras realizadas pela internet tem direito de arrependimento em ate
+5.1. Compras realizadas pela internet têm direito de arrependimento em até
 7 (sete) dias corridos a partir da compra (art. 49 do CDC), com reembolso
 integral. Ver o documento "Termos de Venda e Garantia".
 
-5.2. Apos o prazo de arrependimento, o Licenciante corrigira defeitos
-reprodutiveis do Software em prazo razoavel, na forma de atualizacao.
+5.2. Após o prazo de arrependimento, o Licenciante corrigirá defeitos
+reprodutíveis do Software em prazo razoável, na forma de atualização.
 
-6. LIMITACAO DE RESPONSABILIDADE
+6. LIMITAÇÃO DE RESPONSABILIDADE
 
-6.1. O Software e uma ferramenta de PREPARACAO DE ARQUIVOS (facas de
-corte, layout, exportacao). O Cliente e responsavel por CONFERIR OS
-ARQUIVOS GERADOS ANTES DA PRODUCAO (impressao e corte), inclusive medidas,
+6.1. O Software é uma ferramenta de PREPARAÇÃO DE ARQUIVOS (facas de
+corte, layout, exportação). O Cliente é responsável por CONFERIR OS
+ARQUIVOS GERADOS ANTES DA PRODUÇÃO (impressão e corte), inclusive medidas,
 sangrias e marcas.
 
-6.2. Na extensao maxima permitida pela lei, o Licenciante nao responde por
-danos indiretos, lucros cessantes ou perdas de producao decorrentes do uso
+6.2. Na extensão máxima permitida pela lei, o Licenciante não responde por
+danos indiretos, lucros cessantes ou perdas de produção decorrentes do uso
 do Software, limitando-se a responsabilidade total ao valor pago pela
-licenca.
+licença.
 
-6.3. O Software e fornecido "no estado em que se encontra", sem garantia
+6.3. O Software é fornecido "no estado em que se encontra", sem garantia
 de funcionamento ininterrupto ou livre de erros.
 
 7. PRIVACIDADE
 
-O tratamento de dados pessoais (nome, e-mail e ID da Maquina) e descrito
-na Politica de Privacidade, parte integrante deste Contrato.
+O tratamento de dados pessoais (nome, e-mail e ID da Máquina) é descrito
+na Política de Privacidade, parte integrante deste Contrato.
 
-8. VIGENCIA E RESCISAO
+8. VIGÊNCIA E RESCISÃO
 
-Este Contrato vigora enquanto durar a licenca. O Licenciante pode
-rescindi-lo em caso de violacao das clausulas 2, sem direito a reembolso.
-O Cliente pode encerra-lo a qualquer tempo desinstalando o Software.
+Este Contrato vigora enquanto durar a licença. O Licenciante pode
+rescindi-lo em caso de violação da cláusula 2, sem direito a reembolso.
+O Cliente pode encerrá-lo a qualquer tempo desinstalando o Software.
 
-9. DISPOSICOES GERAIS
+9. DISPOSIÇÕES GERAIS
 
-9.1. Este Contrato e regido pelas leis brasileiras.
+9.1. Este Contrato é regido pelas leis brasileiras.
 
-9.2. Fica eleito o foro da comarca de [CIDADE/UF] para dirimir
-controversias, com renuncia a qualquer outro.
+9.2. Fica eleito o foro do domicílio do Cliente para dirimir controvérsias
+decorrentes deste Contrato, nos termos do Código de Defesa do Consumidor.
 
-Contato: [SUPORTE]
+Contato do suporte: ativacao.printnest@gmail.com

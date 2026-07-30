@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -71,9 +73,17 @@ class SettingsStore:
 
     def load_or_create(self) -> AppSettings:
         if self.path.exists():
-            return self.load()
+            try:
+                return self.load()
+            except ConfigError:
+                # Config truncado/ilegivel NAO pode impedir o app de abrir
+                # (com console=False o .exe "abria e fechava" para sempre).
+                # Guarda o arquivo quebrado ao lado e recomeca dos padroes.
+                with contextlib.suppress(OSError):
+                    os.replace(self.path, f"{self.path}.corrompido")
         settings = AppSettings()
-        self.save(settings)
+        with contextlib.suppress(ConfigError):
+            self.save(settings)  # disco somente-leitura: roda com defaults em memoria
         return settings
 
     def load(self) -> AppSettings:
@@ -84,11 +94,18 @@ class SettingsStore:
         return AppSettings.from_dict(data)
 
     def save(self, settings: AppSettings) -> None:
+        # Escrita ATOMICA (tmp + os.replace): o save acontece a cada salvar
+        # projeto/exportar; interrompido no meio, truncava o config.json e o
+        # app nunca mais abria. Com o replace, ou grava inteiro ou fica o antigo.
+        tmp = Path(f"{self.path}.tmp")
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(
-                json.dumps(settings.to_dict(), indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(settings.to_dict(), indent=2, ensure_ascii=False))
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, self.path)
         except OSError as exc:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
             raise ConfigError(f"Falha ao salvar configuracao: {self.path}") from exc

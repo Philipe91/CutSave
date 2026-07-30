@@ -33,9 +33,12 @@ def _raw_source() -> str:
         except OSError:
             parts.append(platform.node())
     else:
+        # Fora do Windows nao ha MachineGuid: nome + MAC como aproximacao.
         parts.append(platform.node())
-    # MAC como reforco (uuid.getnode e estavel na maioria dos casos)
-    parts.append(format(uuid.getnode(), "x"))
+        parts.append(format(uuid.getnode(), "x"))
+    # NAO incluir o MAC no Windows: dock/adaptador USB/driver novo mudam o
+    # uuid.getnode() e a licenca do cliente "quebraria" sem ele trocar de PC.
+    # O MachineGuid sozinho ja e unico e estavel por instalacao do Windows.
     return "|".join(parts)
 
 

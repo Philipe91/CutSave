@@ -54,9 +54,17 @@ class LicenseManager:
             if lic.is_expired(self._today):
                 return False, "Esta licença está expirada."
             return False, "Assinatura inválida (licença adulterada ou falsa)."
-        with contextlib.suppress(OSError):
+        try:
             self._paths.home.mkdir(parents=True, exist_ok=True)
             self._paths.license_file.write_text(key.strip(), encoding="utf-8")
+        except OSError:
+            # Sucesso sem gravar seria mentira: na proxima abertura o cliente
+            # cairia de novo na tela de ativacao, sem entender o porque.
+            return False, (
+                "A chave é válida, mas não consegui salvá-la neste computador.\n"
+                f"Verifique se o antivírus ou as permissões estão bloqueando a pasta:\n"
+                f"{self._paths.home}"
+            )
         self._license = result
         return True, f"Licença ativada para {result.customer}."
 

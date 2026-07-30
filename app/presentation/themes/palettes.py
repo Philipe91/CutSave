@@ -202,6 +202,17 @@ def resolve(theme_key: str, accent: str | None = None,
     palette = dict(base)
     if accent:
         palette.update(accent_set(accent, dark_ui))
+    # Texto sobre o acento derivado por CONTRASTE, nao fixo: branco sobre
+    # verde/turquesa/laranja reprovava AA (2.3-2.8:1) no botao de destaque.
+    # Ordem de preferencia: branco -> tinta da UI -> preto puro (acentos de
+    # tom medio, ex. roxo, so alcancam 4.5:1 com o preto).
+    # Antes dos overrides — o usuario ainda pode forcar a cor manualmente.
+    for candidato in ("#ffffff", "#111827", "#000000"):
+        if contrast(candidato, palette["ACCENT"]) >= 4.5:
+            palette["ICON_ON_ACCENT"] = candidato
+            break
+    else:
+        palette["ICON_ON_ACCENT"] = "#000000"
     if overrides:
         palette.update({k: v for k, v in overrides.items() if k in COLOR_TOKENS})
     return palette, dark_ui

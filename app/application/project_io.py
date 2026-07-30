@@ -11,7 +11,9 @@ quando o software evoluir, sem quebrar os arquivos dos clientes.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -167,14 +169,21 @@ class ProjectStore:
     """Le e grava ProjectDocument em arquivos .printnest (JSON)."""
 
     def save(self, path: str | Path, doc: ProjectDocument) -> None:
+        # Escrita ATOMICA: grava num .tmp ao lado e troca com os.replace.
+        # Escrever direto no destino truncava o arquivo — queda de energia ou
+        # crash no meio do Ctrl+S destruia o projeto novo E o anterior.
         target = Path(path)
+        tmp = target.with_name(target.name + ".tmp")
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(
-                json.dumps(doc.to_dict(), indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(doc.to_dict(), indent=2, ensure_ascii=False))
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, target)  # atomico no NTFS (mesmo diretorio)
         except OSError as exc:
+            with contextlib.suppress(OSError):
+                tmp.unlink(missing_ok=True)
             raise ProjectError(f"Falha ao salvar o projeto: {target}") from exc
 
     def load(self, path: str | Path) -> ProjectDocument:

@@ -196,18 +196,20 @@ def test_salvar_projeto_sem_permissao_de_escrita_mostra_aviso(qapp, tmp_path, mo
         QMessageBox, "critical", staticmethod(lambda *a, **k: avisos.append(a))
     )
 
-    from pathlib import Path as _Path
-    original_write_text = _Path.write_text
+    import os as _os
+    original_replace = _os.replace
     destino = tmp_path / "sem_permissao.printnest"
 
     # so o ALVO do projeto fica "sem permissao" — nao a pasta de config das
     # settings (senao o teste mede outro bug: ver test_qa_f3_settings_...).
-    def _write_text_scoped(self, *a, **k):
-        if str(self) == str(destino):
-            raise PermissionError(13, "Access is denied", str(self))
-        return original_write_text(self, *a, **k)
+    # O save agora e atomico (tmp + os.replace): a "permissao negada" e
+    # simulada no os.replace do destino, o ultimo passo da gravacao.
+    def _replace_scoped(srcp, dstp, *a, **k):
+        if str(dstp) == str(destino):
+            raise PermissionError(13, "Access is denied", str(dstp))
+        return original_replace(srcp, dstp, *a, **k)
 
-    monkeypatch.setattr(_Path, "write_text", _write_text_scoped)
+    monkeypatch.setattr(_os, "replace", _replace_scoped)
     ok = w.save_project(str(destino))
 
     assert ok is False
@@ -226,16 +228,17 @@ def test_config_sem_permissao_de_escrita_durante_salvar_projeto(qapp, tmp_path, 
     w = _window_cfg(tmp_path, "w6b")
     w.add_paths([src])
 
-    from pathlib import Path as _Path
-    original_write_text = _Path.write_text
+    import os as _os
+    original_replace = _os.replace
     config_path = w._store.path
 
-    def _write_text_scoped(self, *a, **k):
-        if str(self) == str(config_path):
-            raise PermissionError(13, "Access is denied", str(self))
-        return original_write_text(self, *a, **k)
+    # o config tambem grava atomico (tmp + os.replace): a falha e no replace
+    def _replace_scoped(srcp, dstp, *a, **k):
+        if str(dstp) == str(config_path):
+            raise PermissionError(13, "Access is denied", str(dstp))
+        return original_replace(srcp, dstp, *a, **k)
 
-    monkeypatch.setattr(_Path, "write_text", _write_text_scoped)
+    monkeypatch.setattr(_os, "replace", _replace_scoped)
     avisos = []
     monkeypatch.setattr(
         QMessageBox, "critical", staticmethod(lambda *a, **k: avisos.append(a))

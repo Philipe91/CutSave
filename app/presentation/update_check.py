@@ -65,9 +65,10 @@ class UpdateChecker(QObject):
             if manual:
                 QMessageBox.information(
                     self._window, "PrintNest",
-                    "Nenhum endereço de atualização configurado.\n\n"
-                    "Defina 'update_url' na configuração para o app poder "
-                    "conferir se há versão nova.",
+                    "A verificação de atualizações não está disponível "
+                    "nesta versão.\n\n"
+                    "Quando houver uma versão nova, você será avisado pelo "
+                    "canal de suporte onde comprou o PrintNest.",
                 )
             return
         if self._thread is not None and self._thread.isRunning():

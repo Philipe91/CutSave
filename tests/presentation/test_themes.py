@@ -29,6 +29,29 @@ def test_contraste_wcag_aa_em_todos_os_temas():
         assert razao2 >= 4.5, f"{label}: TEXT_SECONDARY = {razao2:.2f}"
 
 
+def test_texto_sobre_o_acento_legivel_em_todos_os_presets():
+    # C10: o texto do botao de destaque (GERAR FACA etc.) precisa de AA (4.5:1)
+    # sobre o acento em TODOS os presets que o app oferece — Emerald/Graphite/
+    # Turquesa reprovavam com o branco fixo.
+    for nome, base, accent, extra in palettes.PRESETS:
+        colors, _ = palettes.resolve(base, accent=accent, overrides=extra)
+        razao = palettes.contrast(colors["ICON_ON_ACCENT"], colors["ACCENT"])
+        assert razao >= 4.5, f"{nome}: ICON_ON_ACCENT sobre ACCENT = {razao:.2f}"
+    # temas base sem acento custom tambem
+    for key in palettes.THEMES:
+        colors, _ = palettes.resolve(key)
+        razao = palettes.contrast(colors["ICON_ON_ACCENT"], colors["ACCENT"])
+        assert razao >= 4.5, f"{key}: ICON_ON_ACCENT sobre ACCENT = {razao:.2f}"
+
+
+def test_tooltip_legivel_em_todos_os_temas():
+    # C9: o QSS do tooltip usa fundo=TEXT e texto=BG — nos temas escuros o
+    # antigo texto branco fixo sumia no fundo branco (1.0:1)
+    for key, (label, c, _d) in palettes.THEMES.items():
+        razao = palettes.contrast(c["BG"], c["TEXT"])
+        assert razao >= 4.5, f"{label}: tooltip (BG sobre TEXT) = {razao:.2f}"
+
+
 def test_acento_derivado_muda_selecao_e_links():
     colors, _ = palettes.resolve("dark", accent="#22c55e")
     assert colors["ACCENT"] == "#22c55e"
