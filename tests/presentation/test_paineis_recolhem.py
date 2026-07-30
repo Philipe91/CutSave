@@ -219,41 +219,62 @@ def test_o_trilho_tem_botao_visivel_de_recolher(janela, qapp):
 
 
 def test_alca_no_divisor_recolhe_e_reabre(janela, qapp):
-    """Pedido do Philipe (29/07): a alca tem de estar NO DIVISOR, no meio.
+    """A alca fica NO DIVISOR, redonda e centrada na linha.
 
-    Ele marcou de vermelho as duas linhas — biblioteca|chapa e chapa|painel.
-    Botao dentro do painel passava batido.
+    Duas voltas do Philipe em 29/07: primeiro "coloque onde eu marquei" (e ele
+    marcou as duas linhas), depois "ta parecendo um scroll de mouse" sobre a
+    capsula alta. Ele escolheu o circulo entre 5 modelos.
     """
-    from app.presentation.widgets.splitter_alcas import _Alca
-
     w = janela
+    w.resize(1366, 768)
+    _assentar(qapp)
     sp = w._main_splitter
+
     for indice, nome in ((1, "biblioteca"), (2, "painel de campos")):
-        alca = sp.handle(indice)
-        assert isinstance(alca, _Alca), f"o divisor da {nome} nao tem alca"
-        assert alca._btn.isVisible(), f"a alca da {nome} nao esta na tela"
-        assert not alca._btn.icon().isNull(), f"a alca da {nome} esta sem seta"
-        assert alca._btn.width() >= 12 and alca._btn.height() >= 40, (
-            f"alca da {nome} pequena demais: "
-            f"{alca._btn.width()}x{alca._btn.height()}"
+        alca = sp.alca(indice)
+        assert alca is not None, f"o divisor da {nome} nao tem alca"
+        assert alca.isVisible(), f"a alca da {nome} nao esta na tela"
+        assert not alca.icon().isNull(), f"a alca da {nome} esta sem seta"
+        # REDONDA: largura e altura iguais. Capsula alta era o que parecia
+        # barra de rolagem, entao a proporcao 1:1 e o requisito, nao enfeite.
+        assert alca.width() == alca.height(), (
+            f"a alca da {nome} deixou de ser redonda: "
+            f"{alca.width()}x{alca.height()}"
         )
-        # e ela fica no MEIO da altura, nao colada no topo
-        centro = alca._btn.y() + alca._btn.height() / 2
-        assert abs(centro - alca.height() / 2) <= 2, (
-            f"a alca da {nome} nao esta centralizada na vertical"
+        assert alca.width() >= 22, f"alca da {nome} pequena para acertar o clique"
+
+        # centrada NA LINHA (horizontal) e no meio da altura (vertical).
+        # O circulo mora no widget que CONTEM o splitter (senao o QSplitter o
+        # adotaria como painel), entao a comparacao passa por mapTo.
+        pai = alca.parentWidget()
+        linha = sp.handle(indice).geometry()
+        esperado = sp.mapTo(pai, linha.center())
+        centro_x = alca.x() + alca.width() / 2
+        assert abs(centro_x - esperado.x()) <= 2, (
+            f"a alca da {nome} nao esta centrada na linha do divisor"
+        )
+        meio = sp.mapTo(pai, sp.rect().center())
+        centro_y = alca.y() + alca.height() / 2
+        assert abs(centro_y - meio.y()) <= 2, (
+            f"a alca da {nome} nao esta no meio da altura"
         )
 
-    sp.handle(1)._btn.click()
+    # o divisor fica FINO: o circulo flutua, nao engrossa a linha
+    assert sp.handleWidth() <= 10, (
+        f"o divisor voltou a engrossar ({sp.handleWidth()}px) e come a chapa"
+    )
+
+    sp.alca(1).click()
     _assentar(qapp)
     assert not w._library_wrap.isVisible(), "a alca nao recolheu a biblioteca"
-    sp.handle(1)._btn.click()
+    sp.alca(1).click()
     _assentar(qapp)
     assert w._library_wrap.isVisible(), "a mesma alca nao trouxe de volta"
 
-    sp.handle(2)._btn.click()
+    sp.alca(2).click()
     _assentar(qapp)
     assert w._props_tabs.is_collapsed(), "a alca nao recolheu o painel"
-    sp.handle(2)._btn.click()
+    sp.alca(2).click()
     _assentar(qapp)
     assert not w._props_tabs.is_collapsed()
 

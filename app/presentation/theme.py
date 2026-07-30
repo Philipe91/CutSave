@@ -388,17 +388,21 @@ def build_app_qss() -> str:
     QToolButton#railBtn:checked {{ background: {ACCENT_SOFT}; }}
     /* botao de recolher painel: precisa PARECER botao. Sem borda ele passava
        batido e o unico jeito de recolher era um clique que ninguem descobre */
+    /* padding: 0 e obrigatorio. A regra geral de QToolButton usa 6px 10px, e
+       num botao pequeno isso nao deixa espaco para o icone — ele encolhe para
+       um ponto (visto em 29/07 na alca redonda). */
     QToolButton#collapseBtn {{
         border: 1px solid {BORDER}; border-radius: {RADIUS_SM}px;
         background: {SURFACE}; padding: 0;
     }}
     QToolButton#collapseBtn:hover {{ background: {HOVER}; border-color: {ACCENT}; }}
-    /* alca de recolher NO DIVISOR (pedido de 29/07: as setas dentro do painel
-       passavam batidas). Fica no meio da linha que separa os paineis, que e
-       onde a mao vai — e por isso tem de ter contorno visivel. */
+    /* alca REDONDA de recolher, no divisor. A capsula alta de antes parecia
+       barra de rolagem (relato de 29/07); circulo nao tem como ser confundido.
+       12px de raio em 24px de lado = circulo. Comentario em ASCII de
+       proposito: caractere fora de ASCII no QSS derruba a regra seguinte. */
     QToolButton#handleBtn {{
-        border: 1px solid {BORDER_STRONG}; border-radius: 4px;
-        background: {SURFACE};
+        border: 1px solid {BORDER_STRONG}; border-radius: 12px;
+        background: {SURFACE}; padding: 0;
     }}
     QToolButton#handleBtn:hover {{ background: {ACCENT_SOFT}; border-color: {ACCENT}; }}
     QLabel#railTitle {{
