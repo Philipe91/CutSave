@@ -4,6 +4,84 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [1.0.0] — 2026-07-30 — **primeira versão comercial**
+
+Release aprovada em 30/07/2026. Registro completo em
+[`docs/qa/RELATORIO-FINAL-RELEASE-1.0-2026-07-30.md`](docs/qa/RELATORIO-FINAL-RELEASE-1.0-2026-07-30.md).
+Suíte: 939 testes, 0 falhas, 0 erros, 5 skips. Validação manual: 8/8 aprovadas.
+Build `SHA-256 2A49367B388BFF6AF056716718CC81548F6C884A1059C444DA00A0D5E76DA2DE`.
+
+### Release candidate — 18 correções (commits `2162ef5` e `1717043`)
+
+**Estabilidade e integridade de dados**
+- **pdfium sob lock em dois pontos que faltavam** (`_crop_pages_dialog` e
+  `_pdf_page_count`): abrir "Páginas do PDF…" durante uma geração colocava duas
+  threads dentro da biblioteca ao mesmo tempo. Era a causa **provável** do crash
+  `0xc0000374` que aparecia sem repro na máquina do cliente.
+- **Geração cancelável**: fechar a janela no meio de uma geração longa não
+  congela mais até 10 s nem aborta o processo. Medido em 0,06 s fechando na
+  página 120 de 400, dentro da rasterização.
+- **Salvar `.printnest` virou atômico** (`.tmp` + `fsync` + `os.replace`): uma
+  interrupção no meio do `Ctrl+S` destruía o arquivo novo **e** o anterior.
+- **`config.json` corrompido não impede mais o app de abrir**: o arquivo
+  quebrado é preservado como `.corrompido` e o programa sobe com os padrões.
+  Antes, com `console=False`, o app "abria e fechava" para sempre.
+- **`sys.excepthook` global**: exceção não tratada num slot do Qt vira
+  `CRITICAL` no log + aviso em pt-BR apontando a pasta de logs. Antes sumia
+  sem rastro e a ação simplesmente "não acontecia".
+
+**Perda de trabalho**
+- **`_dirty` passou a ser por aba**: editar a aba A, trocar para a B, salvar a B
+  e fechar o app matava o trabalho da aba A **sem perguntar nada**.
+- **Modo Corte confirma antes de descartar o arranjo**: um `Esc` acidental
+  jogava fora minutos de nesting e retoques manuais, sem volta.
+- **Exportação bloqueada durante a geração**: os 9 caminhos de saída ficavam
+  habilitados e exportavam o resultado **anterior**, em silêncio — numa gráfica,
+  material caro impresso errado.
+
+**Licenciamento**
+- **MAC removido do fingerprint no Windows**: dock, adaptador USB ou driver novo
+  mudavam o `machine_id` e a licença do cliente "quebrava" sem ele trocar de PC.
+  O `MachineGuid` sozinho já é único e estável. *Mudança irreversível, aplicada
+  antes da primeira venda.*
+- **Ativação só declara sucesso se gravou de fato**: falha na escrita devolve
+  mensagem citando antivírus/permissões, em vez de "ativada" seguido de nova
+  tela de ativação na próxima abertura.
+
+**Canal de atualização**
+- **Endereço do manifesto embutido no executável**: sem ele, nenhum cliente da
+  1.0.0 saberia de uma 1.0.1 — e a própria 1.0.1 é entregue por esse canal.
+- Mensagem de desenvolvedor ("Defina 'update_url' na configuração") substituída
+  por texto de produto.
+
+**Interface**
+- **Tooltip legível nos temas escuros**: o QSS pintava texto branco sobre fundo
+  branco (contraste 1,0:1) — os 104 tooltips viravam balões vazios no dark mode.
+- **Texto do botão de destaque derivado por contraste**: 7 presets reprovavam
+  WCAG AA com o branco fixo (Verde 2,28:1, Turquesa 2,49, Graphite 2,52).
+  Presets claros passam a ter texto escuro no CTA.
+- **Modo Corte cabe em notebook 1366×768 @125%**: mínimo de 600 para 540 e
+  parâmetros dentro de `QScrollArea`. É o diálogo que a macro do CorelDRAW abre
+  sozinha, sem janela principal por trás — os botões do rodapé ficavam fora da
+  tela e o operador sem saída.
+- **Ativação de 585 px para 509 px** pelo mesmo motivo, e a numeração dos passos
+  corrigida de 1‑2‑3‑**3** para 1‑2‑3‑4.
+
+**Instalador e pacote**
+- **EULA final**: os 5 placeholders de rascunho (`[RAZAO SOCIAL]`, `[NUMERO]`,
+  `[CIDADE/UF]`…) apareciam na primeira tela que todo comprador vê. Documento
+  acentuado, vendedor identificado, foro definido.
+- **Nome único "PrintNest Pro"** no título, no Sobre, no instalador e no
+  `VERSAO.txt` — o cliente comprava "Pro" e instalava "Premium". As chaves de
+  `QSettings` **não** foram renomeadas, para não resetar tema e tour de quem já
+  usa.
+- **`AppMutex`**: instalar por cima com o app aberto dava erro de arquivo em
+  uso. Agora o instalador detecta e pede para fechar (validado em log).
+- **Pacote do cliente**: as 7 imagens do guia do Corel passaram a ser copiadas
+  (o guia chegava com 7 referências quebradas); LEIA-ME sem "obrigado por
+  testar" e apontando para o Tutor IA que de fato existe; `.bat` do plugin
+  alinhado com o guia; README com as 7 opções reais de registro.
+
 ## [Não lançado] — branch `v1.3-redesign` (sessões 09/07–24/07)
 
 ### Modo Corte (módulo novo — fluxo só-corte)
