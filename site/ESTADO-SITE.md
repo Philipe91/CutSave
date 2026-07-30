@@ -1,7 +1,228 @@
 # Estado do Site de Vendas — PrintNest Pro
 
 > Ponto de retomada. Se a sessão/energia acabar, comece por aqui.
-> Última atualização: sessão de 09/07/2026 (hero scrollytelling).
+> Última atualização: sessão de 28/07/2026 (hero "o nesting acontecendo").
+
+> **⚙️ HERO DO PRODUTO (28/07).** Depois de o Philipe recusar 6 heroes seguidos
+> (editorial, monitor CSS, azul Qexal, aurora escura, claro, branco, grade), a
+> conclusão foi: **o catálogo do 21st.dev não tem hero "de produto", tem fundo
+> bonito** — aurora, shader, grade, partícula. Serve igual para nesting, cripto
+> ou academia, e é por isso que nenhum pegava. A saída foi fazer o hero **com o
+> produto**, não com um efeito atrás dele.
+>
+> **`components/pn/NestingStage.tsx`** desenha a chapa do PrintNest com 12 peças
+> reais entrando voando, encaixando, a faca desenhando o contorno em volta e o
+> aproveitamento subindo até 88%. Ciclo de ~9,5 s, em laço. Com
+> `prefers-reduced-motion` vai direto para o estado final e não repete.
+>
+> **As peças são de verdade.** `scripts/gerar-pecas-hero.py` pega os adesivos de
+> `Downloads`, **descarta o fundo branco** (é o que o app faz com PNG/JPG de
+> fundo branco: o alfa vinha 100% opaco, então o primeiro try com alfa devolvia
+> retângulos de 4 nós), extrai o **maior contorno externo com cv2**, simplifica
+> com `approxPolyDP`, empurra os pontos para fora do centro (a sangria) e grava
+> tudo em `components/pn/pecas.ts` como path SVG normalizado numa viewBox de
+> largura 100. O traço vermelho do hero é o contorno real daquela arte.
+>
+> **Seletor de heroes segue ativo** (canto inferior direito e `?hero=`), com
+> `produto` como padrão e as 5 peles antigas ao lado para comparação. Quando o
+> Philipe bater o martelo: apagar `.pn-hero-switch` do CSS, o bloco do seletor
+> no `Landing.tsx`, o `useHeroSkin` e deixar `HERO_SKINS` com uma entrada só.
+
+> **🌌 HERO AURORA (28/07).** O Philipe pediu para procurar um hero profissional
+> no **21st.dev**. Baixei as 175 prévias da categoria Heroes, montei folhas de
+> contato e revisei uma a uma. Finalistas apresentados: `preetsuthar17/hero-2-1`
+> (aurora escura), `ruixen.ui/hero-section-with-gradient` (claro) e
+> `shadcnblockscom/hero-195` (branco). **Escolha: aurora escura.**
+> Reconstruído no nosso código (nada copiado):
+> - `.pn-hero` virou **escuro** (`#080b12`) com uma **aurora** de quatro manchas
+>   radiais borradas (azul da marca + violeta + ciano + rosa) que gira devagar,
+>   mais uma vinheta que garante o contraste do texto.
+> - Layout **centralizado**: selinho, manchete grande, subtítulo, dois botões
+>   pílula e a **janela do software grande logo abaixo**, com brilho azul atrás e
+>   a moldura vestindo pele escura (`.pn-hero-shot .pn-frame-bar`).
+> - A copy entra em **cascata** no carregamento (`pn-rise`, atrasos por filho) e
+>   a janela sobe depois. O carrossel de 3 telas continua funcionando dentro.
+> - O corte hero escuro → corpo claro é proposital; o header segue **branco**.
+> - ⚠️ Ao reescrever o bloco `/* hero */` inteiro eu apaguei sem querer as regras
+>   de `.pn-hero-shot` e `.pn-hero-caption`, e os `replace` seguintes falharam em
+>   silêncio. Foram recriadas depois da seção da moldura. Se algo do hero sumir,
+>   conferir se a regra existe no CSS compilado antes de investigar outra coisa.
+> - Obs. de captura: screenshot headless com `--disable-gpu` mostra a janela do
+>   hero **em branco** (a combinação blur + z-index negativo não compõe sem GPU).
+>   Não é bug do site: com GPU ligada renderiza normal.
+
+> **🔍 VISUALIZADOR + HERO ANIMADO + COREL (28/07).** Três pedidos do Philipe:
+> - **Visualizador (lightbox):** as capturas apareciam pequenas demais. Agora
+>   **toda imagem marcada com `data-zoom`** abre em tela cheia ao clique, e um
+>   segundo clique mostra **em tamanho real (1:1)** com rolagem, para o cliente
+>   ler a interface. Esc e o X fecham; o `body` trava o scroll enquanto aberto.
+>   O hook `useLightbox()` usa **um listener delegado no documento**, então basta
+>   pôr `data-zoom` + `data-caption` em qualquer `<img>` nova: não precisa passar
+>   props. Legenda e dica de uso aparecem embaixo.
+> - **Hero animado:** `HeroWindow` troca sozinho entre **3 capturas reais**
+>   (impressão e corte, job de 870 peças, marcas de registro) a cada 5,2 s, com
+>   fade, bolinhas clicáveis, contador "1 de 3" e legenda que muda junto. Pausa
+>   no hover e **não roda** com `prefers-reduced-motion`. As três imagens têm a
+>   mesma proporção (2200×866) de propósito: a `.pn-slides` usa `aspect-ratio`
+>   fixo para a altura não pular na troca. A janela entra deslizando e os
+>   círculos do fundo derivam devagar.
+> - **Seção CorelDRAW:** `plugin-corel.webp` saiu da galeria e virou bloco
+>   próprio ("Você nem precisa sair do Corel"), listando as 6 macros que a
+>   instalação registra. A galeria caiu para 2 colunas (miniaturas maiores) e o
+>   item largo usa `.is-wide` para ocupar a linha inteira.
+
+> **📸 CAPTURAS 28/07 — as 14 imagens de `site/assets/print screen/`.** O Philipe
+> gravou telas do app rodando jobs reais e pediu para organizar todas no site.
+> Processadas para WebP em `app/public/assets/app/` (barra de título do Windows
+> cortada nas janelas inteiras: a moldura do site já desenha a dela).
+> Mapa do que cada uma virou:
+> | origem | destino | onde entrou |
+> |---|---|---|
+> | nest 03 | `chapa-dividida.webp` | hero (198 peças, 1 chapa, 88%) |
+> | nest 01 | `chapa-cheia.webp` | galeria |
+> | nest 02 | `faca-circular.webp` | galeria |
+> | faca (antiga) | `faca.webp` | bloco Faca (contorno irregular) |
+> | tipos de facas | `menu-tipos-faca.webp` | detalhe do bloco Faca |
+> | varios pdfs 2 | `escala-dividida.webp` | bloco Nesting (870 peças, 7 chapas, 98%) |
+> | varios pdfs 1 | `escala-chapa.webp` | galeria |
+> | nest 04 | `registro-chapa.webp` | bloco Registro (18 peças, 79%, círculos 5 mm) |
+> | marcas de registro | `menu-registro.webp` | detalhe do bloco Registro |
+> | marcas de registo e facas | `registro-saida.webp` | bloco Registro (arquivos exportados) |
+> | nesting letras | `corte-192.webp` | bloco Modo Corte (192 corpos, 98% da chapa) |
+> | nest margem | `corte-furos.webp` | detalhe do Modo Corte (peça dentro de furo) |
+> | nest mod corte | `corte-48.webp` | galeria |
+> | nest mod corte pode mover | `corte-ajuste.webp` | galeria |
+> | plugin corel drawn | `plugin-corel.webp` | galeria (macros no CorelDRAW) |
+>
+> **Seções novas:** bloco **Marcas de registro** (5º recurso) e uma **galeria
+> "Mais telas"** depois do Centro de Exportação. Componente `Detail` e classes
+> `.pn-detail` / `.pn-gallery` foram criados para isso.
+>
+> **Copy corrigida pelas capturas:** o menu real de faca é *automático, retângulo
+> (corte reto), contorno justo, contorno suave, contorno simplificado e faca do
+> cliente* — o site dizia "círculo e oval", que **não existem** nesse menu.
+> Todos os números foram trocados pelos das capturas novas (198/88%, 870/7/98%,
+> 192 corpos/98% da chapa, 18/79%). As capturas antigas geradas pelo harness
+> (`nesting.webp`, `escala.webp`, `modo-corte.webp`) foram apagadas.
+>
+> ⚠️ **Dois pontos para o Philipe decidir:**
+> 1. A barra de título do app diz **"PrintNest Premium v1.0.0"** e o site vende
+>    **"PrintNest Pro"**. Cortei a barra das capturas, então não aparece, mas o
+>    nome precisa ser um só antes de lançar.
+> 2. `registro-saida.webp` mostra **arte de clientes** (marca "emplavi" e
+>    "#EU SOU QG"). É trabalho da gráfica, mas a marca é de terceiro: convém ter
+>    o OK do cliente antes de usar em material de venda.
+
+> **✍️ COPY 28/07 — landing reescrita para "informar até vender".** O design da
+> repaginação Qexal ficou; o texto é que estava curto demais. Passada completa em
+> `app/src/components/pn/Landing.tsx` + SEO no `app/index.html`:
+> - **Hero:** manchete continua sendo o resultado real (`44 peças, 1 chapa, 83% de
+>   área usada`, direto da captura). O subtítulo passou a explicar o que o software
+>   é (desktop Windows) e já responde a objeção número 1: **ele não comanda a
+>   máquina, entrega o arquivo**. Legenda do hero descreve a captura inteira.
+> - **4 recursos:** parágrafos ampliados (mecanismo, não adjetivo) e tabelas de
+>   especificações de 4 → 5/6 linhas. As especificações novas só citam o que aparece
+>   nas capturas ou está na lista de verdades do produto.
+> - **Como funciona:** os 3 passos ganharam corpo (quantidade, largura do material,
+>   altura zero = rolo, escolha do registro, formatos de saída).
+> - **Compatibilidade:** 5 → 6 itens por coluna; o parágrafo repete que o programa
+>   não comanda o equipamento.
+> - **FAQ: 7 → 14 perguntas** (faca do cliente, rolo, mudança de quantidade,
+>   quanto de material o job gasta, registro, CorelDRAW, garantia…).
+> - ⚠️ **Removida a frase "sem cobrança por máquina adicional dentro da mesma
+>   gráfica"** que estava na seção de preço: não há decisão registrada sobre
+>   número de ativações (o `COPY.md` fala em 1 ativação por licença). Não voltar
+>   sem o Philipe definir a política de licenciamento.
+> - Ainda **sem prova social** (nenhum depoimento, logo ou contagem de clientes).
+>   Entra só com cliente real e consentimento por escrito.
+> - Nada de tempo/economia prometidos ("economize X horas"): só mecanismo e o que
+>   aparece na tela.
+
+> **🎨 REPAGINAÇÃO 28/07 — referência Qexal (themesbrand).** O Philipe mandou
+> `themesbrand.com/qexal-react/` como referência e escolheu o **layout 1**
+> (hero azul cheio) mantendo **o azul da logo** (`#095df9`), não o do template.
+> `pn.css` e `Landing.tsx` foram reescritos nesse idioma:
+> - **Hero azul de ponta a ponta**, texto branco à esquerda e a tela do
+>   PrintNest à direita dentro de uma **moldura de janela** (bolinhas +
+>   título) que avança 152% da coluna e sai pela borda, igual ao demo 1.
+>   Círculos suaves de fundo.
+> - **Header fixo transparente** sobre o hero (logo em branco via
+>   `filter: brightness(0) invert(1)`) que vira barra branca ao rolar,
+>   trocando também a pele do botão "Comprar licença".
+> - **Selinhos pílula** (`.pn-badge`) abrindo cada seção, títulos de seção
+>   **centralizados**, cartões brancos com sombra suave e raio 14px, botões
+>   totalmente arredondados, FAQ em cartões, rodapé azul-escuro.
+> - A seção Modo Corte virou **faixa azul** (`.pn-band`) no lugar do preto, e o
+>   CTA final é um bloco azul arredondado.
+> - A "linha de faca" (contorno vermelho com marcas de registro em volta das
+>   capturas) foi aposentada nesta versão; o vermelho sobrou só no selinho
+>   "O software por dentro". O histórico dela está mais abaixo.
+> - ⚠️ **Armadilha de especificidade (mordeu duas vezes):** `.pn a` e `.pn p`
+>   são (0,1,1) e venciam classes como `.pn-btn-light` e `.pn-hero-lead`,
+>   deixando texto branco sobre branco e parágrafo cinza sobre azul. Os botões
+>   ganharam prefixo `.pn ` e o parágrafo virou `:where(.pn p)` (especificidade
+>   zero). Se aparecer texto com cor errada, é isso.
+> - Conferido em 2560px, 1440px e 390px (sem estouro horizontal).
+
+> **✏️ AJUSTE 28/07 (pedido do Philipe).** Duas mudanças no redesign de 27/07:
+> - **Tipografia trocada por Inter** em todos os papéis (títulos, texto e
+>   dados). Bricolage Grotesque, Archivo e IBM Plex Mono saíram: o Philipe
+>   achou as letras estranhas e pediu fonte padrão de site. As etiquetas que
+>   eram monoespaçadas viraram Inter 600 caixa-alta com tracking curto, e os
+>   números usam `font-variant-numeric: tabular-nums`.
+> - **Hero refeito**: o software roda dentro de um **monitor de PC desenhado em
+>   CSS** (`.pn-monitor`: moldura, queixo com a marca, pescoço, base e sombra na
+>   mesa), com brilho azul de fundo. Layout **horizontal**: texto à esquerda,
+>   monitor à direita (pedido do Philipe), os dois dentro do container.
+>   Abaixo de 1000px empilha. As etiquetas flutuantes ("83%", "PDF + DXF") foram
+>   removidas: a manchete já traz os mesmos números.
+> - ⚠️ **Não voltar a "sangrar" o monitor para fora do container.** Uma versão
+>   intermediária deixava ele avançar até a borda da tela; num monitor ultrawide
+>   (2560px) ele virava um bloco gigante ao lado de um texto minúsculo e o Philipe
+>   apontou a diagramação quebrada. Agora o monitor tem `max-width: 760px` e vive
+>   na coluna. O container subiu de 1200 para **1280px** e o hero usa
+>   `0.82fr / 1.18fr`. Conferido em 2560px, 1440px e 390px.
+> - As capturas foram **refeitas com a janela em 16:9** (`win.resize(1760, 990)`
+>   nos scripts) para encher a tela do monitor sem corte. A tela do mockup usa
+>   `aspect-ratio: 1.7`, que é a proporção real do grab.
+
+> **🎯 REDESIGN 27/07 — landing nova, guiada por capturas reais do app.**
+> A landing foi refeita do zero em `app/src/components/pn/Landing.tsx` +
+> `app/src/styles/pn.css`. `App.tsx` renderiza essa versão; a `editorial/`
+> (hero scrollytelling e hero vídeo) continua no repo, apenas não é mais
+> renderizada, e `index.css` importa `pn.css` no lugar de `editorial.css`.
+>
+> **Conceito:** a página usa a linguagem do próprio software. Fundo = o cinza
+> da mesa de trabalho do app (`#eceff4`), blocos = chapas brancas, azul
+> `#095df9` = marca/ação (igual à UI) e vermelho `#e5322a` = corte (igual à
+> faca). O elemento assinatura é a **linha de faca**: cada captura de tela é
+> envolvida por um contorno vermelho de 1px com offset e marcas de registro
+> nos cantos, que se desenha no scroll (quatro traços percorrendo o perímetro).
+> Tipografia: **Bricolage Grotesque** (títulos), **Archivo** (texto) e
+> **IBM Plex Mono** (medidas, etiquetas e legendas de captura).
+>
+> **Seções:** hero (manchete = o resultado real "44 peças, 1 chapa, 83%") ·
+> antes/depois · 4 recursos, cada um com afirmação + especificações + captura
+> em largura total (faca, nesting, Modo Corte numa faixa escura, Centro de
+> Exportação) · 3 passos · compatibilidade (entra/sai/máquinas) · preço ·
+> FAQ · CTA · rodapé.
+>
+> **Capturas reais (novas, 27/07):** `app/public/assets/app/` — geradas com um
+> harness que sobe a `MainWindow` de verdade (config.json temporário, sem tocar
+> no app), abre um projeto de amostra com PNGs de adesivo, gera a faca por
+> contorno e captura em 2x:
+> `nesting.webp` (44 peças / 1 chapa / 83%), `faca.webp` (zoom do contorno),
+> `escala.webp` (176 peças / 6 chapas / 78%), `modo-corte.webp` (22 letras
+> encaixadas, 97% da chapa), `exportacao.webp` (Centro de Exportação).
+> `nesting.jpg` fica só como `og:image`. Total ~800 KB em WebP.
+> As capturas antigas (v3.0.0) seguem em `public/assets/prints/`.
+>
+> **Pendências herdadas:** `[LINK_PAGAMENTO]` e `[SUPORTE]` continuam como
+> placeholder no topo do `Landing.tsx`; páginas legais ainda apontam para `#`.
+>
+> **Não usado hoje:** `public/assets/hero-loop*.mp4` e
+> `src/assets/hero-variants/` (frames do scrollytelling). Ficam no repo caso o
+> Philipe queira o vídeo de volta; nada disso entra no bundle atual.
 
 > **🎬 HERO SCROLLYTELLING (09/07, tarde):** o hero agora é uma **sequência de 51
 > frames controlada pelo scroll** (caos → nesting → interface final), estilo Apple

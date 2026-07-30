@@ -1,4 +1,4 @@
-import { Landing } from "@/components/editorial/Landing"
+import { Landing } from "@/components/pn/Landing"
 
 function App() {
   return <Landing />
