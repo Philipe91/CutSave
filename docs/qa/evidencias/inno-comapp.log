@@ -1,0 +1,19 @@
+﻿2026-07-30 14:22:47.409   Log opened. (Time zone: UTC-03:00)
+2026-07-30 14:22:47.409   Setup version: Inno Setup version 6.4.3
+2026-07-30 14:22:47.409   Original Setup EXE: C:\projetos\Cutph\dist_installer\PrintNest-Setup-1.0.0.exe
+2026-07-30 14:22:47.409   Setup command line: /SL5="$110B0C,122788779,843264,C:\projetos\Cutph\dist_installer\PrintNest-Setup-1.0.0.exe" /VERYSILENT /SUPPRESSMSGBOXES /LOG=C:\Users\PCFECH~1\AppData\Local\Temp\inno-comapp.log 
+2026-07-30 14:22:47.409   Windows version: 10.0.19045
+2026-07-30 14:22:47.409   Windows architecture: x64 (64-bit)
+2026-07-30 14:22:47.409   Machine types supported by system: x86 x64
+2026-07-30 14:22:47.409   User privileges: Administrative
+2026-07-30 14:22:47.409   Administrative install mode: Yes
+2026-07-30 14:22:47.409   Install mode root key: HKEY_LOCAL_MACHINE
+2026-07-30 14:22:47.409   64-bit install mode: Yes
+2026-07-30 14:22:47.425   Created protected temporary directory: C:\Users\PCFECH~1\AppData\Local\Temp\is-NMHSP.tmp
+2026-07-30 14:22:47.425   Defaulting to Cancel for suppressed message box (OK/Cancel):
+                          O instalador detectou que o PrintNest Pro está atualmente em execução.
+                          
+                          Por favor feche todas as instâncias dele agora, então clique em OK pra continuar ou em Cancelar pra sair.
+2026-07-30 14:22:47.425   Got EAbort exception.
+2026-07-30 14:22:47.425   Deinitializing Setup.
+2026-07-30 14:22:47.464   Log closed.

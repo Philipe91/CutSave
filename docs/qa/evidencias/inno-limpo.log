@@ -1,0 +1,182 @@
+﻿2026-07-30 14:22:51.501   Log opened. (Time zone: UTC-03:00)
+2026-07-30 14:22:51.501   Setup version: Inno Setup version 6.4.3
+2026-07-30 14:22:51.501   Original Setup EXE: C:\projetos\Cutph\dist_installer\PrintNest-Setup-1.0.0.exe
+2026-07-30 14:22:51.501   Setup command line: /SL5="$E1124,122788779,843264,C:\projetos\Cutph\dist_installer\PrintNest-Setup-1.0.0.exe" /VERYSILENT /LOG=C:\Users\PCFECH~1\AppData\Local\Temp\inno-limpo.log 
+2026-07-30 14:22:51.501   Windows version: 10.0.19045
+2026-07-30 14:22:51.501   Windows architecture: x64 (64-bit)
+2026-07-30 14:22:51.516   Machine types supported by system: x86 x64
+2026-07-30 14:22:51.516   User privileges: Administrative
+2026-07-30 14:22:51.516   Administrative install mode: Yes
+2026-07-30 14:22:51.516   Install mode root key: HKEY_LOCAL_MACHINE
+2026-07-30 14:22:51.516   64-bit install mode: Yes
+2026-07-30 14:22:51.516   Created protected temporary directory: C:\Users\PCFECH~1\AppData\Local\Temp\is-1HTU1.tmp
+2026-07-30 14:22:51.675   Found 1 files to register with RestartManager.
+2026-07-30 14:22:51.675   Calling RestartManager's RmGetList.
+2026-07-30 14:22:51.704   RmGetList finished successfully.
+2026-07-30 14:22:51.704   RestartManager found no applications using one of our files.
+2026-07-30 14:22:51.705   Starting the installation process.
+2026-07-30 14:22:51.705   Directory for uninstall files: C:\Program Files\PrintNest
+2026-07-30 14:22:51.737   Will append to existing uninstall log: C:\Program Files\PrintNest\unins000.dat
+2026-07-30 14:22:51.737   -- File entry --
+2026-07-30 14:22:51.737   Dest filename: C:\Program Files\PrintNest\unins000.exe
+2026-07-30 14:22:51.737   Non-default bitness: 32-bit
+2026-07-30 14:22:51.737   Time stamp of our file: 2026-07-30 14:22:51.158
+2026-07-30 14:22:51.737   Dest file exists.
+2026-07-30 14:22:51.737   Time stamp of existing file: 2026-07-30 14:17:20.978
+2026-07-30 14:22:51.737   Version of our file: 51.1052.0.0
+2026-07-30 14:22:51.737   Version of existing file: 51.1052.0.0
+2026-07-30 14:22:51.737   Installing the file.
+2026-07-30 14:22:51.752   Leaving temporary file in place for now.
+2026-07-30 14:22:51.752   -- File entry --
+2026-07-30 14:22:51.752   Dest filename: C:\Program Files\PrintNest\LEIA-ME.txt
+2026-07-30 14:22:51.752   Time stamp of our file: 2026-07-30 11:14:46.000
+2026-07-30 14:22:51.752   Dest file exists.
+2026-07-30 14:22:51.752   Time stamp of existing file: 2026-07-30 11:14:46.000
+2026-07-30 14:22:51.752   Installing the file.
+2026-07-30 14:22:51.752   Successfully installed the file.
+2026-07-30 14:22:51.752   -- File entry --
+2026-07-30 14:22:51.752   Dest filename: C:\Program Files\PrintNest\PrintNest.exe
+2026-07-30 14:22:51.752   Time stamp of our file: 2026-07-30 13:56:18.000
+2026-07-30 14:22:51.752   Dest file exists.
+2026-07-30 14:22:51.752   Time stamp of existing file: 2026-07-30 13:56:18.000
+2026-07-30 14:22:51.752   Installing the file.
+2026-07-30 14:22:56.284   Successfully installed the file.
+2026-07-30 14:22:56.285   -- File entry --
+2026-07-30 14:22:56.285   Dest filename: C:\Program Files\PrintNest\README.txt
+2026-07-30 14:22:56.285   Time stamp of our file: 2026-07-30 11:15:18.000
+2026-07-30 14:22:56.285   Dest file exists.
+2026-07-30 14:22:56.285   Time stamp of existing file: 2026-07-30 11:15:18.000
+2026-07-30 14:22:56.285   Installing the file.
+2026-07-30 14:22:56.287   Successfully installed the file.
+2026-07-30 14:22:56.287   -- File entry --
+2026-07-30 14:22:56.287   Dest filename: C:\Program Files\PrintNest\Tutor IA - PrintNest.pdf
+2026-07-30 14:22:56.287   Time stamp of our file: 2026-07-30 13:56:18.000
+2026-07-30 14:22:56.287   Dest file exists.
+2026-07-30 14:22:56.288   Time stamp of existing file: 2026-07-30 13:56:18.000
+2026-07-30 14:22:56.288   Installing the file.
+2026-07-30 14:22:56.334   Successfully installed the file.
+2026-07-30 14:22:56.334   -- File entry --
+2026-07-30 14:22:56.334   Dest filename: C:\Program Files\PrintNest\VERSAO.txt
+2026-07-30 14:22:56.334   Time stamp of our file: 2026-07-30 13:56:18.000
+2026-07-30 14:22:56.334   Dest file exists.
+2026-07-30 14:22:56.335   Time stamp of existing file: 2026-07-30 13:56:18.000
+2026-07-30 14:22:56.335   Installing the file.
+2026-07-30 14:22:56.336   Successfully installed the file.
+2026-07-30 14:22:56.336   -- File entry --
+2026-07-30 14:22:56.337   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\GUIA-CLIENTE.txt
+2026-07-30 14:22:56.337   Time stamp of our file: 2026-07-30 11:14:58.000
+2026-07-30 14:22:56.337   Dest file exists.
+2026-07-30 14:22:56.337   Time stamp of existing file: 2026-07-30 11:14:58.000
+2026-07-30 14:22:56.337   Installing the file.
+2026-07-30 14:22:56.339   Successfully installed the file.
+2026-07-30 14:22:56.339   -- File entry --
+2026-07-30 14:22:56.339   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\instalar_plugin_corel.bat
+2026-07-30 14:22:56.339   Time stamp of our file: 2026-07-30 11:14:56.000
+2026-07-30 14:22:56.339   Dest file exists.
+2026-07-30 14:22:56.340   Time stamp of existing file: 2026-07-30 11:14:56.000
+2026-07-30 14:22:56.340   Installing the file.
+2026-07-30 14:22:56.341   Successfully installed the file.
+2026-07-30 14:22:56.341   -- File entry --
+2026-07-30 14:22:56.341   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\PLUGIN-CORELDRAW.pdf
+2026-07-30 14:22:56.342   Time stamp of our file: 2026-07-24 12:07:42.000
+2026-07-30 14:22:56.342   Dest file exists.
+2026-07-30 14:22:56.342   Time stamp of existing file: 2026-07-24 12:07:42.000
+2026-07-30 14:22:56.342   Installing the file.
+2026-07-30 14:22:56.373   Successfully installed the file.
+2026-07-30 14:22:56.373   -- File entry --
+2026-07-30 14:22:56.373   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\PrintNest.bas
+2026-07-30 14:22:56.373   Time stamp of our file: 2026-07-21 14:45:10.000
+2026-07-30 14:22:56.373   Dest file exists.
+2026-07-30 14:22:56.373   Time stamp of existing file: 2026-07-21 14:45:10.000
+2026-07-30 14:22:56.374   Installing the file.
+2026-07-30 14:22:56.376   Successfully installed the file.
+2026-07-30 14:22:56.376   -- File entry --
+2026-07-30 14:22:56.376   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\PrintNest.gms
+2026-07-30 14:22:56.376   Time stamp of our file: 2026-07-21 16:07:28.000
+2026-07-30 14:22:56.376   Dest file exists.
+2026-07-30 14:22:56.377   Time stamp of existing file: 2026-07-21 16:07:28.000
+2026-07-30 14:22:56.377   Installing the file.
+2026-07-30 14:22:56.403   Successfully installed the file.
+2026-07-30 14:22:56.403   -- File entry --
+2026-07-30 14:22:56.403   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\printnest_symbol.png
+2026-07-30 14:22:56.403   Time stamp of our file: 2026-06-24 15:36:24.000
+2026-07-30 14:22:56.404   Dest file exists.
+2026-07-30 14:22:56.404   Time stamp of existing file: 2026-06-24 15:36:24.000
+2026-07-30 14:22:56.404   Installing the file.
+2026-07-30 14:22:56.407   Successfully installed the file.
+2026-07-30 14:22:56.407   -- File entry --
+2026-07-30 14:22:56.407   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\imagens\01-abrir-personalizacao.png
+2026-07-30 14:22:56.408   Time stamp of our file: 2026-07-21 15:11:16.000
+2026-07-30 14:22:56.408   Dest file exists.
+2026-07-30 14:22:56.408   Time stamp of existing file: 2026-07-21 15:11:16.000
+2026-07-30 14:22:56.408   Installing the file.
+2026-07-30 14:22:56.413   Successfully installed the file.
+2026-07-30 14:22:56.413   -- File entry --
+2026-07-30 14:22:56.413   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\imagens\02-filtro-macros.png
+2026-07-30 14:22:56.413   Time stamp of our file: 2026-07-21 15:25:34.000
+2026-07-30 14:22:56.413   Dest file exists.
+2026-07-30 14:22:56.413   Time stamp of existing file: 2026-07-21 15:25:34.000
+2026-07-30 14:22:56.413   Installing the file.
+2026-07-30 14:22:56.418   Successfully installed the file.
+2026-07-30 14:22:56.419   -- File entry --
+2026-07-30 14:22:56.419   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\imagens\03-arrastar-botao.png
+2026-07-30 14:22:56.419   Time stamp of our file: 2026-07-21 15:27:52.000
+2026-07-30 14:22:56.419   Dest file exists.
+2026-07-30 14:22:56.419   Time stamp of existing file: 2026-07-21 15:27:52.000
+2026-07-30 14:22:56.419   Installing the file.
+2026-07-30 14:22:56.422   Successfully installed the file.
+2026-07-30 14:22:56.422   -- File entry --
+2026-07-30 14:22:56.422   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\imagens\04-aparencia-logo.png
+2026-07-30 14:22:56.423   Time stamp of our file: 2026-07-21 15:27:52.000
+2026-07-30 14:22:56.423   Dest file exists.
+2026-07-30 14:22:56.423   Time stamp of existing file: 2026-07-21 15:27:52.000
+2026-07-30 14:22:56.423   Installing the file.
+2026-07-30 14:22:56.425   Successfully installed the file.
+2026-07-30 14:22:56.425   -- File entry --
+2026-07-30 14:22:56.425   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\imagens\05-modo-corte-organizando.png
+2026-07-30 14:22:56.426   Time stamp of our file: 2026-07-21 15:17:34.000
+2026-07-30 14:22:56.426   Dest file exists.
+2026-07-30 14:22:56.426   Time stamp of existing file: 2026-07-21 15:17:34.000
+2026-07-30 14:22:56.426   Installing the file.
+2026-07-30 14:22:56.438   Successfully installed the file.
+2026-07-30 14:22:56.438   -- File entry --
+2026-07-30 14:22:56.438   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\imagens\06-enviar-para-corel.png
+2026-07-30 14:22:56.438   Time stamp of our file: 2026-07-21 15:17:34.000
+2026-07-30 14:22:56.438   Dest file exists.
+2026-07-30 14:22:56.438   Time stamp of existing file: 2026-07-21 15:17:34.000
+2026-07-30 14:22:56.439   Installing the file.
+2026-07-30 14:22:56.448   Successfully installed the file.
+2026-07-30 14:22:56.448   -- File entry --
+2026-07-30 14:22:56.449   Dest filename: C:\Program Files\PrintNest\Plugin CorelDRAW\imagens\07-popup-duas-opcoes.png
+2026-07-30 14:22:56.449   Time stamp of our file: 2026-07-21 15:12:14.000
+2026-07-30 14:22:56.449   Dest file exists.
+2026-07-30 14:22:56.449   Time stamp of existing file: 2026-07-21 15:12:14.000
+2026-07-30 14:22:56.449   Installing the file.
+2026-07-30 14:22:56.451   Successfully installed the file.
+2026-07-30 14:22:56.452   -- Icon entry --
+2026-07-30 14:22:56.452   Dest filename: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\PrintNest Pro\PrintNest Pro.lnk
+2026-07-30 14:22:56.453   Creating the icon.
+2026-07-30 14:22:56.638   Successfully created the icon.
+2026-07-30 14:22:56.654   -- Icon entry --
+2026-07-30 14:22:56.654   Dest filename: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\PrintNest Pro\Tutor IA - PrintNest (PDF).lnk
+2026-07-30 14:22:56.655   Creating the icon.
+2026-07-30 14:22:56.659   Successfully created the icon.
+2026-07-30 14:22:56.683   -- Icon entry --
+2026-07-30 14:22:56.683   Dest filename: C:\ProgramData\Microsoft\Windows\Start Menu\Programs\PrintNest Pro\Desinstalar PrintNest Pro.lnk
+2026-07-30 14:22:56.684   Creating the icon.
+2026-07-30 14:22:56.687   Successfully created the icon.
+2026-07-30 14:22:56.698   -- Icon entry --
+2026-07-30 14:22:56.699   Dest filename: C:\Users\Public\Desktop\PrintNest Pro.lnk
+2026-07-30 14:22:56.700   Creating the icon.
+2026-07-30 14:22:56.703   Successfully created the icon.
+2026-07-30 14:22:56.721   Saving uninstall information.
+2026-07-30 14:22:56.721   Renaming uninstaller.
+2026-07-30 14:22:56.723   Deleting uninstall key left over from previous administrative 64-bit install.
+2026-07-30 14:22:56.723   Creating new uninstall key: HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\{B7F31E9C-5D24-4A86-9C1D-3A7F0E52C816}_is1
+2026-07-30 14:22:56.723   Writing uninstall key values.
+2026-07-30 14:22:56.724   Detected previous non administrative install? No
+2026-07-30 14:22:56.725   Detected previous administrative 32-bit install? No
+2026-07-30 14:22:56.728   Installation process succeeded.
+2026-07-30 14:22:56.728   Need to restart Windows? No
+2026-07-30 14:22:56.741   Deinitializing Setup.
+2026-07-30 14:22:56.777   Log closed.
