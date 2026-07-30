@@ -33,9 +33,17 @@ def sem_rede(monkeypatch):
     return proibido
 
 
-def test_sem_url_configurada_nao_faz_requisicao(janela, sem_rede):
-    # recurso desligado por padrao: instalacao nova nao fala com servidor nenhum
+def test_sem_url_nenhuma_nao_faz_requisicao(janela, sem_rede, monkeypatch):
+    # Sem endereco NENHUM (nem no config do cliente, nem embutido no exe) o app
+    # nao fala com servidor algum. A partir da 1.0.0 o embutido vem preenchido,
+    # entao o "desligado" precisa ser encenado aqui — sem isto o teste passaria
+    # por engano (o except do _Consulta.run engole o AssertionError do sem_rede)
+    # e ainda deixaria uma QThread orfa.
+    from app.infrastructure import updates
+
+    monkeypatch.setattr(updates, "URL_MANIFESTO_PADRAO", "")
     assert janela._settings.update_url == ""
+    assert janela._update_url() == ""
     janela._check_updates_on_start()  # sem_rede explode se tentar
 
 
@@ -68,6 +76,12 @@ def test_menu_ajuda_tem_procurar_atualizacoes(janela):
 
 def test_check_manual_sem_url_avisa_em_vez_de_ficar_mudo(janela, monkeypatch, sem_rede):
     # check manual mudo parece que o programa quebrou
+    # (mesma encenação do teste acima: com o endereço embutido preenchido, este
+    # ramo só existe se não houver endereço nenhum — sem o monkeypatch a
+    # consulta REAL sobe uma QThread que ninguém encerra e a suíte trava)
+    from app.infrastructure import updates
+
+    monkeypatch.setattr(updates, "URL_MANIFESTO_PADRAO", "")
     vistos = []
     monkeypatch.setattr(
         QMessageBox, "information", lambda *a, **k: vistos.append(a[2]) or QMessageBox.Ok

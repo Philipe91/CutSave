@@ -7488,6 +7488,13 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self._act_generate.setEnabled(not busy)
         self._btn_add.setEnabled(not busy)
+        # Exportar ficava HABILITADO durante a geração e exportava o resultado
+        # ANTIGO, sem avisar: numa gráfica isso vira chapa errada impressa em
+        # material caro. Volta ao normal no finished/failed.
+        if busy:
+            self._set_exports_enabled(False, "Aguarde a geração terminar")
+        else:
+            self._set_exports_enabled(self._result is not None)
 
     def closeEvent(self, event) -> None:
         """Fechar a janela DURANTE uma geracao: espera a thread terminar antes
@@ -7518,15 +7525,15 @@ class MainWindow(QMainWindow):
             checker.encerrar()
         super().closeEvent(event)
 
-    def _set_exports_enabled(self, enabled: bool) -> None:
+    def _set_exports_enabled(
+        self, enabled: bool, motivo: str = "Gere a produção primeiro — F5"
+    ) -> None:
         # U1/P7: desabilitado MUDO confunde — o tooltip diz o que falta
         tips = getattr(self, "_export_tips", {})
         for action in getattr(self, "_export_actions", []):
             action.setEnabled(enabled)
             base = tips.get(action, action.toolTip())
-            action.setToolTip(
-                base if enabled else f"{base}\n(Gere a produção primeiro — F5)"
-            )
+            action.setToolTip(base if enabled else f"{base}\n({motivo})")
 
     def _on_progress(self, done: int, total: int) -> None:
         self._progress.setRange(0, total)

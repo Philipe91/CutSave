@@ -40,8 +40,9 @@ FLUXO BASICO
 1. Adicionar PDFs.
 2. Ajustar a coluna Qtd (quantas copias de cada arquivo).
 3. Definir largura/altura da chapa, espacamento, offset, recorte.
-4. Escolher o tipo de registro (Nenhum / Bolinhas / Mimaki), se usar.
-5. Clicar em "Gerar Producao" e conferir o preview
+4. Escolher o tipo de registro, se usar (Nenhuma / Circulos / Marcas em L /
+   Circulos + L / Quadrados / Cruzes / L de canto).
+5. Clicar em "Colocar na chapa" (ou F5) e conferir o preview
    (roda do mouse = zoom, arrastar = mover).
 6. Exportar PDF (impressao) e DXF (corte).
 

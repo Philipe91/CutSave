@@ -40,8 +40,13 @@ class ActivationDialog(QDialog):
         self.setMinimumWidth(520)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(theme.SPACE_XL, theme.SPACE_LG, theme.SPACE_XL, theme.SPACE_LG)
-        lay.setSpacing(theme.SPACE_MD)
+        # Aperto deliberado (SM em vez de MD/LG): sao ~13 linhas empilhadas e
+        # esta e a PRIMEIRA tela do produto comprado. Em notebook 1366x768 a
+        # 125% sobram ~545px logicos — com o espacamento antigo os botoes
+        # Ativar/Sair ficavam abaixo da borda e o cliente nao entrava no
+        # software que pagou.
+        lay.setContentsMargins(theme.SPACE_XL, theme.SPACE_MD, theme.SPACE_XL, theme.SPACE_MD)
+        lay.setSpacing(theme.SPACE_SM)
 
         self._status = QLabel()
         self._status.setWordWrap(True)
@@ -118,10 +123,10 @@ class ActivationDialog(QDialog):
         lay.addLayout(mail_row)
 
         # colar a chave
-        lay.addWidget(self._caption("3. Cole aqui a chave de licença que você recebeu:"))
+        lay.addWidget(self._caption("4. Cole aqui a chave de licença que você recebeu:"))
         self._key_field = QPlainTextEdit()
         self._key_field.setPlaceholderText("PNEST1. ...")
-        self._key_field.setFixedHeight(84)
+        self._key_field.setFixedHeight(64)  # cabe a chave colada e sobra tela
         lay.addWidget(self._key_field)
 
         activate = QPushButton("  Ativar")

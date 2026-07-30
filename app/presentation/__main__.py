@@ -36,6 +36,33 @@ _SPLASH_MIN_MS = 3000
 
 _crash_file = None  # handle do crash.log: precisa viver enquanto o app viver
 
+# Nome combinado com o AppMutex do installer/printnest.iss — mudar aqui exige
+# mudar la (e so vale a partir da versao que JA tiver criado o mutex).
+APP_MUTEX_NAME = "PrintNestAppMutex"
+_app_mutexes: list = []  # handles vivos enquanto o processo viver
+
+
+def _create_app_mutex() -> None:
+    """Marca "estou aberto" de um jeito que o INSTALADOR consiga enxergar.
+
+    A instancia unica do app usa QLocalServer, que o Inno Setup nao ve: quem
+    instalasse a versao nova com o PrintNest aberto levava erro de arquivo em
+    uso no meio da instalacao. Com o mutex, o instalador avisa antes e pede
+    para fechar. Falhar aqui nunca pode impedir o app de abrir.
+
+    Cria nos dois espacos de nomes: o "Global\\" e o que o instalador elevado
+    enxerga de outra sessao, mas exige privilegio que usuario comum pode nao
+    ter — por isso o local tambem, e o .iss verifica os dois."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    for nome in (f"Global\\{APP_MUTEX_NAME}", APP_MUTEX_NAME):
+        with contextlib.suppress(Exception):
+            handle = ctypes.windll.kernel32.CreateMutexW(None, False, nome)
+            if handle:
+                _app_mutexes.append(handle)
+
 
 def _enable_crash_log(logs_dir: Path) -> None:
     """Grava a pilha Python em logs/crash.log quando o processo morre de forma
@@ -48,6 +75,52 @@ def _enable_crash_log(logs_dir: Path) -> None:
     with contextlib.suppress(OSError):
         _crash_file = (logs_dir / "crash.log").open("a", buffering=1, encoding="utf-8")
         faulthandler.enable(file=_crash_file, all_threads=True)
+
+
+def _install_excepthook(logs_dir: Path) -> None:
+    """Excecao nao tratada num slot do Qt precisa DEIXAR RASTRO.
+
+    Sem isto, com console=False, o Qt so imprime no stderr que ninguem le: a
+    acao simplesmente "nao acontece", o printnest.log fica limpo e o suporte
+    nao tem por onde comecar. Aqui ela vira CRITICAL no log + um aviso em
+    pt-BR que aponta a pasta dos logs.
+
+    Avisa UMA vez por sessao: erro dentro de um paintEvent se repete a cada
+    quadro, e uma fila de caixas seria pior que o proprio erro."""
+    import logging
+    import os
+    import traceback
+
+    anterior = sys.excepthook
+    estado = {"avisou": False}
+
+    def _hook(tipo, valor, tb) -> None:
+        if issubclass(tipo, KeyboardInterrupt):
+            anterior(tipo, valor, tb)  # Ctrl+C continua encerrando
+            return
+        detalhe = "".join(traceback.format_exception(tipo, valor, tb))
+        logging.getLogger("printnest").critical("Erro nao tratado:\n%s", detalhe)
+        if estado["avisou"] or os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        estado["avisou"] = True
+        with contextlib.suppress(Exception):  # o aviso nunca pode virar 2o erro
+            from PySide6.QtWidgets import QApplication, QMessageBox
+
+            if QApplication.instance() is None:
+                return
+            box = QMessageBox()
+            box.setWindowTitle("PrintNest")
+            box.setIcon(QMessageBox.Warning)
+            box.setText("Ocorreu um erro inesperado.")
+            box.setInformativeText(
+                "O PrintNest continua aberto — salve o seu trabalho.\n"
+                f"Os detalhes ficaram em:\n{logs_dir}"
+            )
+            box.setDetailedText(detalhe)
+            box.addButton("Entendi", QMessageBox.AcceptRole)
+            box.exec()
+
+    sys.excepthook = _hook
 
 
 def _file_args(argv: list[str]) -> list[str]:
@@ -126,6 +199,8 @@ def main() -> int:
     settings = store.load_or_create()
     setup_logging(settings.log_level, paths.logs_dir)
     _enable_crash_log(paths.logs_dir)
+    _install_excepthook(paths.logs_dir)
+    _create_app_mutex()  # o instalador da proxima versao depende disto
 
     app = QApplication(sys.argv)
     # a splash NATIVA (descompactacao do exe) ja cumpriu o papel: a partir daqui

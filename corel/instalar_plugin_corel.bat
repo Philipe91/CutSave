@@ -38,7 +38,8 @@ echo   1. Abra o PrintNest UMA vez (ele se registra sozinho)
 echo   2. Abra o CorelDRAW
 echo   3. Ferramentas ^> Opcoes ^> Personalizacao ^> Comandos
 echo   4. No filtro, escolha "Macros"
-echo   5. Arraste "PrintNest.EnviarParaPrintNest" para a barra
+echo   5. Arraste "PrintNest.PrintNestMenu" para a barra
+echo      (e o botao recomendado: pergunta Importar ou Modo Corte)
 echo   6. (Opcional) Na aba Aparencia, importe a imagem
 echo      printnest_symbol.png que esta nesta pasta
 echo.

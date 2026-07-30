@@ -10,6 +10,8 @@ Coloca um **botão do PrintNest** dentro do CorelDRAW com dois caminhos:
 > Instala uma vez. Depois é só clicar no botão no dia a dia.
 
 As imagens deste guia ficam na pasta `imagens/` ao lado deste arquivo.
+Se preferir o passo a passo já ilustrado e pronto para imprimir, abra o
+**PLUGIN-CORELDRAW.pdf**, nesta mesma pasta.
 
 ---
 

@@ -2,7 +2,7 @@
   PRINTNEST PRO — LEIA-ME
 =====================================================
 
-Obrigado por testar o PrintNest!
+Obrigado por escolher o PrintNest!
 
 COMO ABRIR
 ----------
@@ -43,8 +43,8 @@ Para corte puro (laser/CNC/plotter), use o botão
 DÚVIDAS E SUPORTE
 -----------------
 - Pare o mouse sobre qualquer botão: aparece a explicação.
-- Use o arquivo PRINTNEST-MENTOR-IA.md num chat de IA
-  (é o caminho mais rápido para qualquer dúvida).
+- Envie o "Tutor IA - PrintNest.pdf" (nesta pasta) num
+  chat de IA: é o caminho mais rápido para qualquer dúvida.
 - Suporte: philipe.fernandes0101@gmail.com
 
 Bom trabalho!

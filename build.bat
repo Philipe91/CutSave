@@ -46,6 +46,10 @@ REM arquivo ao cliente e ele nunca era copiado: quem usa Corel recebia so o
 REM texto, sem as imagens do passo a passo.
 copy /y docs\cliente\PLUGIN-CORELDRAW.pdf "PrintNest_Build\Plugin CorelDRAW\" >nul
 copy /y assets\printnest_symbol.png "PrintNest_Build\Plugin CorelDRAW\" >nul
+REM imagens citadas pelo GUIA-CLIENTE: sem esta pasta o guia vira um texto com
+REM 7 referencias quebradas na mao de quem abre
+mkdir "PrintNest_Build\Plugin CorelDRAW\imagens"
+copy /y corel\imagens\*.png "PrintNest_Build\Plugin CorelDRAW\imagens\" >nul
 REM carimba a data/hora REAL desta build no VERSAO.txt (identifica cada exe)
 echo.>> PrintNest_Build\VERSAO.txt
 echo Build gerada em: %DATE% %TIME%>> PrintNest_Build\VERSAO.txt

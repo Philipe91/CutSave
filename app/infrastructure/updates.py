@@ -39,7 +39,16 @@ from dataclasses import dataclass
 # Vazio = recurso desligado, o app nao faz requisicao nenhuma.
 # O config.json AINDA pode sobrescrever (update_url), para atender um cliente
 # especifico sem gerar outra build.
-URL_MANIFESTO_PADRAO = ""
+#
+# ATENCAO: este endereco fica gravado no .exe de TODO cliente da 1.0.0 e nao ha
+# como corrigi-lo remotamente. O nome do arquivo faz parte da URL: renomear o
+# manifesto.json dentro do Gist, ou apagar o Gist/a conta, derruba o canal de
+# atualizacao de todos eles para sempre. Versoes futuras podem apontar para o
+# dominio proprio; o Gist continua servindo quem instalou a 1.0.0.
+URL_MANIFESTO_PADRAO = (
+    "https://gist.githubusercontent.com/Philipe91/"
+    "00110a87efa02d4256ea0755ac621236/raw/manifesto.json"
+)
 
 # tempo curto: isto roda na abertura do app; servidor lento nao pode virar
 # espera para o usuario (a consulta ainda por cima roda fora da thread da UI)

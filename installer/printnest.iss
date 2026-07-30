@@ -40,6 +40,12 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+; App aberto durante a instalacao = erro de arquivo em uso no meio do processo.
+; A instancia unica do PrintNest usa QLocalServer, que o Inno nao enxerga; o
+; app cria este mutex no startup (APP_MUTEX_NAME em app/presentation/__main__.py)
+; so para o instalador poder avisar antes. Os dois nomes: o "Global\" e o da
+; sessao (usuario comum pode nao ter privilegio para criar o global).
+AppMutex=PrintNestAppMutex,Global\PrintNestAppMutex
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"

@@ -17,6 +17,25 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 REPO = Path(__file__).resolve().parents[1]
 
+# altura útil (px lógicos) de um notebook 1366x768 a 125%: 768/1.25 = 614,
+# menos barra de título e barra de tarefas do Windows
+ALTURA_UTIL_125 = 545
+
+
+def _app_com_tema():
+    """QApplication COM o QSS do produto aplicado.
+
+    Medir geometria sem o tema mente: o QSS acrescenta padding em cada campo
+    e botão — a Ativação media 468px sem ele e 585px com ele. Teste de "cabe
+    na tela" só vale medindo o que o cliente vê."""
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    from app.presentation import theme
+
+    theme.apply(app)
+    return app
+
 
 # ---- N1: salvar .printnest é atômico ----
 def test_save_interrompido_preserva_o_projeto_anterior(tmp_path, monkeypatch):
@@ -187,15 +206,56 @@ def test_trocar_de_aba_nao_suja_a_aba_de_destino(tmp_path):
 
 # ---- C4: Modo Corte cabe em notebook 1366x768 @125% (~545px úteis) ----
 def test_modo_corte_cabe_em_notebook_125():
-    from PySide6.QtWidgets import QApplication
-
-    QApplication.instance() or QApplication([])
+    app = _app_com_tema()
     from app.presentation.cut_mode_dialog import CutModeDialog
 
     dlg = CutModeDialog()
+    dlg.show()
+    app.processEvents()
     minimo = dlg.minimumSizeHint().expandedTo(dlg.minimumSize())
-    assert minimo.height() <= 545, f"mínimo {minimo.height()}px não cabe em 768@125%"
-    assert minimo.width() <= 1366
+    assert minimo.height() <= ALTURA_UTIL_125, (
+        f"mínimo {minimo.height()}px não cabe em 768@125%"
+    )
+    assert minimo.width() <= 1366, f"mínimo {minimo.width()}px mais largo que a tela"
+    dlg.close()
+    dlg.deleteLater()
+
+
+# ---- C6: o canal de atualização não pode sair morto no build ----
+def test_endereco_de_atualizacao_esta_embutido_no_build():
+    # Sem isto, nenhum cliente da 1.0.0 fica sabendo de uma 1.0.1 — e não há
+    # como corrigir remotamente. NÃO faz rede: só confere que a constante que
+    # vai dentro do .exe está preenchida e num esquema que o app aceita.
+    from app.infrastructure import updates
+
+    assert updates.URL_MANIFESTO_PADRAO, (
+        "URL_MANIFESTO_PADRAO vazia: o build sairia sem canal de atualização"
+    )
+    assert updates.url_segura(updates.URL_MANIFESTO_PADRAO)
+    assert updates.URL_MANIFESTO_PADRAO.endswith(".json")
+
+
+# ---- H2: a Ativação também tem de caber em notebook 1366x768 @125% ----
+def test_ativacao_cabe_em_notebook_125(tmp_path):
+    # É a PRIMEIRA tela do produto comprado: se "Ativar"/"Sair" ficam abaixo
+    # da borda, o cliente não consegue nem entrar no software que pagou.
+    from datetime import date
+
+    app = _app_com_tema()
+    from app.licensing.manager import LicenseManager
+    from app.presentation.licensing_dialog import ActivationDialog
+    from app.shared.config import AppPaths
+
+    m = LicenseManager(paths=AppPaths(home=tmp_path), today=date(2026, 1, 1))
+    dlg = ActivationDialog(m, blocking=True)
+    dlg.show()
+    app.processEvents()
+    minimo = dlg.minimumSizeHint().expandedTo(dlg.minimumSize())
+    assert minimo.height() <= ALTURA_UTIL_125, (
+        f"mínimo {minimo.height()}px não cabe em 768@125%"
+    )
+    assert minimo.width() <= 1366, f"mínimo {minimo.width()}px mais largo que a tela"
+    dlg.close()
     dlg.deleteLater()
 
 
