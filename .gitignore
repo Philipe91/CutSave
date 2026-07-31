@@ -38,3 +38,10 @@ node_modules/
 
 # zips de build para envio (gerados localmente)
 PrintNest_Build_*.zip
+
+# Kit de teste em outro PC (montado por copia do build; 119 MB)
+PARA-LEVAR-NO-PENDRIVE/
+# Relatorios junit da suite (regerados a cada rodada)
+reports/
+# Capturas de teste manual
+telas-teste/
