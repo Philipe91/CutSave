@@ -30,6 +30,24 @@ MM2PT = 72.0 / 25.4
 _K = 0.5522847498307936
 
 
+def bbox_normalizada(caixa) -> tuple[float, float, float, float]:
+    """(x0, y0, x1, y1) com x0<=x1 e y0<=y1, sempre.
+
+    O PDF NAO exige que as caixas venham ordenadas: escrever a MediaBox como
+    [0 297 210 0] e legal, e varios geradores (inclusive exportacoes de
+    Corel/Illustrator) fazem isso. Como o leitor normaliza sozinho, o arquivo
+    abre certo em qualquer visualizador e ninguem desconfia.
+
+    A matriz de encaixe, porem, calcula a largura como x1-x0: com a caixa
+    invertida isso da NEGATIVO, a escala fica negativa e a arte entra
+    ESPELHADA no PDF de impressao -- enquanto a faca, que nao passa por aqui,
+    sai correta. O resultado e material impresso ao contrario das marcas de
+    registro, que so aparece depois de cortar. Relatado em 31/07/2026.
+    """
+    x0, y0, x1, y1 = (float(v) for v in caixa)
+    return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
 def _f(v: float) -> str:
     """Numero em ate 4 casas (0,0001pt = 0,000035mm), sem zeros a direita."""
     return f"{v:.4f}".rstrip("0").rstrip(".")
@@ -103,7 +121,7 @@ class PdfWriter:
         xo = self._pdf.copy_foreign(src.pages[page_index].as_form_xobject())
         if clip is not None:
             xo.BBox = Array([float(v) for v in clip])
-        bbox = tuple(float(v) for v in xo.BBox)
+        bbox = bbox_normalizada(xo.BBox)
         self._xobjects[key] = (xo, bbox)
         return xo, bbox
 
@@ -118,19 +136,26 @@ class PdfWriter:
     @staticmethod
     def _placement_matrix(bbox, x, y, w, h, rot):
         """Matriz cm que mapeia a regiao bbox no retangulo destino (canto
-        inferior-esquerdo x,y em pt), com rotacao horaria dentro do retangulo
-        (semantica do show_pdf_page, validada por sonda pixel a pixel)."""
+        inferior-esquerdo x,y em pt), girando no MESMO sentido do canvas.
+
+        O canvas gira a arte com QTransform().rotate(+angulo), que no Qt e
+        HORARIO. Ate 31/07/2026 esta matriz girava no sentido contrario: a peca
+        caia no lugar e no tamanho certos (o retangulo destino e o mesmo nos
+        dois sentidos), mas a ARTE saia 180 graus virada em relacao ao que a
+        tela mostrava — so em pecas com 90 ou 270. Relatado em producao com a
+        impressao saindo de cabeca para baixo enquanto a faca saia certa.
+        """
         bx0, by0, bx1, by1 = bbox
         bw, bh = bx1 - bx0, by1 - by0
-        if rot == 90:
+        if rot == 90:  # horario
             sx, sy = h / bw, w / bh
-            return (0, sx, -sy, 0, x + w + sy * by0, y - sx * bx0)
+            return (0, -sx, sy, 0, x - sy * by0, y + h + sx * bx0)
         if rot == 180:
             sx, sy = w / bw, h / bh
             return (-sx, 0, 0, -sy, x + w + sx * bx0, y + h + sy * by0)
-        if rot == 270:
+        if rot == 270:  # horario
             sx, sy = h / bw, w / bh
-            return (0, -sx, sy, 0, x - sy * by0, y + h + sx * bx0)
+            return (0, sx, -sy, 0, x + w + sy * by0, y - sx * bx0)
         sx, sy = w / bw, h / bh
         return (sx, 0, 0, sy, x - sx * bx0, y - sy * by0)
 

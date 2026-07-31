@@ -1,4 +1,4 @@
-"""Salva a conversa do Claude Code como markdown legivel em docs/conversas/.
+"""Salva a conversa do Claude Code como markdown legivel, FORA do repositorio.
 
 Chamado por um hook SessionEnd (ver .claude/settings.json). Recebe o JSON do
 hook na entrada padrao, acha o transcrito .jsonl da sessao e escreve um .md com
@@ -20,7 +20,12 @@ from datetime import datetime
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-DESTINO = RAIZ / "docs" / "conversas"
+# FORA da pasta do projeto, de proposito (incidente de 31/07/2026): o destino
+# antigo era docs/conversas/, dentro do repositorio, e uma sessao commitou 37
+# logs de uma vez. O repositorio e PUBLICO, e as conversas carregam o que foi
+# colado nelas: chave de API, codigos de compra, e-mail de cliente. Log de
+# conversa nao e artefato de projeto e nao entra no controle de versao.
+DESTINO = Path.home() / "PrintNest-conversas"
 # textos maiores que isso sao cortados no meio (mantem inicio e fim)
 LIMITE_TEXTO = 4000
 

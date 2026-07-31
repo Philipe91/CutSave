@@ -45,3 +45,8 @@ PARA-LEVAR-NO-PENDRIVE/
 reports/
 # Capturas de teste manual
 telas-teste/
+
+# logs de conversa do Claude: NUNCA versionar (incidente 31/07/2026 -
+# chave de API, codigos de compra e e-mail de cliente vazaram por aqui).
+# O hook agora grava em ~/PrintNest-conversas/, fora do repositorio.
+docs/conversas/

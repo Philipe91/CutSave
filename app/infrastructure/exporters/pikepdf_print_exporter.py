@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.application.dto.print_placement import PrintSheet
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
-from app.infrastructure.exporters.pdf_writer import PdfWriter
+from app.infrastructure.exporters.pdf_writer import PdfWriter, bbox_normalizada
 from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf, raw_box, trim_clip_pdf
 from app.infrastructure.pdfium_knife import knife_free_pdf
 from app.shared.errors import PrintExportError
@@ -156,6 +156,11 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                     if rect is None:
                         w, h = page.get_size()
                         rect = (0.0, 0.0, w, h)
+                # caixa do PDF pode vir com as coordenadas trocadas (ex.:
+                # [0 297 210 0]) — e legal, e o leitor normaliza sozinho. Aqui
+                # nao: sem ordenar, x1-x0 fica negativo, o recorte de borda e
+                # ignorado em silencio e a arte sai ESPELHADA na impressao.
+                rect = bbox_normalizada(rect)
                 if crop_mm > 0:
                     crop_pt = crop_mm * MM2PT
                     x0, y0, x1, y1 = rect

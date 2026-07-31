@@ -213,7 +213,19 @@ def test_arquivo_origem_invalido_falha(tmp_path):
 def test_paridade_pixel_com_motor_antigo_em_todas_rotacoes(tmp_path, rotate):
     """Prova da migração de licença: a composição pikepdf reproduz o
     show_pdf_page do fitz PIXEL a PIXEL (tolerância = antialiasing de borda)
-    em todas as rotações, com fonte ASSIMÉTRICA (pega espelho/giro errado)."""
+    em todas as rotações, com fonte ASSIMÉTRICA (pega espelho/giro errado).
+
+    **Sinal invertido em 31/07/2026.** O `rotate` do fitz é ANTI-horário; o do
+    PrintNest é horário, que é o sentido que o canvas mostra
+    (`QTransform().rotate(+ângulo)`). Até esta data a exportação copiava o
+    sentido do fitz, e por isso toda peça girada em 90 ou 270 era impressa 180
+    graus virada em relação à tela — com a faca saindo correta, porque ela não
+    passa por esta matriz. Foi relatado em produção com material real.
+
+    O defeito, portanto, é ANTERIOR à migração: este teste garantia fielmente a
+    paridade com um motor que já discordava da própria tela do produto. A
+    paridade de renderização continua sendo verificada; o que mudou é só a
+    conversão de sentido (`-rotate` na referência)."""
     src = tmp_path / "tri.pdf"
     doc = fitz.open()
     pg = doc.new_page(width=200, height=100)
@@ -239,7 +251,8 @@ def test_paridade_pixel_com_motor_antigo_em_todas_rotacoes(tmp_path, rotate):
         10 * MM2PT, 15 * MM2PT, (10 + w_mm) * MM2PT, (15 + h_mm) * MM2PT
     )
     sd = fitz.open(str(src))
-    page.show_pdf_page(rect, sd, 0, rotate=rotate)
+    # -rotate: o fitz gira anti-horario, o PrintNest gira horario (ver docstring)
+    page.show_pdf_page(rect, sd, 0, rotate=-rotate)
     ref_pix = page.get_pixmap(dpi=96)
     sd.close()
 

@@ -7,7 +7,7 @@
             "type": "command",
             "command": ".venv/Scripts/python.exe tools/salvar_conversa.py 2>/dev/null || true",
             "timeout": 60,
-            "statusMessage": "Salvando a conversa em docs/conversas/..."
+            "statusMessage": "Salvando a conversa em ~/PrintNest-conversas/..."
           }
         ]
       }
