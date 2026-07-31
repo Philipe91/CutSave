@@ -26,7 +26,7 @@ from PySide6.QtGui import (
     QPolygonF,
 )
 
-from app.presentation import theme
+from app.presentation import icons, theme
 
 # Texto que aparece ao pairar sobre CADA opção do dropdown (ToolTipRole).
 MODE_HINTS = {
@@ -87,9 +87,9 @@ def _dash_pen(color: str, width: float = 1.4) -> QPen:
 
 
 @lru_cache(maxsize=64)
-def _mode_pixmap(mode: str, cut: str, muted: str, accent: str, size: int) -> QPixmap:
-    pm = QPixmap(size, size)
-    pm.fill(Qt.transparent)
+def _mode_pixmap(mode: str, cut: str, muted: str, accent: str, size: int,
+                 dpr: float = 1.0) -> QPixmap:
+    pm = icons.blank(size, size, dpr)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
 
@@ -165,7 +165,8 @@ def _mode_pixmap(mode: str, cut: str, muted: str, accent: str, size: int) -> QPi
 
 def mode_icon(mode: str, size: int = 26) -> QIcon:
     """QIcon ilustrativo do tipo de faca, nas cores do tema ATUAL."""
-    return QIcon(_mode_pixmap(mode, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return QIcon(_mode_pixmap(mode, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size,
+                              icons.device_ratio()))
 
 
 # ---------------------------------------------------------------------------
@@ -215,9 +216,9 @@ def _sheet_rect(p: QPainter, size: int, muted: str, margin: float = 0.14):
 
 
 @lru_cache(maxsize=256)
-def _glyph_pixmap(kind: str, key: str, cut: str, muted: str, accent: str, size: int) -> QPixmap:
-    pm = QPixmap(size, size)
-    pm.fill(Qt.transparent)
+def _glyph_pixmap(kind: str, key: str, cut: str, muted: str, accent: str, size: int,
+                  dpr: float = 1.0) -> QPixmap:
+    pm = icons.blank(size, size, dpr)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
     c = size / 2.0
@@ -409,7 +410,8 @@ def _glyph_pixmap(kind: str, key: str, cut: str, muted: str, accent: str, size: 
 
 
 def _glyph_icon(glyph: str, variant: str, size: int) -> QIcon:
-    return QIcon(_glyph_pixmap(glyph, variant, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size))
+    return QIcon(_glyph_pixmap(glyph, variant, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size,
+                               icons.device_ratio()))
 
 
 def nodes_icon(level: str, size: int = 26) -> QIcon:
@@ -437,7 +439,8 @@ def view_mode_icon(kind: str, size: int = 26) -> QIcon:
 
 
 def corner_radius_pixmap(size: int = 22) -> QPixmap:
-    return _glyph_pixmap("radius", "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size)
+    return _glyph_pixmap("radius", "", theme.CUT, theme.TEXT_MUTED, theme.ACCENT, size,
+                         icons.device_ratio())
 
 
 # ---------------------------------------------------------------------------
@@ -451,13 +454,13 @@ _CUT_STEPS = ("Adicionar", "Organizar", "Exportar")
 
 @lru_cache(maxsize=16)
 def _steps_pixmap(
-    active: int, cut: str, muted: str, accent: str, steps: tuple[str, str, str] = _STEPS
+    active: int, cut: str, muted: str, accent: str, steps: tuple[str, str, str] = _STEPS,
+    dpr: float = 1.0,
 ) -> QPixmap:
     col_w, glyph, label_h, arrow_w = 96, 44, 20, 26
     w = 3 * col_w + 2 * arrow_w
     h = glyph + 8 + label_h
-    pm = QPixmap(w, h)
-    pm.fill(Qt.transparent)
+    pm = icons.blank(w, h, dpr)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
     f = QFont()
@@ -534,13 +537,15 @@ def _steps_pixmap(
 def empty_steps_pixmap(active: int = 0) -> QPixmap:
     """Faixa com os 3 passos do fluxo para o canvas vazio; o passo ativo sai
     na cor de destaque do tema."""
-    return _steps_pixmap(active, theme.CUT, theme.TEXT_MUTED, theme.ACCENT)
+    return _steps_pixmap(active, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, _STEPS,
+                         icons.device_ratio())
 
 
 def cut_steps_pixmap(active: int = 0) -> QPixmap:
     """Faixa dos 3 passos do MODO CORTE (Adicionar → Organizar → Exportar),
     para o preview vazio do diálogo — mesma linguagem visual do canvas."""
-    return _steps_pixmap(active, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, _CUT_STEPS)
+    return _steps_pixmap(active, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, _CUT_STEPS,
+                         icons.device_ratio())
 
 
 # ---------------------------------------------------------------------------
@@ -573,9 +578,8 @@ def _cartela_cell(p: QPainter, x: float, y: float, w: float, h: float,
 
 @lru_cache(maxsize=32)
 def _cartela_pixmap(kind: str, cut: str, muted: str, accent: str,
-                    w: int, h: int) -> QPixmap:
-    pm = QPixmap(w, h)
-    pm.fill(Qt.transparent)
+                    w: int, h: int, dpr: float = 1.0) -> QPixmap:
+    pm = icons.blank(w, h, dpr)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
 
@@ -669,4 +673,5 @@ def _cartela_pixmap(kind: str, cut: str, muted: str, accent: str,
 def cartela_pixmap(kind: str, w: int = 224, h: int = 84) -> QPixmap:
     """Ilustração do fluxo de cartelas ('montar' | 'replicar' | 'facas'),
     nas cores do tema ATUAL."""
-    return _cartela_pixmap(kind, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, w, h)
+    return _cartela_pixmap(kind, theme.CUT, theme.TEXT_MUTED, theme.ACCENT, w, h,
+                           icons.device_ratio())

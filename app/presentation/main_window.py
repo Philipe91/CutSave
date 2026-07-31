@@ -2217,6 +2217,17 @@ class MainWindow(QMainWindow):
         self._export_tips = {a: a.toolTip() for a in self._export_actions}
         self._set_exports_enabled(False)
 
+        # Modo Corte é o único item do grupo "Corte" e abre o fluxo de
+        # laser/CNC. Sem destaque ele desaparecia no meio da barra, com a mesma
+        # cara de qualquer outro botão. Ganha o azul ESCURO (accent="corte") em
+        # vez do azul do CTA "Gerar Faca": destacado, mas sem se passar por ele.
+        # O ícone é o alvo (o ponto focal do laser), e NÃO a tesoura: a tesoura
+        # é a faca, e repetir o mesmo símbolo nos dois é o que fazia este botão
+        # sumir no meio da barra.
+        corte_btn = ribbon_panel.tool_button(modo_corte, "target")
+        corte_btn.setIcon(icons.icon("target", theme.ICON_ON_ACCENT, 18))
+        corte_btn.setProperty("accent", "corte")
+
         # botão "Exibição" na barra: abre um popup com os controles de exibição
         disp_btn = QToolButton()
         disp_btn.setText("Exibição")
@@ -2275,7 +2286,7 @@ class MainWindow(QMainWindow):
                 # Modo Corte (laser/CNC) e um fluxo SEPARADO: abre em dialogo
                 # proprio, com cena e exportacao proprias, e nao mexe no
                 # arranjo de impressao que estiver na tela.
-                tb.tool_button(modo_corte, "scissors"),
+                corte_btn,
             ]),
             ("Exportar", [
                 # QA 2.0: o grupo só tem exportações — o nome dizia "Produção"
@@ -2622,7 +2633,13 @@ class MainWindow(QMainWindow):
             return
         pm = self._logo_dark if (theme.is_dark() and not self._logo_dark.isNull()) \
             else self._logo_light
-        self._logo_label.setPixmap(pm.scaledToWidth(200, Qt.SmoothTransformation))
+        # a arte tem 1773px de origem, entao em 125-150% da para reduzir para
+        # 200px LOGICOS usando os pixels de verdade da tela em vez de esticar
+        # uma imagem de 200px. O tamanho na tela nao muda.
+        dpr = icons.device_ratio()
+        escalada = pm.scaledToWidth(round(200 * dpr), Qt.SmoothTransformation)
+        escalada.setDevicePixelRatio(dpr)
+        self._logo_label.setPixmap(escalada)
 
     def _on_theme_changed(self) -> None:
         """Tema trocou ao vivo: redesenha o que pinta com tokens em runtime

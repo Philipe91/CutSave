@@ -1,13 +1,22 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.0.0 (primeira versao comercial)
+Versao:        1.0.1 (acabamento)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
 
-Novidades desta versao
-----------------------
+Novidades da 1.0.1
+------------------
+- Icones nitidos em tela com escala do Windows em 125% ou 150% (o padrao de
+  fabrica em notebook). Antes eles eram esticados e saiam levemente borrados;
+  agora sao desenhados na resolucao real do monitor. Em 100% nada muda.
+- Botao "Modo Corte" destacado na barra, em azul escuro e com icone proprio
+  (alvo). Ele abre o fluxo de laser/CNC e antes se confundia com o "Gerar
+  Faca", que usa o mesmo simbolo de tesoura.
+
+Novidades da 1.0.0
+------------------
 - Icone do executavel/janela com o LOGO real (S azul + play)
 - Faca com modos: Automatico (JPG->retangulo, PNG transparente->contorno),
   Retangulo, Contorno justo/suave/simplificado, Faca do cliente (vetor)

@@ -59,7 +59,10 @@ class CollapseStrip(QWidget):
 
         # seta no topo, sem girar: é ela que diz "clique aqui para abrir".
         # Só o nome na vertical não passa a ideia de botão.
-        seta = icons.icon("chevron-right", theme.ICON, _SETA).pixmap(_SETA, _SETA)
+        # icons.pixmap (e nao QIcon.pixmap) porque so ele devolve a versao em
+        # alta resolucao: QIcon.pixmap(w, h) entrega w x h pixels FISICOS e a
+        # seta voltaria a ser esticada em 125-150%.
+        seta = icons.pixmap("chevron-right", theme.ICON, _SETA)
         painter.drawPixmap((self.width() - _SETA) // 2, 8, seta)
 
         painter.setPen(QColor(theme.TEXT_MUTED))

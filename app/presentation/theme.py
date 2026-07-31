@@ -486,6 +486,25 @@ def build_app_qss() -> str:
     }}
     QToolButton[accent="true"]:hover {{ background: {ACCENT_HOVER}; }}
 
+    /* Modo Corte (laser/CNC): destacado como o CTA "Gerar Faca", porem em azul
+       ESCURO, para o operador nao confundir dois botoes que fazem coisas
+       diferentes. O tom sai da mesma paleta, entao acompanha a troca de tema. */
+    QToolButton[accent="corte"] {{
+        background: {ACCENT_PRESSED}; color: {ICON_ON_ACCENT};
+        border-color: {ACCENT_PRESSED}; font-weight: 600;
+    }}
+    QToolButton[accent="corte"]:hover {{
+        background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER};
+    }}
+    QToolButton[accent="corte"]:pressed {{
+        background: {ACCENT_PRESSED}; border-color: {ACCENT_PRESSED};
+    }}
+    QToolButton[accent="corte"]:checked {{
+        background: {ACCENT_PRESSED}; color: {ICON_ON_ACCENT};
+        border-color: {ACCENT_PRESSED};
+    }}
+    QToolButton[accent="corte"]:disabled {{ background: {BORDER}; border-color: {BORDER}; }}
+
     /* ===================== rotulos utilitarios ===================== */
     QLabel[role="caption"] {{ color: {TEXT_SECONDARY}; font-size: {FONT_SM}px; }}
     QLabel[role="hint"] {{ color: {TEXT_MUTED}; font-size: {FONT_CAPTION}px; }}
