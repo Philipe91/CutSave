@@ -9052,8 +9052,14 @@ class MainWindow(QMainWindow):
         arts = list(self._result.artworks)
         rot = dict(self._piece_rotations)  # arranjo não muda giros: mesmo dict
         man = dict(self._faca_manual)      # nem as facas manuais
-        before_state = (before, arts, rot, man)
-        after_state = (after, arts, rot, man)
+        esp = dict(self._piece_mirrors)    # nem os espelhos (arte e faca)
+        esp_f = dict(self._piece_faca_mirrors)
+        # o MESMO formato de _state_snapshot: sem isso o histórico circulava
+        # com dois tamanhos de tupla (arranjo com 4 campos, girar/espelhar com
+        # 6) e o Ctrl+Z aplicava estados de formatos diferentes conforme a
+        # ordem das operações.
+        before_state = (before, arts, rot, man, esp, esp_f)
+        after_state = (after, arts, rot, man, esp, esp_f)
         self._apply_state(after_state)
         self._undo.push(SnapshotCommand(self, before_state, after_state, text))
 

@@ -1,13 +1,26 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.0.2 (correcao de impressao)
+Versao:        1.1.0 (espelhar + correcao de impressao)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
 
-Novidades da 1.0.2
+Novidades da 1.1.0
 ------------------
+- ESPELHAR PECAS. Selecione uma peca (ou varias) e espelhe na horizontal ou na
+  vertical, como no CorelDRAW. Tres jeitos de chamar: os botoes na barra de
+  cima (ao lado dos de girar), o menu do botao direito, ou Ctrl+Shift+H e
+  Ctrl+Shift+V. Clicar de novo no mesmo botao desfaz.
+  * Se a faca ja foi gerada, o programa PERGUNTA se ela espelha junto. Mantendo
+    a faca parada, so a impressao espelha -- util para impressao no verso, mas
+    atencao: em peca assimetrica a linha de corte deixa de acompanhar o
+    desenho.
+  * Num PDF com varias paginas na producao, ele pergunta se o espelho vale so
+    para as pecas selecionadas ou para todas do arquivo.
+
+Novidades da 1.0.2 (incluidas nesta versao)
+-------------------------------------------
 - CORRECAO IMPORTANTE NA IMPRESSAO. A arte podia sair virada ou espelhada em
   relacao ao que aparecia na tela. Eram duas causas:
   * Peca girada em 90 ou 270 graus saia 180 graus virada no PDF de impressao.
