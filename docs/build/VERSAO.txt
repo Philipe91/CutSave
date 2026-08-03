@@ -1,10 +1,23 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.0.1 (acabamento)
+Versao:        1.0.2 (correcao de impressao)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
+
+Novidades da 1.0.2
+------------------
+- CORRECAO IMPORTANTE NA IMPRESSAO. A arte podia sair virada ou espelhada em
+  relacao ao que aparecia na tela. Eram duas causas:
+  * Peca girada em 90 ou 270 graus saia 180 graus virada no PDF de impressao.
+    O lugar e o tamanho estavam certos, so o sentido do giro discordava da
+    tela. A faca nunca foi afetada.
+  * Alguns PDFs (os que trazem a caixa de pagina invertida, coisa que o
+    formato permite e todo visualizador corrige sozinho) saiam com a arte
+    ESPELHADA. A mesma causa fazia o recorte de borda ser ignorado em
+    silencio: a sangria que voce mandava tirar continuava no material.
+  Quem imprimiu com a 1.0.0 ou 1.0.1 e girou pecas deve conferir o material.
 
 Novidades da 1.0.1
 ------------------

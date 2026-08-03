@@ -4,6 +4,42 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [1.0.2] — 2026-07-31 — **correção de impressão girada/espelhada**
+
+Correção do commit `a1c8f9c`, empacotada. Suíte: 990 testes, 0 falhas, 5 skips.
+
+**Impressão saía girada ou espelhada em relação à tela** — duas causas
+independentes, as duas provadas com sonda de pixel antes da alteração. Relato
+de produção de 31/07 com arquivo de cliente. Material impresso assim só revela
+o erro depois de cortado: é chapa perdida.
+
+- **Sentido do giro** (atinge qualquer arquivo com 90° ou 270°). O canvas gira
+  com `QTransform().rotate(+ângulo)`, que é horário; a matriz de encaixe girava
+  ao contrário. A peça caía no lugar e no tamanho certos — o retângulo de
+  destino é o mesmo nos dois sentidos — mas a **arte saía 180° virada** em
+  relação ao que o operador via. A faca não é afetada: não passa por essa
+  matriz. O defeito é **anterior à migração PyMuPDF→pikepdf**; o teste de
+  paridade copiava fielmente o sentido do `fitz`, que já discordava da tela.
+- **Caixa de página invertida** (atinge só alguns arquivos). `MediaBox
+  [0 297 210 0]` é PDF legal e todo visualizador normaliza sozinho. A matriz
+  calculava a largura como `x1-x0`: invertida, isso dá negativo, a escala fica
+  negativa e a arte entra **espelhada**. Mesma causa: a checagem
+  `(x1-x0) > 2*crop` também dava negativo e o **recorte de borda era ignorado
+  em silêncio** — a arte saía com a sangria que o operador mandou tirar.
+
+Arquivos: `app/infrastructure/exporters/pdf_writer.py`,
+`app/infrastructure/exporters/pikepdf_print_exporter.py`. Teste novo:
+`tests/infrastructure/test_export_caixa_invertida.py`.
+
+## [1.0.1] — 2026-07-31 — **acabamento**
+
+Primeira versão entregue pelo canal de atualização.
+
+- Ícones nítidos com escala do Windows em 125% ou 150% (padrão de fábrica em
+  notebook). Antes eram esticados e saíam borrados; em 100% nada muda.
+- Botão **Modo Corte** destacado na barra, em azul escuro com ícone de alvo.
+  Antes se confundia com o "Gerar Faca", que usa o mesmo símbolo de tesoura.
+
 ## [1.0.0] — 2026-07-30 — **primeira versão comercial**
 
 Release aprovada em 30/07/2026. Registro completo em
