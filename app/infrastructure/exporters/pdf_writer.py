@@ -92,6 +92,7 @@ class PdfWriter:
         h_mm: float,
         *,
         rotate: int = 0,
+        mirror: str = "",
         clip_pdf_pt: tuple[float, float, float, float] | None = None,
     ) -> None:
         """Posiciona a pagina-fonte no retangulo destino (topo-esquerda, mm).
@@ -103,7 +104,7 @@ class PdfWriter:
         name = self._resource_name(xo)
         m = self._placement_matrix(
             bbox, x_mm * MM2PT, self._cur["h_pt"] - (y_mm + h_mm) * MM2PT,
-            w_mm * MM2PT, h_mm * MM2PT, rotate % 360,
+            w_mm * MM2PT, h_mm * MM2PT, rotate % 360, mirror,
         )
         self._cur["ops"].append(
             f"q {' '.join(_f(v) for v in m)} cm {name} Do Q\n"
@@ -134,7 +135,36 @@ class PdfWriter:
         return cached
 
     @staticmethod
-    def _placement_matrix(bbox, x, y, w, h, rot):
+    def _compor(externa, interna):
+        """Matriz que aplica `interna` e depois `externa` (mesma convencao do
+        operador `cm` do PDF: (a,b,c,d,e,f) leva (x,y) em
+        (a*x + c*y + e, b*x + d*y + f))."""
+        ai, bi, ci, di, ei, fi = interna
+        ao, bo, co, do, eo, fo = externa
+        return (
+            ai * ao + bi * co, ai * bo + bi * do,
+            ci * ao + di * co, ci * bo + di * do,
+            ei * ao + fi * co + eo, ei * bo + fi * do + fo,
+        )
+
+    @staticmethod
+    def _espelho_na_origem(bbox, mirror: str):
+        """Reflexao DENTRO da caixa de origem, antes do giro.
+
+        Vale a ordem canonica do PrintNest (a mesma de
+        `crop_and_rotate_contour`): **espelhar primeiro, girar depois**. As duas
+        ordens dao resultados diferentes em peca girada, e arte e faca precisam
+        concordar — senao a mesa corta fora do impresso."""
+        bx0, by0, bx1, by1 = bbox
+        m = (mirror or "").lower()
+        a = -1.0 if "h" in m else 1.0
+        d = -1.0 if "v" in m else 1.0
+        e = (bx0 + bx1) if "h" in m else 0.0
+        f = (by0 + by1) if "v" in m else 0.0
+        return (a, 0.0, 0.0, d, e, f)
+
+    @staticmethod
+    def _placement_matrix(bbox, x, y, w, h, rot, mirror: str = ""):
         """Matriz cm que mapeia a regiao bbox no retangulo destino (canto
         inferior-esquerdo x,y em pt), girando no MESMO sentido do canvas.
 
@@ -145,6 +175,16 @@ class PdfWriter:
         tela mostrava — so em pecas com 90 ou 270. Relatado em producao com a
         impressao saindo de cabeca para baixo enquanto a faca saia certa.
         """
+        if mirror:
+            # o espelho entra ANTES do giro, composto por fora: a matriz de
+            # rotacao abaixo fica intocada (ela foi estabilizada em 31/07 e a
+            # escala negativa dela so pode nascer de um pedido EXPLICITO de
+            # espelho, nunca de uma caixa de pagina mal ordenada — quem impede
+            # isso e `bbox_normalizada`).
+            return PdfWriter._compor(
+                PdfWriter._placement_matrix(bbox, x, y, w, h, rot),
+                PdfWriter._espelho_na_origem(bbox, mirror),
+            )
         bx0, by0, bx1, by1 = bbox
         bw, bh = bx1 - bx0, by1 - by0
         if rot == 90:  # horario
@@ -162,14 +202,14 @@ class PdfWriter:
     # ---- imagens raster ----
     def place_image(
         self, img_path: str, x_mm: float, y_mm: float, w_mm: float, h_mm: float,
-        *, rotate: int = 0,
+        *, rotate: int = 0, mirror: str = "",
     ) -> None:
         xo = self._image_xobject(img_path)
         name = self._resource_name(xo)
         m = self._placement_matrix(
             (0.0, 0.0, 1.0, 1.0),
             x_mm * MM2PT, self._cur["h_pt"] - (y_mm + h_mm) * MM2PT,
-            w_mm * MM2PT, h_mm * MM2PT, rotate % 360,
+            w_mm * MM2PT, h_mm * MM2PT, rotate % 360, mirror,
         )
         self._cur["ops"].append(
             f"q {' '.join(_f(v) for v in m)} cm {name} Do Q\n"

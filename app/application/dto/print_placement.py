@@ -19,6 +19,11 @@ class PrintPlacement:
     crop_mm: float = 0.0  # recorta esse tanto de cada borda da pagina de origem
     rotate: int = 0  # rotacao da arte em graus (0/90/180/270)
     box: str = "media"  # caixa de origem: 'media' (sangria) ou 'trim'/'auto' (apara)
+    # espelho da arte: "" | "h" | "v" | "hv". Ordem canonica do PrintNest:
+    # espelhar PRIMEIRO, girar depois (a mesma de crop_and_rotate_contour).
+    # Fica por ULTIMO de proposito: 'box' ja era passado por POSICAO pelo caso
+    # de uso, e inserir um campo antes dele trocaria os dois em silencio.
+    mirror: str = ""
 
 
 @dataclass(frozen=True, slots=True)

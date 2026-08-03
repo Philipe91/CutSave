@@ -17,6 +17,8 @@ marcas e corta no lugar errado. É chapa inteira perdida.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pikepdf
 import pytest
 from app.application.dto.print_placement import PrintPlacement, PrintSheet
@@ -168,4 +170,88 @@ def test_giro_da_impressao_acompanha_o_da_tela(tmp_path, rot, quadrante):
     assert obtido == quadrante, (
         f"giro de {rot} graus levou a arte para {obtido[0]}-{obtido[1]}; "
         f"a tela mostra {quadrante[0]}-{quadrante[1]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Espelho (1.1) na impressao. Ordem canonica: espelhar PRIMEIRO, girar depois.
+# ---------------------------------------------------------------------------
+
+def _quadrante_esperado(mirror: str, rot: int) -> tuple[str, str]:
+    """Para onde vai uma marca que comeca no TOPO-ESQUERDO.
+
+    Calculado pela regra, nao decorado: espelha e depois gira em sentido
+    horario. Se o codigo e o teste discordarem, um dos dois esta errado — e e
+    exatamente essa divergencia que queremos ver."""
+    v, h = "TOPO", "ESQUERDA"
+    if "h" in mirror:
+        h = "DIREITA" if h == "ESQUERDA" else "ESQUERDA"
+    if "v" in mirror:
+        v = "FUNDO" if v == "TOPO" else "TOPO"
+    for _ in range((rot // 90) % 4):  # cada passo = 90 graus horario
+        v, h = ("TOPO", "DIREITA") if (v, h) == ("TOPO", "ESQUERDA") else \
+               ("FUNDO", "DIREITA") if (v, h) == ("TOPO", "DIREITA") else \
+               ("FUNDO", "ESQUERDA") if (v, h) == ("FUNDO", "DIREITA") else \
+               ("TOPO", "ESQUERDA")
+    return v, h
+
+
+@pytest.mark.parametrize("mirror", ["", "h", "v", "hv"])
+@pytest.mark.parametrize("rot", [0, 90, 180, 270])
+def test_espelho_e_giro_na_impressao(tmp_path, mirror, rot):
+    origem = _arte_assimetrica(tmp_path / "fonte.pdf")
+    sheet = PrintSheet(
+        placements=(
+            PrintPlacement(
+                source_path=origem, source_page=0,
+                position=Point2D(0, 0), size=Size(100, 100),
+                rotate=rot, mirror=mirror,
+            ),
+        ),
+        size=Size(100, 100),
+    )
+    destino = tmp_path / f"m{mirror or 'nada'}_r{rot}.pdf"
+    PikePdfPrintExporter().export([sheet], str(destino))
+
+    x, y = _centro_da_tinta(str(destino))
+    obtido = ("TOPO" if y < 0.5 else "FUNDO", "ESQUERDA" if x < 0.5 else "DIREITA")
+    assert obtido == _quadrante_esperado(mirror, rot), (
+        f"espelho={mirror or 'nenhum'} giro={rot}: arte foi para "
+        f"{obtido[0]}-{obtido[1]}"
+    )
+
+
+@pytest.mark.parametrize("mirror", ["h", "v", "hv"])
+def test_espelho_pedido_nao_e_desfeito_pela_normalizacao_da_caixa(tmp_path, mirror):
+    """A invariante que protege o defeito de 31/07 nos DOIS sentidos.
+
+    `bbox_normalizada` existe para impedir que uma caixa de pagina mal ordenada
+    vire espelho acidental. Ela NAO pode, no caminho contrario, engolir um
+    espelho que o operador pediu — inclusive quando o arquivo de origem e
+    justamente um dos que vem com a caixa invertida."""
+    normal = _arte_assimetrica(tmp_path / "fonte.pdf")
+    invertida = _com_caixa_invertida(normal, tmp_path / "fonte_inv.pdf")
+
+    quadrantes = []
+    for origem in (normal, invertida):
+        sheet = PrintSheet(
+            placements=(
+                PrintPlacement(
+                    source_path=origem, source_page=0,
+                    position=Point2D(0, 0), size=Size(100, 100), mirror=mirror,
+                ),
+            ),
+            size=Size(100, 100),
+        )
+        destino = tmp_path / f"{Path(origem).stem}_{mirror}.pdf"
+        PikePdfPrintExporter().export([sheet], str(destino))
+        x, y = _centro_da_tinta(str(destino))
+        quadrantes.append(
+            ("TOPO" if y < 0.5 else "FUNDO", "ESQUERDA" if x < 0.5 else "DIREITA")
+        )
+
+    assert quadrantes[0] == _quadrante_esperado(mirror, 0)
+    assert quadrantes[1] == quadrantes[0], (
+        "a caixa invertida mudou o resultado do espelho — as duas coisas se "
+        "misturaram, que e exatamente o que a normalizacao existe para impedir"
     )

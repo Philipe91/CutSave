@@ -123,3 +123,72 @@ def test_rotacao_270():
     out, w, h = crop_and_rotate_contour(_L(10, 4), 0, 270, 10, 4)
     assert (w, h) == (4, 10)
     assert [(p.x, p.y) for p in out.points] == [(2, 9), (0, 0), (4, 0), (4, 10)]
+
+
+# ---------------------------------------------------------------------------
+# Espelho (1.1). Ordem canonica do PrintNest: espelhar PRIMEIRO, girar depois.
+# ---------------------------------------------------------------------------
+
+def test_espelho_horizontal_reflete_em_x():
+    # caixa 10x4: (x, y) -> (W - x, y)
+    out, w, h = crop_and_rotate_contour(_L(10, 4), 0, 0, 10, 4, mirror="h")
+    assert (w, h) == (10, 4), "espelhar NAO troca largura por altura"
+    assert [(p.x, p.y) for p in out.points] == [(9, 2), (0, 0), (0, 4), (10, 4)]
+
+
+def test_espelho_vertical_reflete_em_y():
+    out, w, h = crop_and_rotate_contour(_L(10, 4), 0, 0, 10, 4, mirror="v")
+    assert (w, h) == (10, 4)
+    assert [(p.x, p.y) for p in out.points] == [(1, 2), (10, 4), (10, 0), (0, 0)]
+
+
+@pytest.mark.parametrize("eixo", ["h", "v", "hv"])
+@pytest.mark.parametrize("rotacao", [0, 90, 180, 270])
+def test_espelhar_duas_vezes_volta_ao_original(eixo, rotacao):
+    """Espelho e involutivo: aplicar duas vezes tem de devolver o contorno de
+    partida, em qualquer rotacao. Sem isso o botao vira armadilha — o operador
+    clica de novo para desfazer e recebe outra coisa."""
+    original = crop_and_rotate_contour(_L(10, 4), 0, rotacao, 10, 4)[0]
+    espelhado, w, h = crop_and_rotate_contour(_L(10, 4), 0, rotacao, 10, 4, mirror=eixo)
+    # espelhar o resultado de volta, no MESMO referencial em que ele foi gerado
+    de_volta = crop_and_rotate_contour(
+        CutContour(list(espelhado.points)), 0, 0, w, h,
+        mirror=_eixo_na_tela(eixo, rotacao),
+    )[0]
+    assert [(round(p.x, 6), round(p.y, 6)) for p in de_volta.points] == [
+        (round(p.x, 6), round(p.y, 6)) for p in original.points
+    ]
+
+
+def _eixo_na_tela(eixo: str, rotacao: int) -> str:
+    """Depois de girar 90/270 o eixo do espelho aparece trocado na tela."""
+    if rotacao % 180 == 0 or eixo == "hv":
+        return eixo
+    return {"h": "v", "v": "h"}[eixo]
+
+
+def test_a_ordem_espelhar_depois_girar_e_a_que_vale():
+    """Trava a ORDEM CANONICA com um caso onde as duas ordens divergem.
+
+    Espelhar-e-girar != girar-e-espelhar. A ordem esta implementada num lugar
+    so (`crop_and_rotate_contour`); este teste existe para que ela seja uma
+    invariante, e nao uma intencao escrita em docstring. Se dois consumidores
+    divergirem na ordem, a faca sai fora da arte.
+    """
+    # espelha em H e depois gira 90 (o que a funcao faz)
+    canonico = crop_and_rotate_contour(_L(10, 4), 0, 90, 10, 4, mirror="h")[0]
+
+    # a ordem INVERSA: gira 90 primeiro, espelha em H depois
+    girado, w, h = crop_and_rotate_contour(_L(10, 4), 0, 90, 10, 4)
+    invertido = crop_and_rotate_contour(
+        CutContour(list(girado.points)), 0, 0, w, h, mirror="h"
+    )[0]
+
+    canon = [(p.x, p.y) for p in canonico.points]
+    inver = [(p.x, p.y) for p in invertido.points]
+    assert canon != inver, (
+        "o caso de teste deixou de distinguir as duas ordens — troque a figura"
+    )
+    # e o resultado canonico e ESTE, ponto a ponto:
+    # (1,2) espelha para (9,2) na caixa 10x4 e gira 90 -> (H-y, x) = (2, 9)
+    assert canon == [(2, 9), (4, 0), (0, 0), (0, 10)]

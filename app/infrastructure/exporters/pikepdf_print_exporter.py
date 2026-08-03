@@ -41,7 +41,7 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                             pl.source_path,
                             pl.position.x, pl.position.y,
                             pl.size.width, pl.size.height,
-                            rotate=pl.rotate,
+                            rotate=pl.rotate, mirror=pl.mirror,
                         )
                         continue
                     # impressão SEM a linha magenta da faca (cópia limpa)
@@ -53,7 +53,7 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                         src, pl.source_page,
                         pl.position.x, pl.position.y,
                         pl.size.width, pl.size.height,
-                        rotate=pl.rotate, clip_pdf_pt=clips[key],
+                        rotate=pl.rotate, mirror=pl.mirror, clip_pdf_pt=clips[key],
                     )
                 for circle in sheet.circles:
                     writer.draw_circle(

@@ -112,19 +112,40 @@ def smooth_contour(contour: CutContour, iterations: int, ratio: float = 0.25) ->
 
 
 def crop_and_rotate_contour(
-    contour: CutContour, crop_mm: float, rotation: int, width: float, height: float
+    contour: CutContour, crop_mm: float, rotation: int, width: float, height: float,
+    mirror: str = "",
 ) -> tuple[CutContour, float, float]:
-    """Recorta a borda (crop_mm) e rotaciona (0/90/180/270) o contorno de imagem.
+    """Recorta a borda (crop_mm), ESPELHA e rotaciona (0/90/180/270) o contorno.
 
     Devolve (contorno, largura, altura) no mesmo sistema da arte exibida, para a
     faca acompanhar o pixmap girado/cortado do preview. Usa a convencao de
     QTransform().rotate (eixo Y para baixo): 90 -> (H - y, x), 180 -> (W - x,
     H - y), 270 -> (y, W - x). Espelha o que `_transform` faz com o tamanho das
     artes vetoriais, mantendo faca, nesting e exportacao alinhados.
+
+    ORDEM CANONICA DO PRINTNEST: **espelhar primeiro, girar depois.**
+
+    Este e o unico lugar onde essa ordem e implementada, e todos os consumidores
+    passam por aqui ou copiam daqui: preview do canvas, exportacao de impressao
+    e DXF (que recebe o contorno ja transformado). As duas ordens dao resultados
+    DIFERENTES em peca girada: se dois consumidores discordarem, a faca sai fora
+    da arte e a mesa corta no lugar errado — o mesmo prejuizo do defeito de
+    31/07/2026 (chapa perdida, so descoberto depois de cortar).
+
+    `mirror` aceita "", "h" (espelha na horizontal, esquerda<->direita), "v"
+    (vertical, cima<->baixo) ou "hv" (os dois). Espelhar NAO troca largura por
+    altura; girar 90/270 troca.
     """
     w = width - 2 * crop_mm
     h = height - 2 * crop_mm
     pts = [(p.x - crop_mm, p.y - crop_mm) for p in contour.points]
+    # 1) espelho, no referencial da arte recortada (antes de qualquer giro)
+    m = (mirror or "").lower()
+    if "h" in m:
+        pts = [(w - x, y) for x, y in pts]
+    if "v" in m:
+        pts = [(x, h - y) for x, y in pts]
+    # 2) giro
     r = rotation % 360
     if r == 90:
         pts = [(h - y, x) for x, y in pts]

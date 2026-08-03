@@ -1786,6 +1786,10 @@ class MainWindow(QMainWindow):
         # giro do arquivo. Permite girar só uma peça (ex.: a sobra solta) para
         # encaixar melhor no nesting, sem mexer nas outras cópias/páginas.
         self._piece_rotations: dict[str, int] = {}
+        # espelho por peca: artwork_id -> "" | "h" | "v" | "hv".
+        # Irmao de _piece_rotations e com o MESMO ciclo de vida (projeto,
+        # sessao, desfazer, descartar). Ordem canonica: espelhar, depois girar.
+        self._piece_mirrors: dict[str, str] = {}
         # arranjo manual salvo no .printnest (QA A0), pendente de aplicar na
         # PRIMEIRA geração após abrir o projeto (abrir não gera sozinho).
         self._pending_arranjo: dict | None = None
@@ -1903,6 +1907,14 @@ class MainWindow(QMainWindow):
                           "Gira o arquivo selecionado 90 graus anti-horario (re-encaixa)")
         rot_r = self._act("Girar 90 a direita", lambda: self._rotate_selected(90), "Ctrl+]",
                           "Gira o arquivo selecionado 90 graus horario (re-encaixa)")
+        esp_h = self._act(
+            "Espelhar na horizontal", lambda: self._mirror_selected("h"), "Ctrl+Shift+H",
+            "Espelha a(s) peça(s) selecionada(s) da esquerda para a direita",
+        )
+        esp_v = self._act(
+            "Espelhar na vertical", lambda: self._mirror_selected("v"), "Ctrl+Shift+V",
+            "Espelha a(s) peça(s) selecionada(s) de cima para baixo",
+        )
         grp = self._act("Agrupar", self._group_selected, "Ctrl+G",
                         "Agrupa as peças selecionadas")
         ungrp = self._act("Desagrupar", self._ungroup_selected, "Ctrl+U",
@@ -2193,6 +2205,7 @@ class MainWindow(QMainWindow):
             (gerar, "zap"), (gerar_faca, "scissors"),
             (fit, "maximize"), (undo, "undo-2"), (redo, "redo-2"),
             (rot_l, "rotate-ccw"), (rot_r, "rotate-cw"),
+            (esp_h, "flip-horizontal"), (esp_v, "flip-vertical"),
             (grp, "group"), (ungrp, "ungroup"), (sel_all, "layers"), (excluir, "trash-2"),
             (organizar, "grid-3x3"), (reset, "rotate-ccw"), (rem, "trash-2"),
             (dup, "copy"), (step, "grid-3x3"),
@@ -2259,6 +2272,8 @@ class MainWindow(QMainWindow):
                 tb.tool_button(redo, "redo-2", show_text=False),
                 tb.tool_button(rot_l, "rotate-ccw", show_text=False),
                 tb.tool_button(rot_r, "rotate-cw", show_text=False),
+                tb.tool_button(esp_h, "flip-horizontal", show_text=False),
+                tb.tool_button(esp_v, "flip-vertical", show_text=False),
                 tb.tool_button(dup, "copy", show_text=False),
                 tb.tool_button(step, "grid-3x3", show_text=False),
                 tb.tool_button(pontos, "nodes", show_text=False),  # F10
@@ -2744,6 +2759,11 @@ class MainWindow(QMainWindow):
                 for art_id, rot in self._piece_rotations.items()
                 if int(rot) % 360
             },
+            # espelhos por peca. Chave NOVA na 1.1: versoes anteriores
+            # simplesmente a ignoram e abrem o projeto sem espelho.
+            "espelhos": {
+                art_id: eixo for art_id, eixo in self._piece_mirrors.items() if eixo
+            },
             "chapas": [
                 {
                     "comprimento": round(float(layout.used_length), 3),
@@ -2820,6 +2840,12 @@ class MainWindow(QMainWindow):
             str(art_id): int(rot) % 360
             for art_id, rot in giros.items()
             if isinstance(rot, (int, float)) and int(rot) % 360
+        }
+        espelhos = (doc.arranjo or {}).get("espelhos") or {}
+        self._piece_mirrors = {
+            str(art_id): str(eixo)
+            for art_id, eixo in espelhos.items()
+            if str(eixo) in ("h", "v", "hv")
         }
         self._pending_arranjo = doc.arranjo if (doc.arranjo or {}).get("chapas") else None
         # LIMPO só DEPOIS de repovoar: add_paths marca dirty e, sem isto, abrir
@@ -2952,6 +2978,7 @@ class MainWindow(QMainWindow):
         self._faca_manual = {}     # descarta facas editadas a mao (Pontos)
         self._file_sizes = {}      # descarta tamanhos personalizados por arquivo
         self._piece_rotations = {}  # descarta giros por peça
+        self._piece_mirrors = {}   # e os espelhos por peça
         self._page_crops = {}      # descarta recortes de página
         self._file_pages = {}      # descarta a escolha de páginas do PDF
         self._baked_crops = {}
@@ -4134,6 +4161,7 @@ class MainWindow(QMainWindow):
             "file_overrides": {k: dict(v) for k, v in self._file_overrides.items()},
             "faca_manual": {k: dict(v) for k, v in self._faca_manual.items()},
             "piece_rotations": dict(self._piece_rotations),
+            "piece_mirrors": dict(self._piece_mirrors),
             "faca_on": self._faca_on,
             "loaded": self._loaded,
             "project_path": self._project_path,
@@ -4153,6 +4181,7 @@ class MainWindow(QMainWindow):
             paths=[], quantities={}, result=None, base_artworks=[], sources={},
             origins={}, pixmaps={}, file_sizes={}, page_crops={}, baked_crops={},
             crop_cache={}, file_overrides={}, piece_rotations={}, faca_manual={},
+            piece_mirrors={},
             faca_on=False, loaded=False, project_path=None, guides=[],
             dirty=False,
         )
@@ -4201,6 +4230,7 @@ class MainWindow(QMainWindow):
             self._file_overrides = {k: dict(v) for k, v in s["file_overrides"].items()}
             self._faca_manual = {k: dict(v) for k, v in s.get("faca_manual", {}).items()}
             self._piece_rotations = dict(s["piece_rotations"])
+            self._piece_mirrors = dict(s.get("piece_mirrors", {}))
             self._faca_on = s["faca_on"]
             self._loaded = s["loaded"]
             self._project_path = s["project_path"]
@@ -6323,6 +6353,9 @@ class MainWindow(QMainWindow):
         extra = self._piece_rotations.get(art_id, 0)
         if extra:
             params["rotation"] = (int(params.get("rotation", 0)) + extra) % 360
+        espelho = self._piece_mirrors.get(art_id, "")
+        if espelho:
+            params["mirror"] = espelho
         return params
 
     def _rotation_of(self, art_id) -> int:
@@ -6568,11 +6601,12 @@ class MainWindow(QMainWindow):
         serrilhado) ou 'contour_simplify' (forca mais simplificacao, menos nos)."""
         crop = params["crop"]
         rotation = params["rotation"]
+        mirror = params.get("mirror", "")
         if raw_contour is None:
             # sem contorno: retângulo do tamanho da arte, COM a sangria aplicada
             return self._faca_uc.execute(self._transform(base, params), sangria)
         contour, w, h = crop_and_rotate_contour(
-            raw_contour, crop, rotation, base.size.width, base.size.height
+            raw_contour, crop, rotation, base.size.width, base.size.height, mirror
         )
         contour = self._finish_contour(contour, params, sangria, mode)
         # facas ADICIONAIS: demais desenhos separados na imagem (mesmos transforms
@@ -6580,7 +6614,7 @@ class MainWindow(QMainWindow):
         extras = []
         for raw in getattr(base, "raw_contours", ()):
             c, _, _ = crop_and_rotate_contour(
-                raw, crop, rotation, base.size.width, base.size.height
+                raw, crop, rotation, base.size.width, base.size.height, mirror
             )
             extras.append(self._finish_contour(c, params, sangria, mode))
         # SOLDA (estilo Contorno do Corel): facas vizinhas que se INVADEM (a
@@ -8086,7 +8120,8 @@ class MainWindow(QMainWindow):
                     pixmap = self._pixmaps.get(key)
                     if pixmap is not None and not pixmap.isNull() and pixmap.width() > 0:
                         display = self._display_pixmap(
-                            pixmap, p["crop"], p["rotation"], art.size, cropped_cache, key
+                            pixmap, p["crop"], p["rotation"], art.size, cropped_cache, key,
+                            p.get("mirror", ""),
                         )
                         child = QGraphicsPixmapItem(display, piece)
                         child.setScale(art.size.width / display.width())
@@ -8327,6 +8362,12 @@ class MainWindow(QMainWindow):
             menu.addAction(
                 icons.icon("rotate-cw", theme.ICON), "Girar 90° à direita",
             ).triggered.connect(lambda: self._rotate_selected(90))
+            menu.addAction(
+                icons.icon("flip-horizontal", theme.ICON), "Espelhar na horizontal",
+            ).triggered.connect(lambda: self._mirror_selected("h"))
+            menu.addAction(
+                icons.icon("flip-vertical", theme.ICON), "Espelhar na vertical",
+            ).triggered.connect(lambda: self._mirror_selected("v"))
             menu.addSeparator()
             if len(sel) > 1:
                 menu.addAction(
@@ -8909,6 +8950,7 @@ class MainWindow(QMainWindow):
             list(self._result.artworks),
             dict(self._piece_rotations),
             dict(self._faca_manual),  # facas editadas a mao (Pontos) tambem
+            dict(self._piece_mirrors),
         )
 
     def _apply_state(self, state) -> None:
@@ -8921,6 +8963,8 @@ class MainWindow(QMainWindow):
             self._piece_rotations = dict(rest[0])
         if len(rest) > 1:
             self._faca_manual = dict(rest[1])
+        if len(rest) > 2:
+            self._piece_mirrors = dict(rest[2])
         self._result = ProductionResult(
             sheets=sheets, artworks=artworks, sources=self._sources
         )
@@ -9075,6 +9119,108 @@ class MainWindow(QMainWindow):
             novo = (self._rotation_value() + delta) % 360
             self._rotation.setCurrentText(str(novo))  # dispara o relayout
 
+    # ---- espelhar (1.1) ----
+    @staticmethod
+    def _eixo_na_tela(eixo: str, rotacao: int) -> str:
+        """Converte o eixo que o operador PEDIU no eixo a gravar no modelo.
+
+        No Corel, o botao "espelhar na horizontal" espelha horizontalmente NA
+        TELA, sempre. Aqui o espelho e guardado no referencial da arte, ANTES
+        do giro (ordem canonica): numa peca a 90 ou 270 os eixos aparecem
+        trocados. Sem esta conversao, o botao horizontal faria a peca virar de
+        cabeca para baixo — tecnicamente correto e inutil para quem usa."""
+        if eixo == "hv" or rotacao % 180 == 0:
+            return eixo
+        return "v" if eixo == "h" else "h"
+
+    def _mirror_selected(self, eixo: str) -> None:
+        """Espelha as pecas SELECIONADAS no eixo pedido ('h' ou 'v').
+
+        Alterna: clicar de novo no mesmo eixo desfaz. Sem selecao, nao faz
+        nada e avisa — espelhar a producao inteira sem querer seria caro."""
+        if self._result is None:
+            return
+        sel = set(self._selected_pieces())
+        ids = {p.artwork_id for p in sel}
+        if not ids:
+            self._toasts.info("Selecione a(s) peça(s) que você quer espelhar.")
+            return
+        ids = self._expandir_por_paginas(ids)
+        if ids is None:
+            return  # o operador cancelou a pergunta das paginas
+        # guarda as copias exatas: o re-encaixe recria os PieceItem
+        sel_keys = set()
+        counters: dict = {}
+        for p in self._piece_items:
+            idx = counters.get(p.artwork_id, 0)
+            counters[p.artwork_id] = idx + 1
+            if p in sel:
+                sel_keys.add((p.artwork_id, idx))
+        before = self._state_snapshot() if self._result is not None else None
+        for art_id in ids:
+            atual = self._piece_mirrors.get(art_id, "")
+            pedido = self._eixo_na_tela(eixo, self._rotation_of(art_id))
+            # alterna o eixo pedido, preservando o outro
+            eixos = set(atual) ^ set(pedido)
+            self._piece_mirrors[art_id] = "".join(
+                e for e in ("h", "v") if e in eixos
+            )
+        self._suspend_undo = True
+        try:
+            self._relayout(renest=False)  # espelhar nao muda o tamanho ocupado
+        finally:
+            self._suspend_undo = False
+        if before is not None and self._result is not None:
+            self._undo.push(
+                SnapshotCommand(self, before, self._state_snapshot(), "espelhar peça")
+            )
+        self._reselect_copies(sel_keys)
+        nome = "horizontal" if eixo == "h" else "vertical"
+        self._toasts.success(
+            f"Espelhou {len(ids)} peça(s) na {nome}" if len(ids) > 1
+            else f"Peça espelhada na {nome}"
+        )
+
+    def _expandir_por_paginas(self, ids: set) -> set | None:
+        """Se a selecao vem de um PDF com mais paginas na producao, pergunta se
+        o espelho vale so para as selecionadas ou para o arquivo inteiro.
+
+        Devolve o conjunto final, ou None se o operador cancelar. Arquivo de uma
+        pagina so NAO abre dialogo — interromper quem tem um arquivo simples e
+        so atrapalhar."""
+        paths = {self._path_of(i) for i in ids}
+        extras: set = set()
+        for path in paths:
+            if not path:
+                continue
+            irmas = {
+                a.id for a in self._result.artworks
+                if self._path_of(a.id) == path and a.id not in ids
+            }
+            extras |= irmas
+        if not extras:
+            return ids
+        caixa = QMessageBox(self)
+        caixa.setWindowTitle("Espelhar")
+        caixa.setIcon(QMessageBox.Question)
+        caixa.setText(
+            f"<b>Este arquivo tem outras {len(extras)} peça(s) na produção.</b>"
+        )
+        caixa.setInformativeText(
+            "Espelhar somente o que está selecionado, ou todas as páginas/"
+            "cópias deste arquivo?"
+        )
+        so_sel = caixa.addButton("Somente as selecionadas", QMessageBox.AcceptRole)
+        todas = caixa.addButton("Todas do arquivo", QMessageBox.AcceptRole)
+        caixa.addButton("Cancelar", QMessageBox.RejectRole)
+        caixa.exec()
+        clicado = caixa.clickedButton()
+        if clicado is so_sel:
+            return ids
+        if clicado is todas:
+            return ids | extras
+        return None
+
     def _reselect_copies(self, keys) -> None:
         """Re-seleciona pelas cópias exatas (artwork_id, n-ésima cópia) após um
         re-encaixe. Diferente de _reselect_by_artwork, NAO expande a seleção
@@ -9188,10 +9334,15 @@ class MainWindow(QMainWindow):
                     ))
 
     @staticmethod
-    def _display_pixmap(pixmap, crop, rotation, art_size, cache, key):
-        """Recorta e rotaciona o pixmap para o preview (cache por origem)."""
-        cache_key = (key, rotation)
-        if crop <= 0 and rotation == 0:
+    def _display_pixmap(pixmap, crop, rotation, art_size, cache, key, mirror=""):
+        """Recorta, ESPELHA e rotaciona o pixmap para o preview (cache por origem).
+
+        Ordem canonica do PrintNest: espelhar primeiro, girar depois — a mesma
+        de `crop_and_rotate_contour` e a mesma da matriz de impressao. Este e o
+        quinto consumidor dessa ordem; se ele divergir, o operador aprova na
+        tela um arranjo que sai diferente no material."""
+        cache_key = (key, rotation, mirror)
+        if crop <= 0 and rotation == 0 and not mirror:
             return pixmap
         if cache_key in cache:
             return cache[cache_key]
@@ -9207,6 +9358,9 @@ class MainWindow(QMainWindow):
             h = pixmap.height() - 2 * y
             if w > 0 and h > 0:
                 out = pixmap.copy(QRect(x, y, w, h))
+        if mirror:
+            m = QTransform().scale(-1 if "h" in mirror else 1, -1 if "v" in mirror else 1)
+            out = out.transformed(m)
         if rotation:
             out = out.transformed(QTransform().rotate(rotation))
         cache[cache_key] = out
@@ -9228,6 +9382,11 @@ class MainWindow(QMainWindow):
             # giro por peça: sobrepoe o giro padrão para peças giradas sozinhas
             "rotations": {
                 a.id: self._rotation_of(a.id) for a in self._result.artworks
+            } if self._result is not None else None,
+            # espelho por peca (1.1): a arte impressa espelha junto com a faca
+            "mirrors": {
+                a.id: self._piece_mirrors.get(a.id, "")
+                for a in self._result.artworks
             } if self._result is not None else None,
             "box": self._import_box.currentData(),
             # cartelas identicas: marcas em L POR cartela na impressao

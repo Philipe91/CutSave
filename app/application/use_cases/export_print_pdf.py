@@ -57,6 +57,7 @@ class ExportPrintPdfUseCase:
         crop_mm: float = 0.0,
         rotate: int = 0,
         rotations: Mapping[str, int] | None = None,
+        mirrors: Mapping[str, str] | None = None,
         box: str = "media",
         mimaki_frames_for: Callable[[Layout], Sequence[BoundingBox]] | None = None,
     ) -> list[PrintSheet]:
@@ -98,8 +99,11 @@ class ExportPrintPdfUseCase:
                     item.position.y - footprint.min_y + pad,
                 )
                 rot = rotations.get(item.artwork_id, rotate) if rotations else rotate
+                esp = mirrors.get(item.artwork_id, "") if mirrors else ""
                 placements.append(
-                    PrintPlacement(source[0], source[1], position, art.size, crop_mm, rot, box)
+                    PrintPlacement(
+                        source[0], source[1], position, art.size, crop_mm, rot, box, esp
+                    )
                 )
 
             circles, lines, rects = self._marks(
