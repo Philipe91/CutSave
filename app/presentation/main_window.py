@@ -1790,6 +1790,11 @@ class MainWindow(QMainWindow):
         # Irmao de _piece_rotations e com o MESMO ciclo de vida (projeto,
         # sessao, desfazer, descartar). Ordem canonica: espelhar, depois girar.
         self._piece_mirrors: dict[str, str] = {}
+        # espelho da FACA, separado do da arte de proposito: o operador pode
+        # espelhar so a impressao (ex.: verso em vinil) e manter a linha de
+        # corte como esta. Em peca assimetrica isso faz a faca NAO acompanhar
+        # o desenho — por isso a escolha e sempre perguntada, nunca suposta.
+        self._piece_faca_mirrors: dict[str, str] = {}
         # arranjo manual salvo no .printnest (QA A0), pendente de aplicar na
         # PRIMEIRA geração após abrir o projeto (abrir não gera sozinho).
         self._pending_arranjo: dict | None = None
@@ -2764,6 +2769,10 @@ class MainWindow(QMainWindow):
             "espelhos": {
                 art_id: eixo for art_id, eixo in self._piece_mirrors.items() if eixo
             },
+            "espelhos_faca": {
+                art_id: eixo
+                for art_id, eixo in self._piece_faca_mirrors.items() if eixo
+            },
             "chapas": [
                 {
                     "comprimento": round(float(layout.used_length), 3),
@@ -2845,6 +2854,12 @@ class MainWindow(QMainWindow):
         self._piece_mirrors = {
             str(art_id): str(eixo)
             for art_id, eixo in espelhos.items()
+            if str(eixo) in ("h", "v", "hv")
+        }
+        esp_faca = (doc.arranjo or {}).get("espelhos_faca") or {}
+        self._piece_faca_mirrors = {
+            str(art_id): str(eixo)
+            for art_id, eixo in esp_faca.items()
             if str(eixo) in ("h", "v", "hv")
         }
         self._pending_arranjo = doc.arranjo if (doc.arranjo or {}).get("chapas") else None
@@ -2979,6 +2994,7 @@ class MainWindow(QMainWindow):
         self._file_sizes = {}      # descarta tamanhos personalizados por arquivo
         self._piece_rotations = {}  # descarta giros por peça
         self._piece_mirrors = {}   # e os espelhos por peça
+        self._piece_faca_mirrors = {}
         self._page_crops = {}      # descarta recortes de página
         self._file_pages = {}      # descarta a escolha de páginas do PDF
         self._baked_crops = {}
@@ -4162,6 +4178,7 @@ class MainWindow(QMainWindow):
             "faca_manual": {k: dict(v) for k, v in self._faca_manual.items()},
             "piece_rotations": dict(self._piece_rotations),
             "piece_mirrors": dict(self._piece_mirrors),
+            "piece_faca_mirrors": dict(self._piece_faca_mirrors),
             "faca_on": self._faca_on,
             "loaded": self._loaded,
             "project_path": self._project_path,
@@ -4181,7 +4198,7 @@ class MainWindow(QMainWindow):
             paths=[], quantities={}, result=None, base_artworks=[], sources={},
             origins={}, pixmaps={}, file_sizes={}, page_crops={}, baked_crops={},
             crop_cache={}, file_overrides={}, piece_rotations={}, faca_manual={},
-            piece_mirrors={},
+            piece_mirrors={}, piece_faca_mirrors={},
             faca_on=False, loaded=False, project_path=None, guides=[],
             dirty=False,
         )
@@ -4231,6 +4248,7 @@ class MainWindow(QMainWindow):
             self._faca_manual = {k: dict(v) for k, v in s.get("faca_manual", {}).items()}
             self._piece_rotations = dict(s["piece_rotations"])
             self._piece_mirrors = dict(s.get("piece_mirrors", {}))
+            self._piece_faca_mirrors = dict(s.get("piece_faca_mirrors", {}))
             self._faca_on = s["faca_on"]
             self._loaded = s["loaded"]
             self._project_path = s["project_path"]
@@ -6355,7 +6373,10 @@ class MainWindow(QMainWindow):
             params["rotation"] = (int(params.get("rotation", 0)) + extra) % 360
         espelho = self._piece_mirrors.get(art_id, "")
         if espelho:
-            params["mirror"] = espelho
+            params["mirror"] = espelho          # arte impressa e preview
+        faca = self._piece_faca_mirrors.get(art_id, "")
+        if faca:
+            params["mirror_faca"] = faca        # linha de corte (e o DXF)
         return params
 
     def _rotation_of(self, art_id) -> int:
@@ -6601,7 +6622,7 @@ class MainWindow(QMainWindow):
         serrilhado) ou 'contour_simplify' (forca mais simplificacao, menos nos)."""
         crop = params["crop"]
         rotation = params["rotation"]
-        mirror = params.get("mirror", "")
+        mirror = params.get("mirror_faca", "")
         if raw_contour is None:
             # sem contorno: retângulo do tamanho da arte, COM a sangria aplicada
             return self._faca_uc.execute(self._transform(base, params), sangria)
@@ -8951,6 +8972,7 @@ class MainWindow(QMainWindow):
             dict(self._piece_rotations),
             dict(self._faca_manual),  # facas editadas a mao (Pontos) tambem
             dict(self._piece_mirrors),
+            dict(self._piece_faca_mirrors),
         )
 
     def _apply_state(self, state) -> None:
@@ -8965,6 +8987,8 @@ class MainWindow(QMainWindow):
             self._faca_manual = dict(rest[1])
         if len(rest) > 2:
             self._piece_mirrors = dict(rest[2])
+        if len(rest) > 3:
+            self._piece_faca_mirrors = dict(rest[3])
         self._result = ProductionResult(
             sheets=sheets, artworks=artworks, sources=self._sources
         )
@@ -9156,15 +9180,22 @@ class MainWindow(QMainWindow):
             counters[p.artwork_id] = idx + 1
             if p in sel:
                 sel_keys.add((p.artwork_id, idx))
+        levar_faca = self._perguntar_faca(ids)
+        if levar_faca is None:
+            return  # o operador cancelou
         before = self._state_snapshot() if self._result is not None else None
         for art_id in ids:
-            atual = self._piece_mirrors.get(art_id, "")
             pedido = self._eixo_na_tela(eixo, self._rotation_of(art_id))
+            atual = self._piece_mirrors.get(art_id, "")
             # alterna o eixo pedido, preservando o outro
             eixos = set(atual) ^ set(pedido)
-            self._piece_mirrors[art_id] = "".join(
-                e for e in ("h", "v") if e in eixos
-            )
+            self._piece_mirrors[art_id] = "".join(e for e in ("h", "v") if e in eixos)
+            if levar_faca:
+                atual_f = self._piece_faca_mirrors.get(art_id, "")
+                eixos_f = set(atual_f) ^ set(pedido)
+                self._piece_faca_mirrors[art_id] = "".join(
+                    e for e in ("h", "v") if e in eixos_f
+                )
         self._suspend_undo = True
         try:
             self._relayout(renest=False)  # espelhar nao muda o tamanho ocupado
@@ -9176,10 +9207,50 @@ class MainWindow(QMainWindow):
             )
         self._reselect_copies(sel_keys)
         nome = "horizontal" if eixo == "h" else "vertical"
+        alvo = "" if levar_faca else " (só a impressão, faca inalterada)"
         self._toasts.success(
-            f"Espelhou {len(ids)} peça(s) na {nome}" if len(ids) > 1
-            else f"Peça espelhada na {nome}"
+            f"Espelhou {len(ids)} peça(s) na {nome}{alvo}" if len(ids) > 1
+            else f"Peça espelhada na {nome}{alvo}"
         )
+
+    def _perguntar_faca(self, ids: set) -> bool | None:
+        """Espelhar a faca junto? Devolve True/False, ou None se cancelar.
+
+        So pergunta quando a faca JA existe: sem faca gerada nao ha o que
+        decidir, e interromper quem ainda nem gerou o corte e so atrapalhar.
+
+        A escolha e sempre do operador, nunca suposta: espelhar so a impressao
+        e um fluxo legitimo (verso em vinil, por exemplo), mas em peca
+        assimetrica a linha de corte deixa de acompanhar o desenho. O aviso
+        esta no proprio dialogo — quem clica precisa saber o que esta
+        escolhendo, porque o erro so aparece depois de cortar."""
+        com_faca = {
+            a.id for a in self._result.artworks if a.id in ids and a.has_cut
+        }
+        if not com_faca:
+            return True  # sem faca gerada: nada a perguntar
+        caixa = QMessageBox(self)
+        caixa.setWindowTitle("Espelhar")
+        caixa.setIcon(QMessageBox.Question)
+        caixa.setText("<b>Espelhar a faca também?</b>")
+        caixa.setInformativeText(
+            "A faca já foi gerada para esta(s) peça(s).\n\n"
+            "Espelhando as duas, a linha de corte continua acompanhando o "
+            "desenho.\n"
+            "Espelhando somente a impressão, a faca fica como está — e em peça "
+            "assimétrica ela deixa de bater com a arte."
+        )
+        dois = caixa.addButton("Espelhar arte e faca", QMessageBox.AcceptRole)
+        so_arte = caixa.addButton("Somente a impressão", QMessageBox.DestructiveRole)
+        caixa.addButton("Cancelar", QMessageBox.RejectRole)
+        caixa.setDefaultButton(dois)
+        caixa.exec()
+        clicado = caixa.clickedButton()
+        if clicado is dois:
+            return True
+        if clicado is so_arte:
+            return False
+        return None
 
     def _expandir_por_paginas(self, ids: set) -> set | None:
         """Se a selecao vem de um PDF com mais paginas na producao, pergunta se
