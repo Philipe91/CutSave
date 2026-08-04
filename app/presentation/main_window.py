@@ -9345,7 +9345,19 @@ class MainWindow(QMainWindow):
         se o operador nunca abrir o Modo Corte."""
         from app.presentation.cut_mode_dialog import CutModeDialog
 
-        CutModeDialog(self, export_dxf=self._dxf_export).exec()
+        dlg = CutModeDialog(self, export_dxf=self._dxf_export)
+        try:
+            dlg.exec()
+        finally:
+            # O dialogo tem PAI, entao quem manda nele e o C++: soltar a
+            # referencia Python nao destroi nada. Sem este deleteLater, cada
+            # abertura do Modo Corte deixava um dialogo inteiro vivo (cena,
+            # pecas e geometria) pendurado na janela ate o programa fechar —
+            # 4 aberturas, 4 dialogos (medido em 04/08/2026).
+            # Em `finally` porque um erro dentro do dialogo nao pode ser
+            # motivo para vazar. Travado por
+            # tests/presentation/test_cut_mode_vazamento.py.
+            dlg.deleteLater()
 
     def _draw_marks(self, layout, artworks, dx, dy, reg, mark_pen, mark_brush, faca_pen) -> None:
         if reg in ("circles", "both"):
