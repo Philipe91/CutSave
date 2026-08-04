@@ -1,10 +1,23 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.1.1 (instalador: nao abre o programa sozinho)
+Versao:        1.1.2 (Modo Corte: dialogo nao fica mais retido na memoria)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
+
+Novidades da 1.1.2
+------------------
+- MODO CORTE NAO ACUMULA MAIS MEMORIA A CADA ABERTURA. Cada vez que o Modo
+  Corte era aberto, a janela inteira dele continuava viva na memoria depois de
+  fechada — com a cena, as pecas importadas e toda a geometria — ate o programa
+  ser encerrado. Quem abre e fecha o Modo Corte varias vezes no mesmo
+  expediente sentia o programa ficando mais pesado. Medido: 4 aberturas
+  deixavam 4 janelas retidas; agora nenhuma.
+
+NAO E a correcao do fechamento inesperado (0xc0000374). Esse defeito continua
+EM ABERTO e sem reprodutor conhecido. O vazamento acima piora o cenario em que
+ele aparece, mas nao foi demonstrado que o causa. Ver docs/qa/.
 
 Novidades da 1.1.1
 ------------------
