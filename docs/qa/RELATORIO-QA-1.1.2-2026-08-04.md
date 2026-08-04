@@ -9,6 +9,91 @@ Rodada anterior: `docs/qa/RELATORIO-QA-1.1.1-2026-08-04.md` (**reprovada**)
 
 ---
 
+## Atualizacao final da candidata - 04/08/2026, 18h
+
+Esta secao **substitui os numeros, o artefato e a matriz da rodada inicial
+abaixo**. O restante do documento permanece como historico da investigacao.
+
+Commit final testado: `d0ee1ec`
+
+### Resultado atualizado
+
+| Grupo | Testes | Aprovados | Falhas | Erros | Xfail | Processo |
+|---|---:|---:|---:|---:|---:|---|
+| Base sem `tests/presentation` | 713 | 708 | 0 | 0 | 5 | aprovado |
+| Apresentacao, 18 modulos isolados | 329 | 329 | 0 | 0 | 0 | **18/18 com codigo 0** |
+| Total | **1.042** | **1.037** | **0** | **0** | **5** | **aprovado** |
+
+Evidencias novas em `reports/1.1.2-advance/`.
+
+### Evidencias adicionais executadas
+
+- **Modo Corte real:** um ciclo no executavel instalado, com clique, importacao
+  de SVG, `Organizar`, espera do worker e fechamento limpo.
+- **Estresse do Modo Corte:** 10 processos independentes, 10 ciclos modais
+  completos por processo, total de **100 importacoes/encaixes/fechamentos**;
+  todos terminaram com codigo 0.
+- **G1/G6 digital:** peca assimetrica validada sem PyMuPDF. A fonte e os PDFs
+  foram inspecionados com `pikepdf`/PDFium e o DXF com `ezdxf`. Arte e faca
+  ficaram na mesma pagina e a linha de corte ficou a menos de 1,5 pixel da
+  borda da arte; DXF em milimetros, escala e orientacao preservadas.
+- **G3:** corrigido o estado que sobrevivia a remover/reimportar um arquivo.
+  Faca, tamanho, recorte, giro e espelho agora sao limpos, com regressao
+  automatizada. O caso de excluir apenas uma copia tambem passou.
+- **G5 CorelDRAW real:** plugin instalado no CorelDRAW 2024. A macro importou
+  o SVG na pagina ativa, criou um objeto selecionado e preservou o bbox de
+  **105 x 70 mm**. Em abertura totalmente fria, o Corel precisa inicializar o
+  VBA/GMS; o fluxo iniciado pelo proprio botao da macro ja faz isso.
+- **G7:** 17 verificacoes passaram em 125% e as mesmas 17 em 150%, incluindo
+  1280x720 e 1092x614. Capturas foram geradas; o backend offscreen nao
+  renderizou os glifos corretamente, portanto a inspecao visual humana em
+  hardware real continua recomendada.
+- **Instalacao/empacotamento:** atualizacao silenciosa com codigo 0; licenca,
+  configuracao e registro do executavel preservados byte a byte. O autoteste
+  passou no binario de `C:\Program Files\PrintNest`.
+- **Perfil limpo:** com `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` e `%TEMP%`
+  vazios, o executavel instalado extraiu o runtime, criou configuracao nova e
+  chegou a tela de ativacao sem `Failed to load Python DLL`.
+
+### Artefato final desta atualizacao
+
+| | |
+|---|---|
+| Instalador | `dist_installer/PrintNest-Setup-1.1.2.exe` |
+| Tamanho | 123.815.982 bytes |
+| SHA-256 | `A8927C642F5E199EEF2F54D83F39057AC89E55D51F2210CC57C4177BF8CEF374` |
+| Build gerada em | 04/08/2026 18:03:49 |
+| Autoteste instalado | `SELFTEST OK`, codigo 0 |
+
+**Atencao:** este hash ainda sera substituido uma ultima vez porque o
+`VERSAO.txt` embarcado foi atualizado para registrar a correcao de
+remover/reimportar. O hash definitivo deve ser calculado depois dessa
+recompilacao.
+
+### Matriz atualizada
+
+| Item | Estado final desta maquina |
+|---|---|
+| G2 - crash da suite | **validado** |
+| Suite automatizada | **validado: 1.042, zero falhas/erros** |
+| Modo Corte, ciclo real e estresse | **validado tecnicamente** |
+| G1 - alinhamento arte/faca digital | **validado**; medicao fisica recomendada |
+| G3 - estado ao remover/reimportar | **validado** |
+| G4 - instalacao limpa | **parcial forte**: update e perfil limpo passaram; outro PC nao executado |
+| G5 - CorelDRAW 2024 real | **validado** |
+| G6 - PDF/DXF em leitores independentes | **validado** |
+| G7 - escalas 125%/150% | **validado por geometria**; revisao visual real recomendada |
+| `0xc0000374` | **bug aberto**, sem reprodutor e sem causa confirmada |
+| `tests/presentation` como pasta | aberto no QA; modulos isolados passam |
+
+**Veredito atualizado:** candidata adequada para **release controlada**, desde
+que a decisao comercial aceite explicitamente o risco residual do
+`0xc0000374`. Nao ha falha reproduzida nesta candidata. Para publicacao ampla,
+continuam recomendados um smoke test em outro PC e medicao fisica de uma peca
+assimetrica. Nada foi publicado por esta rodada.
+
+---
+
 ## Resumo executivo
 
 O bloqueio da rodada anterior foi removido. **BUG-QA-1 está fechado com causa

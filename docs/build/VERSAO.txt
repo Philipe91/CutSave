@@ -1,7 +1,7 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.1.2 (Modo Corte: dialogo nao fica mais retido na memoria)
+Versao:        1.1.2 (Modo Corte e ciclo de vida do arquivo corrigidos)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
@@ -14,6 +14,9 @@ Novidades da 1.1.2
   ser encerrado. Quem abre e fecha o Modo Corte varias vezes no mesmo
   expediente sentia o programa ficando mais pesado. Medido: 4 aberturas
   deixavam 4 janelas retidas; agora nenhuma.
+- REMOVER E REIMPORTAR UM ARQUIVO AGORA COMECA LIMPO. Faca, tamanho, recorte,
+  giro e espelho da instancia removida nao reaparecem quando o mesmo caminho
+  e arrastado novamente para a biblioteca.
 
 NAO E a correcao do fechamento inesperado (0xc0000374). Esse defeito continua
 EM ABERTO e sem reprodutor conhecido. O vazamento acima piora o cenario em que
