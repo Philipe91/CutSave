@@ -23,6 +23,7 @@ parte. Este teste trava o vazamento, que e certo e mensuravel por si so.
 """
 
 import os
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -42,10 +43,12 @@ from app.infrastructure.rendering.pdfium_renderer import PdfiumPageRenderer  # n
 from app.presentation.cut_mode_dialog import CutModeDialog  # noqa: E402
 from app.presentation.main_window import MainWindow  # noqa: E402
 from app.shared.config.settings import SettingsStore  # noqa: E402
-from PySide6.QtCore import QCoreApplication, QEvent  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 ABERTURAS = 5
+ABERTURAS_COM_WORKER = 10
+SVG_UI = Path(__file__).parents[1] / "fixtures" / "qa_cut_mode_ui.svg"
 
 
 @pytest.fixture(scope="session")
@@ -120,3 +123,49 @@ def test_um_dialogo_por_vez_enquanto_o_modo_corte_esta_aberto(window, qapp, monk
 
     assert visto["vivos"] == 1, "o dialogo precisa existir enquanto esta aberto"
     assert not _dialogos_vivos(window), "e precisa sumir depois de fechado"
+
+
+def test_ciclo_modal_real_com_importacao_e_worker_nao_acumula_dialogo(
+    window, qapp
+):
+    """Repete o fluxo real: exec modal, SVG, thread de nesting e fechamento."""
+    assert SVG_UI.exists()
+
+    for volta in range(ABERTURAS_COM_WORKER):
+        estado = {"timeout": False, "organizou": False}
+
+        def dirigir_dialogo():
+            dialogos = _dialogos_vivos(window)
+            assert len(dialogos) == 1
+            dialog = dialogos[0]
+            dialog._seconds.setValue(0.5)
+
+            timeout = QTimer(dialog)
+            timeout.setSingleShot(True)
+            dialog._qa_timeout_timer = timeout
+
+            def aguardar_worker():
+                if dialog._nest_thread is None and dialog._layouts:
+                    estado["organizou"] = True
+                    timeout.stop()
+                    dialog.reject()
+                    return
+                QTimer.singleShot(20, aguardar_worker)
+
+            def abortar_se_travar():
+                estado["timeout"] = True
+                dialog._encerrar_thread()
+                dialog.reject()
+
+            timeout.timeout.connect(abortar_se_travar)
+            timeout.start(8000)
+            dialog.open_with_file(str(SVG_UI))
+            QTimer.singleShot(20, aguardar_worker)
+
+        QTimer.singleShot(0, dirigir_dialogo)
+        window._open_cut_mode()
+        _drenar(qapp)
+
+        assert not estado["timeout"], f"worker travou na abertura {volta + 1}"
+        assert estado["organizou"], f"nenhum layout na abertura {volta + 1}"
+        assert _dialogos_vivos(window) == []

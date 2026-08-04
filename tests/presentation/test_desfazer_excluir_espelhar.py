@@ -173,3 +173,51 @@ def test_excluir_uma_copia_nao_apaga_as_outras(janela, qapp):
         f"o ESTADO ficou com {restante} pecas mas a TELA mostra "
         f"{len(janela._piece_items)} — desenho desatualizado"
     )
+
+
+def test_remover_e_rearrastar_arquivo_nao_herda_faca_giro_ou_espelho(
+    janela, qapp
+):
+    """Remover o arquivo encerra o estado dele; um novo drop comeca limpo."""
+    path = janela._paths[0]
+    ids = {
+        art.id
+        for art in janela._base_artworks
+        if janela._path_of(art.id) == path
+    }
+    assert ids
+
+    janela._file_overrides[path] = {"rotation": 90, "faca_mode": "rect"}
+    janela._faca_manual[path] = {"contours": (), "w": 10.0, "h": 10.0}
+    janela._file_sizes[path] = janela._base_artworks[0].size
+    for art_id in ids:
+        janela._piece_rotations[art_id] = 90
+        janela._piece_mirrors[art_id] = "h"
+        janela._piece_faca_mirrors[art_id] = "v"
+
+    janela._table.setCurrentCell(0, 0)
+    janela.remove_selected()
+    qapp.processEvents()
+
+    assert path not in janela._file_overrides
+    assert path not in janela._faca_manual
+    assert path not in janela._file_sizes
+    assert ids.isdisjoint(janela._piece_rotations)
+    assert ids.isdisjoint(janela._piece_mirrors)
+    assert ids.isdisjoint(janela._piece_faca_mirrors)
+
+    janela.add_paths([path])
+    janela.generate(blocking=True)
+    qapp.processEvents()
+
+    novos_ids = {
+        art.id
+        for art in janela._base_artworks
+        if janela._path_of(art.id) == path
+    }
+    assert novos_ids
+    assert novos_ids.isdisjoint(janela._piece_rotations)
+    assert novos_ids.isdisjoint(janela._piece_mirrors)
+    assert novos_ids.isdisjoint(janela._piece_faca_mirrors)
+    assert path not in janela._file_overrides
+    assert path not in janela._faca_manual

@@ -6889,6 +6889,7 @@ class MainWindow(QMainWindow):
         row = self._table.currentRow()
         if row < 0:
             return
+        self._mark_dirty()
         path = self._paths[row]
         self._table.removeRow(row)
         del self._paths[row]
@@ -6898,6 +6899,30 @@ class MainWindow(QMainWindow):
         if removed:
             self._base_artworks = [b for b in self._base_artworks if b.id not in removed]
             self._piece_items = [p for p in self._piece_items if p.artwork_id not in removed]
+        # Remover da biblioteca encerra o ciclo de vida do arquivo nesta sessao.
+        # Se ele for arrastado de novo, precisa entrar limpo, sem faca, tamanho,
+        # giro ou espelho herdado da instancia removida.
+        for mapping in (
+            self._file_overrides,
+            self._faca_manual,
+            self._file_sizes,
+            self._file_pages,
+            self._page_crops,
+            self._thumb_cache,
+        ):
+            mapping.pop(path, None)
+        for art_id in removed:
+            self._piece_rotations.pop(art_id, None)
+            self._piece_mirrors.pop(art_id, None)
+            self._piece_faca_mirrors.pop(art_id, None)
+            self._sources.pop(art_id, None)
+            self._origins.pop(art_id, None)
+        self._pixmaps = {k: v for k, v in self._pixmaps.items() if k[0] != path}
+        self._pdf_contours = {k: v for k, v in self._pdf_contours.items() if k[0] != path}
+        self._vector_contours = {
+            k: v for k, v in self._vector_contours.items() if k[0] != path
+        }
+        self._invalidate_crop_cache(path)
         if not self._base_artworks:
             # removeu tudo: limpa a produção para o proximo arquivo comecar do ZERO
             # (senao _result fica desatualizado e o proximo drop/gerar não funciona).
