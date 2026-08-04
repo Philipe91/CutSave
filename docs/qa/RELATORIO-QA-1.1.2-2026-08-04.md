@@ -60,15 +60,18 @@ Evidencias novas em `reports/1.1.2-advance/`.
 | | |
 |---|---|
 | Instalador | `dist_installer/PrintNest-Setup-1.1.2.exe` |
-| Tamanho | 123.815.982 bytes |
-| SHA-256 | `A8927C642F5E199EEF2F54D83F39057AC89E55D51F2210CC57C4177BF8CEF374` |
-| Build gerada em | 04/08/2026 18:03:49 |
-| Autoteste instalado | `SELFTEST OK`, codigo 0 |
+| Tamanho | 123.814.407 bytes |
+| SHA-256 | `E9F6D70BBD8B979EA8CBF893C0A6B255C14FD1BF2E819D07F2709A9E10B32C1F` |
+| Build gerada em | 04/08/2026 18:11:24 |
+| Autoteste do exe final | `SELFTEST OK`, codigo 0 |
 
-**Atencao:** este hash ainda sera substituido uma ultima vez porque o
-`VERSAO.txt` embarcado foi atualizado para registrar a correcao de
-remover/reimportar. O hash definitivo deve ser calculado depois dessa
-recompilacao.
+O instalador final foi recompilado depois de atualizar apenas o `VERSAO.txt`.
+A tentativa de reinstala-lo localmente expirou no UAC e retornou codigo 2; por
+isso o artefato final nao foi declarado como reinstalado. A build imediatamente
+anterior, com o mesmo codigo e diferenca apenas nas notas embarcadas, foi
+instalada com codigo 0, preservou licenca/config e passou o autoteste em
+`C:\Program Files`. O `.exe` final acima passou o mesmo autoteste diretamente
+da pasta `PrintNest_Build`.
 
 ### Matriz atualizada
 
