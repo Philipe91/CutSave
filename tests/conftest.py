@@ -19,13 +19,26 @@ def _qt_cleanup():
     """
     yield
     try:
+        from PySide6.QtCore import QCoreApplication, QEvent
         from PySide6.QtWidgets import QApplication
     except ImportError:  # ambiente sem Qt (nao acontece hoje, mas e barato)
         return
     gc.collect()
     app = QApplication.instance()
-    if app is not None:
-        app.processEvents()
+    if app is None:
+        return
+    app.processEvents()
+    # processEvents() NAO destroi quem chamou deleteLater() (BUG-QA-1).
+    # DeferredDelete e entregue apenas quando o laco de eventos volta ao nivel
+    # em que foi postado; sem um exec_() rodando, ele nunca volta e o evento
+    # fica na fila para sempre. Resultado: as fixtures chamavam deleteLater()
+    # nos dialogos e NADA acontecia — 33 janelas de topo vivas chegavam ao
+    # pytest_sessionfinish, que as fechava todas de uma vez e o processo
+    # morria com 0xC0000005, DEPOIS de 100% das assercoes aprovadas.
+    # sendPostedEvents(None, DeferredDelete) entrega a fila explicitamente,
+    # ignorando o nivel de laco. Com isso os modulos do Modo Corte terminam
+    # com zero janelas vivas e codigo de saida 0.
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:

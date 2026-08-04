@@ -18,6 +18,7 @@ Exportar DXF, Enviar p/ Corel e SVG leem dali, entao nao ha como divergirem.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import tempfile
@@ -799,10 +800,28 @@ class CutModeDialog(QDialog):
             lambda layouts, error: self._on_nest_done(shapes, layouts, error)
         )
         self._nest_thread.finished.connect(self._nest_thread.deleteLater)
+        # a referencia so cai quando a thread REALMENTE terminou (ver
+        # _on_nest_done): `finished` vem depois que run() retornou.
+        self._nest_thread.finished.connect(self._on_nest_thread_finished)
         self._nest_thread.start()
 
-    def _on_nest_done(self, shapes, layouts, error) -> None:
+    def _on_nest_thread_finished(self) -> None:
+        """A thread terminou de verdade: agora e seguro esquecer dela."""
         self._nest_thread = None
+
+    def _on_nest_done(self, shapes, layouts, error) -> None:
+        # NAO zerar self._nest_thread aqui. Este metodo e chamado pelo sinal
+        # `done`, que e emitido DE DENTRO de run(): a thread ainda esta viva.
+        # Zerando agora, as travas de reject()/closeEvent() passavam a enxergar
+        # None e liberavam o fechamento — e como a _NestThread e FILHA do
+        # dialogo, destruir o dialogo destruiria uma QThread em execucao, caso
+        # em que o Qt aborta o processo.
+        #
+        # ESCOPO: e uma corrida real, mas ESTREITA (a janela entre `done` e o
+        # fim de run()) e NAO e a causa do crash dos modulos test_cut_mode_*:
+        # com esta correcao aplicada eles continuam morrendo com 0xC0000005
+        # (medido em 04/08/2026, ver tests/qa/test_qa_g2_saida_limpa.py). Nao
+        # atribua o G2 a este trecho.
         self._set_busy(False)
         if error is not None:
             QMessageBox.warning(self, "Modo Corte", str(error))
@@ -1172,14 +1191,30 @@ class CutModeDialog(QDialog):
         super().reject()
 
     def closeEvent(self, event) -> None:
-        if self._nest_thread is not None:
+        if self._nest_thread is not None and self._nest_thread.isRunning():
             event.ignore()
             self._status.setText("Aguarde terminar de organizar para fechar.")
             return
+        self._encerrar_thread()
         if not self._confirma_descartar_arranjo():
             event.ignore()
             return
         super().closeEvent(event)
+
+    def _encerrar_thread(self) -> None:
+        """Cinto e suspensorio: espera a thread antes de o dialogo morrer.
+
+        Entre o sinal `done` e o fim real de run() existe uma janela de alguns
+        milissegundos. Fechar ali destruiria uma QThread viva junto com o
+        dialogo (ela e filha dele) e o Qt aborta o processo. Em uso normal esta
+        espera termina na hora; ela existe para a janela de corrida."""
+        thread = self._nest_thread
+        if thread is None:
+            return
+        with contextlib.suppress(RuntimeError):  # ja destruida pelo deleteLater
+            if thread.isRunning():
+                thread.wait(5000)
+        self._nest_thread = None
 
     def _confirma_descartar_arranjo(self) -> bool:
         """True = pode fechar. Um Esc acidental descartava minutos de nesting
