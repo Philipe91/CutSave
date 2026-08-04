@@ -245,19 +245,94 @@ remoto **não foi alterado** e nenhuma release foi criada. Aguardando aprovaçã
 
 ---
 
+## Validação do instalador em máquina real (04/08/2026)
+
+Executado nesta máquina, que tinha **PrintNest 1.0.0 instalado e licença
+ativa**.
+
+| Verificação | Resultado |
+|---|---|
+| Instalação silenciosa | `ExitCode 0`, 12 s |
+| Versão registrada no Windows | 1.0.0 → **1.1.2** |
+| `VERSAO.txt` instalado | 1.1.2 |
+| **Licença preservada** | **SHA-256 idêntico antes e depois** |
+| Configurações preservadas | `config.json` intacto |
+| Conteúdo entregue | `.exe`, LEIA-ME, README, Tutor IA (PDF), Plugin CorelDRAW |
+| Autoteste do binário instalado | **`SELFTEST OK`** em 7 s, rodando de `C:\Program Files` |
+| Abertura da janela | **abriu**, título `PrintNest`, 30 threads |
+| Fechamento | limpo, 0,8 s |
+
+O autoteste rodou **logo depois da instalação**, que é exatamente o cenário do
+`"Failed to load Python DLL"` visto em máquina de terceiro. Não reproduziu.
+
+**Isto NÃO fecha o G4.** Foi uma **atualização por cima** de uma instalação
+existente, não uma instalação limpa. O G4 exige máquina ou perfil de usuário
+**sem PrintNest**, e continua pendente.
+
+### Vazamento do Modo Corte — medição objetiva
+
+30 aberturas e fechamentos consecutivos, mesmo harness, código antes e depois:
+
+| | diálogos vivos | memória | por abertura |
+|---|---:|---:|---:|
+| Antes (`d73175f`) | **33** | +10,9 MB | +371 KB |
+| Depois (`829a4b9`) | **0** | +0,1 MB | +3 KB |
+
+Medido com o **Modo Corte vazio**, sem peças importadas. Com peças na cena o
+acúmulo é maior, porque o que ficava retido incluía a geometria.
+
+**Limite desta evidência:** a medição foi feita no código, em modo headless,
+com o laço modal substituído. **O clique real na interface não foi
+executado** — não tenho como operar a janela. Abrir e fechar o Modo Corte
+várias vezes no programa instalado continua sendo verificação manual pendente.
+
+---
+
 ## Evidências
 
 - `reports/1.1.2/core.xml` e `core.log`
 - `reports/1.1.2/presentation/*.xml` e `*.log` (18 módulos)
+- Log da instalação silenciosa (temporário, fora do repositório)
+
+---
+
+## Matriz go/no-go
+
+| # | Item | Estado | Evidência | Bloqueia publicar? |
+|---|---|---|---|---|
+| 1 | G2 — crash do Modo Corte na suíte | **GO** | causa provada, 18/18 saída zero, teste permanente | não |
+| 2 | Suíte automatizada | **GO** | 1.039 testes, 0 falhas, 0 erros | não |
+| 3 | Build e empacotamento | **GO** | `SELFTEST OK` no `.exe` instalado | não |
+| 4 | Atualização por cima, licença preservada | **GO** | SHA-256 da licença idêntico | não |
+| 5 | Vazamento do Modo Corte | **GO** | 33 → 0 diálogos; +10,9 → +0,1 MB | não |
+| 6 | **`0xc0000374` — fechamento inesperado** | **NO-GO** | sem reprodutor, sem causa provada | **sim** |
+| 7 | **G4 — instalação limpa** | **NO-GO** | só houve teste de atualização | **sim** |
+| 8 | **G1 — arte × faca com medição externa** | **NO-GO** | não executado | **sim** |
+| 9 | **G3 — estado por peça, roteiro manual** | **NO-GO** | não executado | **sim** |
+| 10 | **G5 — CorelDRAW real** | **NO-GO** | não executado | **sim** |
+| 11 | **G6 — validação externa dos artefatos** | **NO-GO** | não executado | **sim** |
+| 12 | **G7 — varredura visual em escalas reais** | **NO-GO** | não executado | **sim** |
+| 13 | **Modo Corte: abrir/fechar clicando** | **NO-GO** | medido só em headless | **sim** |
+| 14 | `tests/presentation` como pasta trava | aberto | >10 min, estourou o limite | não (só QA) |
 
 ---
 
 ## Veredito
 
-**Linha automatizada: aprovada.** BUG-QA-1 fechado com causa provada, G2
-aprovado, 1.039 testes verdes e 18/18 módulos com saída limpa.
+### BUILD TECNICAMENTE VALIDADA
 
-**Pronto para vender: ainda não.** Faltam os gates manuais (G1, G3, G4, G6 e,
-para o público CorelDRAW, G5), e o fechamento inesperado `0xc0000374` continua
-em aberto — a decisão de lançar com ele em aberto é comercial, não técnica, e
-precisa ser tomada sabendo que ele **não** foi corrigido nesta versão.
+**Não é "aprovada para publicar" e não é "bloqueada".**
+
+O que está provado: a correção faz o que promete, a suíte está verde de ponta a
+ponta com saída limpa, o instalador funciona, a licença sobrevive à atualização
+e o binário empacotado roda. Nada falhou nesta rodada.
+
+O que impede a publicação são os itens 6 a 13 da matriz — **nenhum deles é uma
+falha; todos são verificações que não foram executadas**, mais um defeito que
+segue aberto. A diferença importa: "não testado" não é "testado e aprovado".
+
+**A decisão de publicar com o `0xc0000374` em aberto é comercial, não
+técnica.** Ela pode ser legítima — o defeito é raro e a 1.1.2 é melhor que a
+1.1.1 em todos os aspectos medidos — mas precisa ser tomada sabendo que o
+fechamento inesperado **não foi corrigido** e que o vazamento resolvido **não
+está provado** como causa dele.
