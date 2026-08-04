@@ -47,7 +47,13 @@ um erro entre a arte impressa e a linha de corte estraga o lote inteiro — e s�
 - `pypdfium2` — lê e rasteriza PDF. **Não é thread-safe**: o projeto usa um lock
   global (`PDFIUM_LOCK`).
 - `pikepdf` — escreve PDF preservando vetores.
-- `shapely` / GEOS — geometria da faca e do encaixe true-shape. Biblioteca em C.
+- `shapely` / GEOS — geometria **da faca** (offset, união, simplificação).
+  Biblioteca em C. Vive em `app/domain/cut/`.
+- `pyclipper` (Clipper) — geometria **do encaixe true-shape** (NFP, diferença
+  de polígonos). Biblioteca em C++, independente da anterior. Vive em
+  `app/domain/nesting/`. **Solta o GIL** durante o cálculo (medido em
+  04/08/2026: 2 threads em 0,62× do tempo sequencial), ou seja, roda de fato em
+  paralelo com o coletor de lixo do Python.
 - `opencv` — recorte automático de imagens.
 - `ezdxf` — exportação DXF.
 
@@ -165,14 +171,35 @@ faca cai sobre a arte no arquivo exportado — não na tela.
 Aberto desde o lançamento. Em 04/08 apareceu um `crash.log` com a pilha:
 
 ```
-worker            → true_shape.py: _subtract (geometria GEOS)
+worker            → true_shape.py: _subtract (pyclipper)
 thread principal  → Garbage-collecting, dentro de _open_cut_mode
 ```
 
 O Modo Corte roda o encaixe numa thread enquanto o coletor de lixo do Python
-libera objetos de geometria na thread principal. `0xc0000374` é corrupção de
-heap: duas threads na mesma memória do GEOS. Raro e aleatório, porque depende do
-coletor disparar no instante exato.
+libera objetos na thread principal. `0xc0000374` é corrupção de heap. Como o
+pyclipper solta o GIL, as duas coisas acontecem **de verdade ao mesmo tempo**.
+
+**Correção de rumo (04/08/2026):** este item já foi descrito aqui como defeito
+do GEOS. Está errado — `true_shape.py` importa `pyclipper` e **não usa shapely**.
+GEOS só aparece na faca (`app/domain/cut/`), que não está nesta pilha.
+
+**Estado da investigação:** sem reprodutor. Um esforço dirigido em 04/08 tentou
+separar as três causas candidatas — encerramento, concorrência e
+compartilhamento de geometria — e **não reproduziu** a corrupção com
+worker no pyclipper + coleta de lixo agressiva na thread principal (4 modos,
+25 s cada). Portanto a explicação "duas threads na mesma memória" segue como
+**hipótese, não como causa provada**.
+
+Candidato mais forte hoje: `main_window.py` abre o Modo Corte com
+`CutModeDialog(self, ...).exec()` **sem guardar a referência**. O diálogo tem
+pai, então o objeto C++ sobrevive à destruição do wrapper Python e **cada
+abertura deixa um diálogo inteiro vivo** (cena, peças, geometria) — provado: 4
+aberturas, 4 diálogos vivos. Isso empilha memória e alonga as pausas de coleta
+exatamente onde o `crash.log` flagrou a thread principal.
+
+**Não confundir com o BUG-QA-1** (`0xC0000005` na suíte de testes), que tinha
+outra causa — eventos `DeferredDelete` nunca drenados — e está **fechado**.
+Corrigir um não corrige o outro.
 
 **Sem salvamento automático**, um crash custa tudo desde o último Ctrl+S.
 
@@ -195,9 +222,9 @@ arquivo, apagar uma peça remove mais do que a selecionada na tela; um clique
 seguinte traz as outras de volta.
 
 ### 4.5 Médio: concorrência com bibliotecas C
-`pypdfium2` não é thread-safe (protegido por lock global). GEOS/Shapely é usado
-em thread sem proteção equivalente — é o item 4.2. Qualquer operação nova em
-thread precisa ser avaliada sob essa ótica.
+`pypdfium2` não é thread-safe (protegido por lock global). O `pyclipper` roda em
+thread sem proteção equivalente **e solta o GIL** — é o item 4.2. Qualquer
+operação nova em thread precisa ser avaliada sob essa ótica.
 
 ### 4.6 Médio: caminho do CorelDRAW
 Ponte COM **síncrona, sem timeout**: se o Corel estiver ocupado ou com um

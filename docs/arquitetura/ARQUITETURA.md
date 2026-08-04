@@ -249,7 +249,8 @@ Todas gratuitas e open source, 100% offline:
 | Linguagem/Backend | **Python 3.12+ (64-bit)** | Núcleo e orquestração |
 | Interface | **PySide6** (LGPL) | Presentation; `QGraphicsView` no canvas |
 | Banco | **SQLite** + Repository | Materiais, projetos, jobs |
-| Geometria | **Shapely** (GEOS) | Offset, união, validação, NFP |
+| Geometria da faca | **Shapely** (GEOS) | Offset, união, validação |
+| Geometria do encaixe | **pyclipper** (Clipper) | NFP e diferença de polígonos — biblioteca à parte, não é Shapely |
 | PDF | **PyMuPDF** | Dimensão real, extração de vetor, proxy |
 | Imagem | **OpenCV** + **Pillow** | Alpha, contornos, leitura de DPI |
 | Matemática | **NumPy** | Transformações vetorizadas |
@@ -429,7 +430,7 @@ JPG com **detecção automática de objeto por IA** (segmentação offline); sug
 | 6 | **GIL** congelando a UI | Médio — UX ruim, viola requisito | ProcessPool para CPU-bound; nada pesado na thread Qt; JobManager com cancelamento |
 | 7 | **PDF vetorial complexo** (clipping, transparência, contorno ambíguo) | Médio — faca incorreta | Heurística de contorno externo + união; *fallback* para bounding box; revisão visual antes de exportar |
 | 8 | **Fidelidade do DXF** (curvas, unidades, contorno aberto) | Alto — corte errado no destino | Polilinha fechada com tolerância; `$INSUNITS`=mm; versão DXF estável; validação geométrica pré-serialização |
-| 9 | **Empacotamento Windows** (DLLs nativas GEOS/OpenCV) | Médio — instalação quebrada | PyInstaller com hooks testados; build reproduzível; teste de instalação limpa |
+| 9 | **Empacotamento Windows** (DLLs nativas GEOS/pyclipper/OpenCV) | Médio — instalação quebrada | PyInstaller com hooks testados; build reproduzível; teste de instalação limpa |
 | 10 | **Falha em um arquivo derrubar o lote** | Médio — perda de produtividade | Isolamento por item; erro marcado e logado; lote continua |
 | 11 | **Licenciamento** de dependências | Baixo/jurídico | Inventário de licenças no build; PySide6 com linking dinâmico |
 
