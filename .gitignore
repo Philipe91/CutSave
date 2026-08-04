@@ -50,3 +50,6 @@ telas-teste/
 # chave de API, codigos de compra e e-mail de cliente vazaram por aqui).
 # O hook agora grava em ~/PrintNest-conversas/, fora do repositorio.
 docs/conversas/
+
+# pasta temporaria de teste manual da 1.1.2 (build nao publicada)
+PARA-TESTE-1.1.2/
