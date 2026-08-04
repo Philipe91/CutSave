@@ -87,7 +87,13 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX DESLIGADO (04/08/2026). Executavel comprimido com UPX e um dos
+    # padroes que mais dispara falso positivo em antivirus, e o nosso .exe nao
+    # tem assinatura digital. Numa maquina de cliente o antivirus apagou o
+    # python310.dll que o onefile extrai no %TEMP% e o programa morreu com
+    # "Failed to load Python DLL" — instalou, mas nao abria.
+    # O arquivo fica maior; e o preco de nao ser confundido com malware.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

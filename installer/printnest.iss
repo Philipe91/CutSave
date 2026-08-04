@@ -14,7 +14,7 @@
 
 #define MyAppName "PrintNest Pro"
 ; ATENCAO: alinhar com app/__init__.py (__version__) e docs/build/VERSAO.txt.
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.1"
 #define MyAppPublisher "PrintNest — Philipe Fernandes"
 #define MyAppExeName "PrintNest.exe"
 
@@ -64,4 +64,13 @@ Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; "unchecked" de proposito (04/08/2026). O instalador acabou de gravar um .exe
+; de 116 MB e o antivirus comeca a varre-lo NA HORA. Abrir o programa nesse
+; instante faz a extracao do Python para o %TEMP% disputar com a varredura, e
+; o programa morre com "Failed to load Python DLL" — instalou, mas nao abre.
+; Aconteceu na primeira instalacao em maquina de terceiro; abriu normal na
+; segunda tentativa, sem mexer em nada.
+; O cliente comum nao tenta de novo: ele conclui que o produto esta quebrado.
+; Deixando a caixa desmarcada, o caminho padrao e abrir pelo atalho alguns
+; segundos depois, com a varredura ja concluida.
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent unchecked

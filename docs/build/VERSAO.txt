@@ -1,10 +1,22 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.1.0 (espelhar + correcao de impressao)
+Versao:        1.1.1 (instalador: nao abre o programa sozinho)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
+
+Novidades da 1.1.1
+------------------
+- O INSTALADOR NAO ABRE MAIS O PROGRAMA SOZINHO ao terminar (a caixa "executar
+  agora" vem desmarcada). Motivo: logo apos a instalacao o antivirus varre o
+  executavel recem-gravado, e abrir o programa NESSE instante fazia a leitura
+  do Python disputar com a varredura. O programa instalava e nao iniciava, com
+  a mensagem "Failed to load Python DLL". Abrindo alguns segundos depois, pelo
+  atalho, funciona normal — foi o que aconteceu na primeira instalacao em
+  maquina de terceiro.
+  O LEIA-ME passou a explicar o que fazer se a mensagem aparecer: esperar e
+  abrir de novo. O programa em si nao mudou nada nesta versao.
 
 Novidades da 1.1.0
 ------------------

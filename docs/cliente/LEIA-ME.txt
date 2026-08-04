@@ -13,6 +13,16 @@ COMO ABRIR
    programas novos — não é vírus.
 3. Na primeira abertura, siga o tour de boas-vindas.
 
+SE DER ERRO NA PRIMEIRA VEZ, ABRA DE NOVO
+-----------------------------------------
+Logo depois de instalar, o antivirus do Windows varre o
+programa recem-gravado. Se voce abrir nesse exato momento,
+pode aparecer uma mensagem de erro falando em "Python DLL".
+NAO e defeito e nao e virus: e so a varredura em andamento.
+
+Espere alguns segundos e abra de novo pelo atalho. Funciona
+normalmente da segunda vez.
+
 O QUE TEM NESTA PASTA
 ---------------------
 - PrintNest.exe ............ o programa
