@@ -19,10 +19,13 @@ A execução coletou **1.039 testes: 1.034 aprovados, 5 `xfail`, zero falhas e
 zero erros**. Os **18 módulos** de `tests/presentation` encerraram com **código
 de saída zero** — na rodada anterior, dois deles derrubavam o processo.
 
-**Esta rodada não aprova a venda.** O que ela aprova é a linha automatizada. Os
-gates que exigem medição externa, instalação limpa e CorelDRAW real continuam
-pendentes, e o **fechamento inesperado do executável (`0xc0000374`) segue em
-aberto** — é um defeito diferente do que foi corrigido aqui.
+**Veredito: build tecnicamente validada; release ainda não aprovada e bloqueada
+para publicação pelas validações pendentes.** O que esta rodada aprova é a
+linha automatizada e o artefato. Sete gates que exigem medição externa,
+instalação limpa e CorelDRAW real **não foram executados** — são gates abertos,
+não defeitos — e o **fechamento inesperado do executável (`0xc0000374`) segue
+em aberto, sem causa confirmada**, como defeito separado do que foi corrigido
+aqui.
 
 ---
 
@@ -298,41 +301,133 @@ várias vezes no programa instalado continua sendo verificação manual pendente
 
 ## Matriz go/no-go
 
-| # | Item | Estado | Evidência | Bloqueia publicar? |
+Três naturezas diferentes, que não podem ser somadas na mesma conta:
+
+- **Validado** — foi executado e passou.
+- **Gate aberto** — **não foi executado**. Não é defeito, não é falha, não
+  entra em contagem de bug. É verificação pendente.
+- **Bug aberto** — defeito conhecido, ainda sem correção comprovada.
+
+| # | Item | Natureza | Evidência | Bloqueia publicar? |
 |---|---|---|---|---|
-| 1 | G2 — crash do Modo Corte na suíte | **GO** | causa provada, 18/18 saída zero, teste permanente | não |
-| 2 | Suíte automatizada | **GO** | 1.039 testes, 0 falhas, 0 erros | não |
-| 3 | Build e empacotamento | **GO** | `SELFTEST OK` no `.exe` instalado | não |
-| 4 | Atualização por cima, licença preservada | **GO** | SHA-256 da licença idêntico | não |
-| 5 | Vazamento do Modo Corte | **GO** | 33 → 0 diálogos; +10,9 → +0,1 MB | não |
-| 6 | **`0xc0000374` — fechamento inesperado** | **NO-GO** | sem reprodutor, sem causa provada | **sim** |
-| 7 | **G4 — instalação limpa** | **NO-GO** | só houve teste de atualização | **sim** |
-| 8 | **G1 — arte × faca com medição externa** | **NO-GO** | não executado | **sim** |
-| 9 | **G3 — estado por peça, roteiro manual** | **NO-GO** | não executado | **sim** |
-| 10 | **G5 — CorelDRAW real** | **NO-GO** | não executado | **sim** |
-| 11 | **G6 — validação externa dos artefatos** | **NO-GO** | não executado | **sim** |
-| 12 | **G7 — varredura visual em escalas reais** | **NO-GO** | não executado | **sim** |
-| 13 | **Modo Corte: abrir/fechar clicando** | **NO-GO** | medido só em headless | **sim** |
-| 14 | `tests/presentation` como pasta trava | aberto | >10 min, estourou o limite | não (só QA) |
+| 1 | G2 — crash do Modo Corte na suíte | **validado** | causa provada, 18/18 saída zero, teste permanente | não |
+| 2 | Suíte automatizada | **validado** | 1.039 testes, 0 falhas, 0 erros | não |
+| 3 | Build e empacotamento | **validado** | `SELFTEST OK` no `.exe` instalado | não |
+| 4 | Atualização por cima, licença preservada | **validado** | SHA-256 da licença idêntico | não |
+| 5 | Vazamento do Modo Corte | **validado** | 33 → 0 diálogos; +10,9 → +0,1 MB | não |
+| 6 | G4 — instalação limpa | **gate aberto** | houve só teste de atualização | **sim** |
+| 7 | Modo Corte: abrir/fechar clicando | **gate aberto** | medido só em headless | **sim** |
+| 8 | G1 — arte × faca com medição externa | **gate aberto** | não executado | **sim** |
+| 9 | G3 — estado por peça, roteiro manual | **gate aberto** | não executado | **sim** |
+| 10 | G5 — CorelDRAW real | **gate aberto** | não executado | **sim** |
+| 11 | G6 — validação externa dos artefatos | **gate aberto** | não executado | **sim** |
+| 12 | G7 — varredura visual em escalas reais | **gate aberto** | não executado | **sim** |
+| 13 | **`0xc0000374` — fechamento inesperado** | **bug aberto** | sem reprodutor, **sem causa confirmada** | **sim** |
+| 14 | `tests/presentation` como pasta trava | **bug aberto** | >10 min, estourou o limite | não (afeta só o QA) |
+
+**Contagem desta rodada: zero falhas.** Os itens 6 a 12 são verificações que
+ainda não rodaram — não são defeitos e não devem ser reportados como tal. Os
+itens 13 e 14 são os únicos defeitos abertos, e nenhum dos dois foi introduzido
+por esta versão.
 
 ---
 
 ## Veredito
 
-### BUILD TECNICAMENTE VALIDADA
-
-**Não é "aprovada para publicar" e não é "bloqueada".**
+### Build tecnicamente validada; release ainda não aprovada e bloqueada para publicação pelas validações pendentes
 
 O que está provado: a correção faz o que promete, a suíte está verde de ponta a
 ponta com saída limpa, o instalador funciona, a licença sobrevive à atualização
-e o binário empacotado roda. Nada falhou nesta rodada.
+e o binário empacotado roda. **Nada falhou nesta rodada.**
 
-O que impede a publicação são os itens 6 a 13 da matriz — **nenhum deles é uma
-falha; todos são verificações que não foram executadas**, mais um defeito que
-segue aberto. A diferença importa: "não testado" não é "testado e aprovado".
+O bloqueio para publicar vem de duas fontes distintas, e a distinção precisa
+sobreviver a qualquer resumo:
 
-**A decisão de publicar com o `0xc0000374` em aberto é comercial, não
-técnica.** Ela pode ser legítima — o defeito é raro e a 1.1.2 é melhor que a
-1.1.1 em todos os aspectos medidos — mas precisa ser tomada sabendo que o
-fechamento inesperado **não foi corrigido** e que o vazamento resolvido **não
-está provado** como causa dele.
+1. **Sete gates que não foram executados** (itens 6 a 12). "Não testado" não é
+   "testado e reprovado" — mas também não é "aprovado".
+2. **Um bug aberto** (item 13, `0xc0000374`), **sem causa confirmada**.
+
+Sobre o item 13: o vazamento corrigido nesta versão é **coerente** com o
+`crash.log`, e nada além disso. **Não há prova de que seja a causa**, não há
+reprodutor, e a 1.1.2 não deve ser apresentada como solução dele.
+
+A decisão de publicar com o `0xc0000374` em aberto é **comercial, não
+técnica**. Pode ser legítima — a 1.1.2 é melhor que a 1.1.1 em todos os
+aspectos medidos — mas precisa ser tomada sabendo que o fechamento inesperado
+não foi corrigido.
+
+---
+
+## Checklist para o Philipe executar
+
+Dois testes. Os dois precisam de **outro computador**, sem PrintNest instalado.
+
+Anote o resultado de cada linha; é isso que atualiza a matriz.
+
+### Teste A — G4, instalação limpa
+
+Precisa de um PC **que nunca teve PrintNest**. Se só houver um com PrintNest
+instalado, desinstale primeiro **e apague `%APPDATA%\PrintNest`** — senão não é
+instalação limpa, é atualização (foi esse o limite do teste feito aqui).
+
+| # | Passo | O que tem que acontecer | OK? |
+|---|---|---|---|
+| A1 | Copiar `PrintNest-Setup-1.1.2.exe` para o PC | — | ☐ |
+| A2 | Dar dois cliques no instalador | Aviso azul do Windows → "Mais informações" → "Executar assim mesmo" | ☐ |
+| A3 | Avançar até o fim | **A caixa "executar agora" vem DESMARCADA.** Deixe assim | ☐ |
+| A4 | **Esperar ~30 segundos** | (é o antivírus varrendo o arquivo novo) | ☐ |
+| A5 | Abrir pelo atalho da área de trabalho | A janela abre. **Sem** "Failed to load Python DLL" | ☐ |
+| A6 | Conferir Ajuda/rodapé ou `VERSAO.txt` | Diz **1.1.2** | ☐ |
+| A7 | Ativar a licença | Ativa normalmente | ☐ |
+| A8 | Importar 1 PDF, F5, Ctrl+E | Gera o PDF de impressão sem erro | ☐ |
+
+**Se A5 falhar:** feche tudo, espere 1 minuto, abra de novo. Se abrir na
+segunda, **anote** — é o defeito conhecido do antivírus, não é regressão.
+
+### Teste B — Modo Corte, abrir e fechar clicando
+
+No **mesmo PC do Teste A**, com o programa já aberto.
+
+| # | Passo | O que observar | OK? |
+|---|---|---|---|
+| B1 | Ctrl+Shift+Esc → aba Detalhes → achar `PrintNest.exe` | Anote a **Memória** inicial: ______ MB | ☐ |
+| B2 | Abrir o **Modo Corte**, importar 2 ou 3 arquivos, clicar **Organizar** | Organiza normalmente | ☐ |
+| B3 | Fechar o Modo Corte | Fecha sem travar | ☐ |
+| B4 | **Repetir B2 e B3 dez vezes** | Anote a memória a cada 2 voltas | ☐ |
+| B5 | Comparar com B1 | **A memória não pode subir sem parar.** Subir e estabilizar é normal | ☐ |
+| B6 | Continuar usando o programa por ~10 min | Não fecha sozinho | ☐ |
+
+Memória por volta: 2:____ 4:____ 6:____ 8:____ 10:____ MB
+
+**O que estamos procurando:** antes da correção, cada abertura deixava a janela
+inteira na memória. Agora não deve deixar. Se a memória crescer sem parar,
+**a correção não pegou no executável** e eu preciso saber.
+
+**Se o programa fechar sozinho** em qualquer momento: é o `0xc0000374` (item
+13). Anote o que estava fazendo e envie
+`%APPDATA%\PrintNest\logs\crash.log`. **É esperado que possa acontecer** — não
+foi corrigido nesta versão.
+
+### O que estes dois testes fecham — e o que não fecham
+
+Passando A e B, a matriz muda assim:
+
+| Item | Vira |
+|---|---|
+| 6 — G4, instalação limpa | validado |
+| 7 — Modo Corte clicando | validado |
+
+**Continuam abertos, sem qualquer alteração:**
+
+| Item | Por que A e B não o tocam |
+|---|---|
+| 8 — **G1** | exige imprimir e **medir com régua/paquímetro** se a faca cai sobre a arte, em peça assimétrica |
+| 9 — **G3** | exige o roteiro manual de estado por peça (excluir, rearrastar, conferir faca e giro antigos) |
+| 10 — **G5** | exige **CorelDRAW real** instalado, nas versões suportadas, com o plugin |
+| 11 — **G6** | exige abrir os PDF/DXF exportados em **outro programa** e validar lá |
+| 12 — **G7** | exige rodar em **telas pequenas e escalas de 125%/150%** conferindo visualmente |
+| 13 — **`0xc0000374`** | segue aberto; B6 pode até flagrá-lo, mas não o corrige nem prova causa |
+
+Ou seja: A e B **não liberam a publicação sozinhos**. Eles removem dois dos
+sete gates. O veredito só muda para "aprovada para publicar" quando os sete
+estiverem fechados e houver decisão explícita sobre o item 13.
