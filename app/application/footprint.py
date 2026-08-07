@@ -37,7 +37,7 @@ def artwork_footprint(art: Artwork) -> BoundingBox:
     return BoundingBox(min_x, min_y, max_x, max_y)
 
 
-def _giro_reto(rotacao) -> int:
+def giro_reto(rotacao) -> int:
     """Normaliza o giro para 0/90/180/270. Qualquer outro valor vira 0."""
     try:
         graus = int(round(float(rotacao))) % 360
@@ -49,7 +49,7 @@ def _giro_reto(rotacao) -> int:
 def tamanho_ocupado(art: Artwork, rotacao=0) -> Size:
     """Quanto a peca ocupa na chapa JA GIRADA (a 90/270 os lados trocam)."""
     fp = artwork_footprint(art)
-    if _giro_reto(rotacao) in (90, 270):
+    if giro_reto(rotacao) in (90, 270):
         return Size(fp.height, fp.width)
     return Size(fp.width, fp.height)
 
@@ -66,7 +66,7 @@ def mapeador_da_peca(art: Artwork, rotacao=0) -> Callable[[Point2D], Point2D]:
     para a direita.
     """
     fp = artwork_footprint(art)
-    graus = _giro_reto(rotacao)
+    graus = giro_reto(rotacao)
     if graus == 90:
         return lambda p: Point2D(fp.max_y - p.y, p.x - fp.min_x)
     if graus == 180:

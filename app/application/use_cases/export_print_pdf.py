@@ -9,7 +9,7 @@ from app.application.dto.print_placement import (
     PrintRect,
     PrintSheet,
 )
-from app.application.footprint import artwork_footprint
+from app.application.footprint import giro_reto, mapeador_da_peca
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
 from app.application.positioning import (
     corner_l_segments,
@@ -99,16 +99,36 @@ class ExportPrintPdfUseCase:
                 source = sources.get(item.artwork_id)
                 if source is None:
                     raise ValidationError(f"Origem ausente para id {item.artwork_id}.")
-                footprint = artwork_footprint(art)
+                # Giro POR PECA (PlacedItem.rotation), que o nesting de
+                # impressao emite quando encaixa a peca deitada. Soma ao giro
+                # por ARQUIVO, que o cliente aplica na mao. Sem giro por peca a
+                # conta abaixo e identica a de sempre — a arte-local (0,0) cai
+                # em item.position - footprint.min —, entao layout antigo sai
+                # pixel a pixel igual.
+                mapear = mapeador_da_peca(art, item.rotation)
+                cantos = [
+                    mapear(Point2D(x, y))
+                    for x in (0.0, art.size.width)
+                    for y in (0.0, art.size.height)
+                ]
                 position = Point2D(
-                    item.position.x - footprint.min_x + pad_pag,
-                    item.position.y - footprint.min_y + pad_pag,
+                    item.position.x + min(c.x for c in cantos) + pad_pag,
+                    item.position.y + min(c.y for c in cantos) + pad_pag,
                 )
-                rot = rotations.get(item.artwork_id, rotate) if rotations else rotate
+                rot_arte = rotations.get(item.artwork_id, rotate) if rotations else rotate
+                rot_peca = giro_reto(item.rotation)
+                # art.size JA vem girado pelo giro do arquivo (contrato antigo);
+                # so o giro por peca ainda precisa trocar os lados aqui.
+                tamanho = (
+                    Size(art.size.height, art.size.width)
+                    if rot_peca in (90, 270)
+                    else art.size
+                )
                 esp = mirrors.get(item.artwork_id, "") if mirrors else ""
                 placements.append(
                     PrintPlacement(
-                        source[0], source[1], position, art.size, crop_mm, rot, box, esp
+                        source[0], source[1], position, tamanho, crop_mm,
+                        (rot_arte + rot_peca) % 360, box, esp,
                     )
                 )
 

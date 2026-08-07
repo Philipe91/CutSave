@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from app.application.footprint import artwork_footprint
+from app.application.footprint import artwork_footprint, pontos_na_chapa
 from app.domain.cut.corner_marks import (
     CornerLMarkGenerator,
     CrossMarkGenerator,
@@ -33,13 +33,11 @@ def _contours_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list[C
         art = by_id.get(item.artwork_id)
         if art is None or not art.has_cut:
             continue
-        footprint = artwork_footprint(art)
-        # origem art-local (0,0) vai para item.position - footprint.min
-        tx = item.position.x - footprint.min_x + dx
-        ty = item.position.y - footprint.min_y
-        # faca principal + facas adicionais (varios desenhos na mesma peca)
+        # faca principal + facas adicionais (varios desenhos na mesma peca).
+        # pontos_na_chapa honra o giro POR PECA (PlacedItem.rotation); sem giro
+        # a conta e a mesma de sempre, entao layout antigo nao muda 1 mm.
         for faca in (art.cut_contour, *art.extra_cuts):
-            contours.append(CutContour([p.translated(tx, ty) for p in faca.points]))
+            contours.append(CutContour(pontos_na_chapa(art, item, faca.points, dx)))
     return contours
 
 
@@ -55,15 +53,12 @@ def _faca_rects_of(layout: Layout, by_id: dict[str, Artwork], dx: float) -> list
         art = by_id.get(item.artwork_id)
         if art is None or not art.has_cut:
             continue
-        footprint = artwork_footprint(art)
-        tx = item.position.x - footprint.min_x + dx
-        ty = item.position.y - footprint.min_y
         xs: list[float] = []
         ys: list[float] = []
         for faca in (art.cut_contour, *art.extra_cuts):
-            for p in faca.points:
-                xs.append(p.x + tx)
-                ys.append(p.y + ty)
+            for p in pontos_na_chapa(art, item, faca.points, dx):
+                xs.append(p.x)
+                ys.append(p.y)
         rects.append(BoundingBox(min(xs), min(ys), max(xs), max(ys)))
     return rects
 

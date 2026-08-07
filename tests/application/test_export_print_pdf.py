@@ -274,3 +274,57 @@ def test_sem_marcas_nao_aplica_padding():
     ExportPrintPdfUseCase(fake).execute([layout], [art], {"a0": ("x.pdf", 0)}, "out.pdf")
     assert fake.sheets[0].size == Size(1300, 50)
     assert fake.sheets[0].circles == ()
+
+
+# ---- giro POR PECA na impressao (07/08/2026) --------------------------------
+# O nesting de impressao vai passar a encaixar peca deitada. O PDF tem de
+# desenhar a arte GIRADA no espaco girado: se so o espaco girar, as pecas se
+# sobrepoem na chapa e nada acusa.
+
+def _sheets_com_giro(graus, art_w=300.0, art_h=100.0, pos=Point2D(0, 0), **kw):
+    art = _artwork("a0", art_w, art_h, faca=_rect_faca(art_w, art_h))
+    layout = Layout(
+        Material("UV", width=1300), [PlacedItem("a0", pos, graus)], 500.0
+    )
+    uc = ExportPrintPdfUseCase(_FakeExporter())
+    return uc.build_print_sheets([layout], [art], {"a0": ("x.pdf", 0)}, **kw)[0]
+
+
+def test_peca_girada_90_e_desenhada_com_os_lados_trocados():
+    pl = _sheets_com_giro(90).placements[0]
+    assert (pl.size.width, pl.size.height) == (100.0, 300.0)
+    assert pl.rotate == 90
+
+
+def test_peca_girada_180_mantem_os_lados_e_soma_o_giro():
+    pl = _sheets_com_giro(180).placements[0]
+    assert (pl.size.width, pl.size.height) == (300.0, 100.0)
+    assert pl.rotate == 180
+
+
+def test_giro_da_peca_soma_ao_giro_do_arquivo():
+    """O cliente gira o ARQUIVO na mao; o encaixe gira a INSTANCIA. Os dois
+    tem de somar, senao a arte sai virada dentro do retangulo certo."""
+    pl = _sheets_com_giro(90, rotate=90).placements[0]
+    assert pl.rotate == 180
+
+
+def test_giro_da_peca_nao_tira_a_arte_do_espaco_reservado():
+    from app.application.footprint import tamanho_ocupado
+
+    art = _artwork("a0", 300.0, 100.0, faca=_rect_faca(300.0, 100.0))
+    pos = Point2D(200.0, 50.0)
+    pl = _sheets_com_giro(90, pos=pos).placements[0]
+    ocupado = tamanho_ocupado(art, 90)
+    assert pl.position.x >= pos.x - 1e-9
+    assert pl.position.y >= pos.y - 1e-9
+    assert pl.position.x + pl.size.width <= pos.x + ocupado.width + 1e-9
+    assert pl.position.y + pl.size.height <= pos.y + ocupado.height + 1e-9
+
+
+def test_sem_giro_por_peca_nada_muda():
+    """Regressao: o caminho de sempre continua identico ao de antes."""
+    pl = _sheets_com_giro(0, pos=Point2D(7.0, 11.0)).placements[0]
+    assert (pl.size.width, pl.size.height) == (300.0, 100.0)
+    assert pl.rotate == 0
+    assert (pl.position.x, pl.position.y) == (7.0, 11.0)
