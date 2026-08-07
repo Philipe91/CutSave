@@ -1,0 +1,71 @@
+{
+  "o_que_e": "Aproveitamento do nesting do MODO IMPRESSAO (MaxRectsPacker) medido ANTES de mexer no motor. Gerado por scripts/nesting_baseline.py. Piorar qualquer caso reprova a mudança.",
+  "casos": {
+    "identicas-largura-justa": {
+      "chapas": 2,
+      "pecas": 40,
+      "pecas_pedidas": 40,
+      "comprimento_usado_mm": 6000.0,
+      "aproveitamento_pct": 63.969
+    },
+    "identicas-deitadas": {
+      "chapas": 2,
+      "pecas": 40,
+      "pecas_pedidas": 40,
+      "comprimento_usado_mm": 6000.0,
+      "aproveitamento_pct": 63.969
+    },
+    "tamanhos-misturados": {
+      "chapas": 2,
+      "pecas": 58,
+      "pecas_pedidas": 58,
+      "comprimento_usado_mm": 6000.0,
+      "aproveitamento_pct": 48.654
+    },
+    "tiras-compridas": {
+      "chapas": 1,
+      "pecas": 25,
+      "pecas_pedidas": 25,
+      "comprimento_usado_mm": 3000.0,
+      "aproveitamento_pct": 69.231
+    },
+    "poucas-grandes": {
+      "chapas": 2,
+      "pecas": 6,
+      "pecas_pedidas": 6,
+      "comprimento_usado_mm": 6000.0,
+      "aproveitamento_pct": 36.923
+    },
+    "mistura-extrema": {
+      "chapas": 2,
+      "pecas": 87,
+      "pecas_pedidas": 87,
+      "comprimento_usado_mm": 6000.0,
+      "aproveitamento_pct": 52.538
+    },
+    "chapa-estreita": {
+      "chapas": 2,
+      "pecas": 70,
+      "pecas_pedidas": 70,
+      "comprimento_usado_mm": 6000.0,
+      "aproveitamento_pct": 57.556
+    },
+    "sem-espacamento": {
+      "chapas": 1,
+      "pecas": 36,
+      "pecas_pedidas": 36,
+      "comprimento_usado_mm": 3000.0,
+      "aproveitamento_pct": 70.892
+    }
+  },
+  "porque_cada_caso": {
+    "identicas-largura-justa": "muitas peças iguais: mede o desperdício da borda direita",
+    "identicas-deitadas": "as MESMAS peças em pé. Medido em 07/08: dá o mesmo 63,97% do caso anterior — com peças todas iguais o motor já empata nas duas orientações, então o ganho da rotação NÃO vem daqui. Fica no conjunto como controle: se um motor com rotação piorar este caso, quebrou algo",
+    "tamanhos-misturados": "grandes + médias + pequenas: mede se as pequenas preenchem os vãos",
+    "tiras-compridas": "peça quase da largura da chapa: sobra pouco e o encaixe erra feio",
+    "poucas-grandes": "peça grande demais para caber duas lado a lado: metade da chapa vaga",
+    "mistura-extrema": "uma dominante e muitas miúdas: o pior caso do MaxRects hoje",
+    "chapa-estreita": "chapa estreita: pouca liberdade lateral, cada mm conta",
+    "sem-espacamento": "sangria zero: separa o desperdício do motor do desperdício do vão"
+  }
+}
