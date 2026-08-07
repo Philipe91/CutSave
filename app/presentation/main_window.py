@@ -836,6 +836,10 @@ class CropPreview(QWidget):
 
     crop_changed = Signal()
 
+    # zoom: 1.0 = página enquadrada. Não deixa afastar além disso — a página
+    # inteira já cabe, e sair afastando só afasta do que interessa.
+    _ZOOM_MIN, _ZOOM_MAX = 1.0, 24.0
+
     def __init__(self) -> None:
         super().__init__()
         self._pm: QPixmap | None = None
@@ -843,6 +847,13 @@ class CropPreview(QWidget):
         self._ph_mm = 1.0
         self._crop = [0.0, 0.0, 0.0, 0.0]  # esquerda, cima, direita, baixo (mm)
         self._drag: str | None = None
+        # Zoom e deslocamento da vista (07/08, pedido do Philipe). Sem eles,
+        # recortar 2 mm de uma arte grande era chutar: a borda vira meio pixel
+        # na tela. Tudo passa por _geom(), então desenho, bordas e arrasto
+        # acompanham sozinhos.
+        self._zoom = 1.0
+        self._pan = [0.0, 0.0]
+        self._pan_from: tuple[float, float] | None = None
         self.setMinimumSize(380, 380)
         self.setMouseTracking(True)
 
@@ -850,7 +861,17 @@ class CropPreview(QWidget):
         self._pm = pixmap
         self._pw_mm = max(1e-3, w_mm)
         self._ph_mm = max(1e-3, h_mm)
+        self.reset_view()  # página nova volta enquadrada
         self.update()
+
+    def reset_view(self) -> None:
+        """Volta a enquadrar a página inteira (duplo clique)."""
+        self._zoom = 1.0
+        self._pan = [0.0, 0.0]
+        self.update()
+
+    def zoom(self) -> float:
+        return self._zoom
 
     def set_crop(self, left, top, right, bottom) -> None:
         self._crop = [float(left), float(top), float(right), float(bottom)]
@@ -867,11 +888,48 @@ class CropPreview(QWidget):
             pw, ph = self._pm.width(), self._pm.height()
         else:
             pw, ph = self._pw_mm, self._ph_mm
-        s = min(aw / pw, ah / ph)
+        s = min(aw / pw, ah / ph) * self._zoom
         dw, dh = pw * s, ph * s
-        ox = (self.width() - dw) / 2
-        oy = (self.height() - dh) / 2
+        ox = (self.width() - dw) / 2 + self._pan[0]
+        oy = (self.height() - dh) / 2 + self._pan[1]
         return ox, oy, dw, dh, dw / self._pw_mm, dh / self._ph_mm
+
+    def _limitar_pan(self) -> None:
+        """Impede arrastar a página inteiramente para fora da vista."""
+        if self._zoom <= self._ZOOM_MIN:
+            self._pan = [0.0, 0.0]
+            return
+        _ox, _oy, dw, dh, _mx, _my = self._geom()
+        # folga MÍNIMA de 40px em cada eixo, mesmo quando a página é menor que
+        # a janela naquele eixo (página deitada, por exemplo). Zerar ali fazia
+        # o ponto sob o cursor fugir na vertical ao aproximar.
+        folga_x = max(0.0, (dw - self.width()) / 2) + 40
+        folga_y = max(0.0, (dh - self.height()) / 2) + 40
+        self._pan[0] = max(-folga_x, min(folga_x, self._pan[0]))
+        self._pan[1] = max(-folga_y, min(folga_y, self._pan[1]))
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        """Zoom no ponto do cursor — o que o operador espera do Corel."""
+        passo = 1.25 if event.angleDelta().y() > 0 else 1 / 1.25
+        novo = max(self._ZOOM_MIN, min(self._ZOOM_MAX, self._zoom * passo))
+        if novo == self._zoom:
+            event.accept()
+            return
+        ox, oy, dw, dh, _mx, _my = self._geom()
+        x, y = event.position().x(), event.position().y()
+        # fração da página sob o cursor: ela tem de continuar sob o cursor
+        fx = (x - ox) / dw if dw else 0.5
+        fy = (y - oy) / dh if dh else 0.5
+        self._zoom = novo
+        _ox2, _oy2, dw2, dh2, _m2, _m3 = self._geom()
+        self._pan[0] += x - (self.width() - dw2) / 2 - fx * dw2 - self._pan[0]
+        self._pan[1] += y - (self.height() - dh2) / 2 - fy * dh2 - self._pan[1]
+        self._limitar_pan()
+        self.update()
+        event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802, ARG002
+        self.reset_view()
 
     def paintEvent(self, event) -> None:  # noqa: ARG002
         p = QPainter(self)
@@ -918,16 +976,32 @@ class CropPreview(QWidget):
                 if abs(y - edges[e]) < best:
                     best, cand = abs(y - edges[e]), e
         self._drag = cand
+        # longe das bordas e com zoom aplicado: o arrasto desloca a vista
+        # (mesma regra do Modo Corte — a mãozinha só age no vazio)
+        self._pan_from = (
+            (x, y) if cand is None and self._zoom > self._ZOOM_MIN else None
+        )
+        if self._pan_from is not None:
+            self.setCursor(Qt.ClosedHandCursor)
 
     def mouseMoveEvent(self, event) -> None:
         edges, (ox, oy, dw, dh, mmx, mmy) = self._edges()
         x, y = event.position().x(), event.position().y()
+        if self._pan_from is not None:
+            self._pan[0] += x - self._pan_from[0]
+            self._pan[1] += y - self._pan_from[1]
+            self._pan_from = (x, y)
+            self._limitar_pan()
+            self.update()
+            return
         if self._drag is None:
             near_v = abs(x - edges["l"]) < 9 or abs(x - edges["r"]) < 9
             near_h = abs(y - edges["t"]) < 9 or abs(y - edges["b"]) < 9
             self.setCursor(
                 Qt.SizeHorCursor if near_v else
-                (Qt.SizeVerCursor if near_h else Qt.ArrowCursor)
+                (Qt.SizeVerCursor if near_h else
+                 (Qt.OpenHandCursor if self._zoom > self._ZOOM_MIN
+                  else Qt.ArrowCursor))
             )
             return
         left, top, right, bottom = self._crop
@@ -945,6 +1019,9 @@ class CropPreview(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: ARG002
         self._drag = None
+        if self._pan_from is not None:
+            self._pan_from = None
+            self.setCursor(Qt.OpenHandCursor)
 
 
 class _ResizeHandle(QGraphicsRectItem):
@@ -7137,7 +7214,21 @@ class MainWindow(QMainWindow):
 
         # --- coluna direita: pre-visualização ---
         preview = CropPreview()
-        body.addWidget(preview, 1)
+        col_dir = QVBoxLayout()
+        col_dir.setContentsMargins(0, 0, 0, 0)
+        col_dir.setSpacing(theme.SPACE_XS)
+        col_dir.addWidget(preview, 1)
+        # sem esta linha o zoom existe e ninguém acha (foi o que aconteceu com
+        # o zoom do Modo Corte, que virou "não tem zoom" nas notas ao cliente)
+        dica_zoom = QLabel(
+            "Roda do mouse: aproximar · arrastar no vazio: deslocar · "
+            "duplo clique: enquadrar"
+        )
+        dica_zoom.setProperty("role", "caption")
+        dica_zoom.setAlignment(Qt.AlignCenter)
+        dica_zoom.setStyleSheet(f"color: {theme.TEXT_MUTED};")
+        col_dir.addWidget(dica_zoom)
+        body.addLayout(col_dir, 1)
 
         # binding bidirecional campos <-> preview
         def push_to_preview():
@@ -9885,7 +9976,7 @@ class MainWindow(QMainWindow):
             )
             if not path:
                 return
-        with _wait_cursor():
+        with self._exportando("Exportando PDF de impressão…"):
             self._print_export.execute(
                 sheets, self._result.artworks, self._result.sources, path,
                 **self._print_kwargs(),
@@ -9952,6 +10043,21 @@ class MainWindow(QMainWindow):
             self._status_ctl.end_progress()
         if interactive:
             self._toasts.success(f"{len(gerados)} imagem(ns) exportada(s) a {int(dpi)} DPI")
+
+    @contextmanager
+    def _exportando(self, texto: str):
+        """Cursor de espera + indicador na barra de status.
+
+        O cursor sozinho não bastava: em exportação demorada o cliente não
+        sabia se o programa estava trabalhando ou travado (pedido de 07/08).
+        Todas as exportações passam por aqui — antes só a de imagem tinha
+        indicador, e ficar com uma diferente das outras é pior que nenhuma."""
+        self._status_ctl.start_progress(texto)
+        try:
+            with _wait_cursor():
+                yield
+        finally:
+            self._status_ctl.end_progress()
 
     def _maior_pagina_mm(self, sheets) -> tuple[float, float]:
         """Maior página (mm) entre as chapas selecionadas — é ela que manda no
@@ -10081,7 +10187,7 @@ class MainWindow(QMainWindow):
             )
             if not path:
                 return
-        with _wait_cursor():
+        with self._exportando("Exportando DXF de corte…"):
             contours, segments, marks, mark_segments, mark_polys = self._dxf_payload(sheets)
             self._dxf_export.execute(
                 contours, path, segments=segments, marks=marks,
@@ -10107,7 +10213,7 @@ class MainWindow(QMainWindow):
         stem = str(Path(base_path).with_suffix(""))
         ext = Path(base_path).suffix or ".dxf"
         gerados = []
-        with _wait_cursor():
+        with self._exportando("Exportando DXF por chapa…"):
             for i, sheet in enumerate(sheets, start=1):
                 contours, segments, marks, mark_segments, mark_polys = self._dxf_payload([sheet])
                 out = f"{stem}_{i:02d}{ext}"
@@ -10179,6 +10285,7 @@ class MainWindow(QMainWindow):
 
         _FACA_PEN = {"color": (0.86, 0.0, 0.0), "width_pt": 0.5}  # faca (vermelho)
         QApplication.setOverrideCursor(Qt.WaitCursor)  # ver _wait_cursor
+        self._status_ctl.start_progress("Exportando faca em PDF…")
         writer = PdfWriter()
         try:
             for sheet in sheets:
@@ -10241,6 +10348,7 @@ class MainWindow(QMainWindow):
                         )
             writer.save(path)
         finally:
+            self._status_ctl.end_progress()
             QApplication.restoreOverrideCursor()
             writer.close()
         if interactive:
@@ -10283,7 +10391,7 @@ class MainWindow(QMainWindow):
             )
             if not path:
                 return
-        with _wait_cursor():
+        with self._exportando("Exportando faca IECHO…"):
             sheet_width = sheets[0].material.width
             segments = []
             for index, layout in enumerate(sheets):
