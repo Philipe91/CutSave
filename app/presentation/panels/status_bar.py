@@ -7,7 +7,7 @@ de visualização. Atualizado pela janela conforme a produção e o mouse mudam.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QLabel, QStatusBar
+from PySide6.QtWidgets import QLabel, QProgressBar, QStatusBar
 
 from app.presentation import icons, theme, units
 
@@ -24,6 +24,20 @@ class StatusBarController:
         self._mode = self._add_right("eye", "—")
         self._zoom = self._add_right("maximize", "100%")
         self._cursor = self._add_right("ruler", units.fmt_xy(0.0, 0.0))
+        # Progresso de tarefa longa (exportacao). Fica escondido ate comecar:
+        # sem ele a exportacao de uma chapa pesada parecia travamento.
+        self._task = QLabel("")
+        self._task.setProperty("role", "caption")
+        self._task.setContentsMargins(2, 0, theme.SPACE_SM, 0)
+        self._task.hide()
+        self._progress = QProgressBar()
+        self._progress.setTextVisible(False)
+        self._progress.setFixedWidth(140)
+        self._progress.setFixedHeight(10)
+        self._progress.setContentsMargins(0, 0, theme.SPACE_MD, 0)
+        self._progress.hide()
+        self._bar.addWidget(self._task)
+        self._bar.addWidget(self._progress)
 
     def _add_left(self, icon_name: str, text: str) -> QLabel:
         ico = QLabel()
@@ -61,3 +75,40 @@ class StatusBarController:
 
     def set_mode(self, text: str) -> None:
         self._mode.setText(text)
+
+    # ---- progresso de tarefa longa ----
+    def start_progress(self, text: str = "") -> None:
+        """Mostra o progresso em modo indeterminado (ainda sem fração)."""
+        self._task.setText(text)
+        self._task.setVisible(bool(text))
+        self._progress.setRange(0, 0)  # indeterminado ate a primeira fracao
+        self._progress.show()
+        self._repaint()
+
+    def set_progress(self, fraction: float, text: str = "") -> None:
+        """Atualiza o progresso (0..1). Repinta na hora, sem processEvents:
+        processar eventos aqui reentraria na janela no meio da exportacao."""
+        if text and text != self._task.text():
+            self._task.setText(text)
+            self._task.setVisible(True)
+        pct = max(0, min(100, int(round(fraction * 100))))
+        if pct <= 0:
+            self._progress.setRange(0, 0)
+        else:
+            if self._progress.maximum() == 0:
+                self._progress.setRange(0, 100)
+            self._progress.setValue(pct)
+        self._repaint()
+
+    def end_progress(self) -> None:
+        self._progress.hide()
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._task.clear()
+        self._task.hide()
+        self._repaint()
+
+    def _repaint(self) -> None:
+        for w in (self._task, self._progress):
+            if w.isVisible():
+                w.repaint()

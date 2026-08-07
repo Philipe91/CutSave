@@ -4,10 +4,14 @@ MESMA marca fisica no preview (cena), no PDF de impressao exportado e no DXF
 de corte exportado — em COORDENADAS REAIS (mm), lendo os arquivos gerados de
 verdade (fitz/ezdxf/pikepdf), nao so contando entidades.
 
-O PDF de impressao soma um `pad` (window._faca_pad()) porque a pagina cresce
-para caber as marcas; o DXF e o preview (cena) trabalham nas coordenadas CRUAS
-da chapa (sem pad). Por isso toda comparacao PDF<->DXF/preview soma/subtrai
-esse pad antes de comparar.
+O PDF de impressao soma o `pad` de pagina (window._pad_pagina(material)); o DXF
+e o preview (cena) trabalham nas coordenadas CRUAS da chapa. Por isso toda
+comparacao PDF<->DXF/preview soma/subtrai esse pad antes de comparar.
+
+Desde 06/08/2026 o encaixe RESERVA a folga das marcas dentro da chapa
+(Material.margin), entao esse pad de pagina normalmente e ZERO e os tres falam
+o mesmo sistema de coordenadas. Ele so volta a ser positivo em layout que veio
+sem reserva. O teste usa _pad_pagina de proposito: assim vale nos dois casos.
 """
 
 import os
@@ -215,12 +219,53 @@ def _assert_same_points(a, b, tol=0.5, pad=(0.0, 0.0, 0.0, 0.0)):
 REG_TYPES = ("none", "circles", "mimaki", "both", "squares", "crosses", "corner_l")
 
 
+# ---- aviso de marca que nao cabe na chapa (06/08/2026) ----------------------
+# Decisao: NAO reservar area da chapa para o registro (isso gastava chapa a
+# mais). Quando a marca nao cabe, o cliente e avisado e ajusta — mas o aviso
+# tem de dizer QUAL campo mexer e para QUE valor, senao nao serve de nada.
+
+def test_chapa_folgada_nao_avisa_nada(qapp, tmp_path):
+    w = _reg_window(tmp_path, "circles", margin=12.0, size=8.0, cfg="folga")
+    assert w._aviso_marcas(w._effective_sheets(), w._result.artworks) is None
+
+
+def test_sem_registro_nunca_avisa(qapp, tmp_path):
+    w = _reg_window(tmp_path, "none", cfg="sem_reg")
+    w._width.setValue(45.0)
+    w.generate(blocking=True)
+    assert w._aviso_marcas(w._effective_sheets(), w._result.artworks) is None
+
+
+def test_chapa_cheia_avisa_com_o_numero_para_corrigir(qapp, tmp_path):
+    """A faca da arte de 40 mm mede 46 (sangria de 3 por lado). Com folga de
+    20 (12+8) de cada lado ela precisa de 86 mm; na chapa de 70, faltam 16."""
+    w = _reg_window(tmp_path, "circles", margin=12.0, size=8.0, cfg="cheia")
+    w._width.setValue(70.0)
+    w.generate(blocking=True)
+    aviso = w._aviso_marcas(w._effective_sheets(), w._result.artworks)
+    assert aviso is not None
+    assert "faltam 16 mm" in aviso
+    assert "Marcas: afastamento" in aviso
+    assert "para 4 mm" in aviso  # 12 - 16/2
+
+
+def test_quando_zerar_o_afastamento_nao_basta_o_aviso_muda(qapp, tmp_path):
+    """Marca grande demais: mandar reduzir o afastamento seria conselho falso."""
+    w = _reg_window(tmp_path, "circles", margin=2.0, size=30.0, cfg="grande")
+    w._width.setValue(50.0)
+    w.generate(blocking=True)
+    aviso = w._aviso_marcas(w._effective_sheets(), w._result.artworks)
+    assert aviso is not None
+    assert "tamanho da marca" in aviso
+    assert "Baixe" not in aviso
+
+
 @pytest.mark.parametrize("reg_type", REG_TYPES)
 def test_marca_bate_preview_pdf_dxf_por_tipo(qapp, tmp_path, reg_type):
     margin, size, thickness = 12.0, 8.0, 1.1
     w = _reg_window(tmp_path, reg_type, margin=margin, size=size,
                      thickness=thickness, cfg=reg_type)
-    pad = w._faca_pad()
+    pad = w._pad_pagina(w._material())
 
     dxf_path = tmp_path / f"{reg_type}_corte.dxf"
     w.export_dxf(str(dxf_path))

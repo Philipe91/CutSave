@@ -159,6 +159,7 @@ from app.presentation import (
     units,
 )
 from app.presentation.panels import ribbon as ribbon_panel
+from app.presentation.panels.dpi_dialog import DpiDialog, LeituraDpi
 from app.presentation.panels.status_bar import StatusBarController
 from app.presentation.widgets import (
     Alert,
@@ -1373,10 +1374,18 @@ class ExportCenterDialog(QDialog):
         dpi_row.addWidget(QLabel("DPI da imagem"))
         self._opt_dpi = _spin(30, 1200)
         self._opt_dpi.setValue(int(window._settings.export_dpi))
+        self._opt_dpi.valueChanged.connect(lambda _: self._update_dpi_hint())
         dpi_row.addWidget(self._opt_dpi)
         dpi_row.addStretch()
+        # mesmo indicador do diálogo de DPI: só o peso da exportação, ao vivo
+        self._dpi_hint = LeituraDpi()
+        dpi_box = QVBoxLayout()
+        dpi_box.setContentsMargins(0, 0, 0, 0)
+        dpi_box.setSpacing(theme.SPACE_XS)
+        dpi_box.addLayout(dpi_row)
+        dpi_box.addWidget(self._dpi_hint)
         self._dpi_host = QWidget()
-        self._dpi_host.setLayout(dpi_row)
+        self._dpi_host.setLayout(dpi_box)
         right.addWidget(self._dpi_host)
         right.addStretch()
 
@@ -1390,7 +1399,23 @@ class ExportCenterDialog(QDialog):
         root.addLayout(right, 1)
 
         self._sync_options()
+        self._update_dpi_hint()
         self._update_preview()
+
+    def _update_dpi_hint(self) -> None:
+        """Peso da exportação no DPI escolhido, ao vivo.
+
+        Aqui o formato ainda não foi escolhido (isso acontece na hora de dar o
+        nome do arquivo), então usa o limite do PNG — o mais permissivo. O
+        limite extra do JPEG aparece no diálogo de DPI, que já sabe o formato."""
+        try:
+            larg, alt = self._w._maior_pagina_mm(self._w._effective_sheets())
+        except Exception:
+            larg = alt = 0.0
+        if larg <= 0 or alt <= 0:
+            self._dpi_hint.limpar()
+            return
+        self._dpi_hint.atualizar(larg, alt, int(self._opt_dpi.value()), "png")
 
     def _set_all(self, on: bool) -> None:
         self._pick_sheets_mode()  # usar Todas/Nenhuma = exportar chapas
@@ -5831,12 +5856,23 @@ class MainWindow(QMainWindow):
         self._reg_type.addItem("L de canto", "corner_l")  # sem quadro (difere da Mimaki)
         self._reg_type.currentIndexChanged.connect(lambda _: self._relayout(renest=False))
         self._reg_type.currentIndexChanged.connect(
-            lambda _: self._update_reg_thickness_state()
+            lambda _: self._update_reg_fields_state()
         )
         card.body.addWidget(labeled("Tipo de registro", self._reg_type))
+        # GRUPO 1 - formas ao redor da arte (círculo, quadrado, cruz, L de canto).
+        # Sem o valueChanged destes dois, digitar afastamento/tamanho nao
+        # redesenhava nada e parecia campo morto (relato de 06/08).
         self._reg_margin = LengthSpin(0, 200)
+        self._reg_margin.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._reg_diameter = LengthSpin(1, 50)
-        self._grid_fields(card.body, [
+        self._reg_diameter.valueChanged.connect(lambda _: self._relayout(renest=False))
+        self._reg_thickness = LengthSpin(0.3, 2.0)
+        self._reg_thickness.valueChanged.connect(lambda _: self._relayout(renest=False))
+        self._reg_group = QWidget()
+        reg_box = QVBoxLayout(self._reg_group)
+        reg_box.setContentsMargins(0, 0, 0, 0)
+        reg_box.setSpacing(theme.SPACE_MD)
+        self._grid_fields(reg_box, [
             ("Marcas: afastamento", self._reg_margin,
              "Distância das marcas até a arte (mm).\n"
              "Vale para círculos, quadrados, cruzes e L de canto."),
@@ -5844,28 +5880,34 @@ class MainWindow(QMainWindow):
              "Tamanho da marca (mm): diâmetro do círculo, lado do\n"
              "quadrado, comprimento da cruz e dos braços do L."),
         ])
-        self._reg_thickness = LengthSpin(0.3, 2.0)
-        self._reg_thickness.valueChanged.connect(lambda _: self._relayout(renest=False))
-        card.body.addWidget(self._labeled_tip(
+        reg_box.addWidget(self._labeled_tip(
             "Marcas: espessura do traço", self._reg_thickness,
             "Espessura do traço (mm) das cruzes e dos Ls de canto.\n"
             "Formas cheias (círculo/quadrado) não usam espessura."
         ))
-        self._update_reg_thickness_state()
+        card.body.addWidget(self._reg_group)
+        # GRUPO 2 - SÓ as marcas em L da Mimaki (quadro + L nos quatro cantos).
         self._mk_distance = LengthSpin(0, 200)
         self._mk_distance.valueChanged.connect(lambda _: self._relayout(renest=False))
         self._mk_size = LengthSpin(1, 100)
         self._mk_size.valueChanged.connect(lambda _: self._relayout(renest=False))
-        self._grid_fields(card.body, [
+        self._mk_thickness = LengthSpin(0.1, 10)
+        self._mk_thickness.valueChanged.connect(lambda _: self._relayout(renest=False))
+        self._mk_group = QWidget()
+        mk_box = QVBoxLayout(self._mk_group)
+        mk_box.setContentsMargins(0, 0, 0, 0)
+        mk_box.setSpacing(theme.SPACE_MD)
+        self._grid_fields(mk_box, [
             ("Distância da marca", self._mk_distance,
-             "Distância do quadro (frame) até o conteudo (mm)."),
+             "Marcas em L: distância do quadro até o conteudo (mm)."),
             ("Tamanho da marca", self._mk_size, "Tamanho das marcas em L (mm)."),
         ])
-        self._mk_thickness = LengthSpin(0.1, 10)
-        card.body.addWidget(self._labeled_tip(
+        mk_box.addWidget(self._labeled_tip(
             "Espessura da marca", self._mk_thickness,
-            "Espessura das marcas de registro (mm)."
+            "Espessura do traço (mm) das marcas em L."
         ))
+        card.body.addWidget(self._mk_group)
+        self._update_reg_fields_state()
         return card
 
     def _build_cartelas_tab(self) -> QWidget:
@@ -6326,6 +6368,23 @@ class MainWindow(QMainWindow):
         canto); nas formas cheias o campo fica desabilitado."""
         if hasattr(self, "_reg_thickness"):
             self._reg_thickness.setEnabled(self._reg() in ("crosses", "corner_l"))
+
+    def _update_reg_fields_state(self) -> None:
+        """Mostra só os campos que valem para o tipo de registro escolhido.
+
+        Os dois grupos governam marcas DIFERENTES: o de cima vale para
+        círculo/quadrado/cruz/L de canto, o de baixo só para as marcas em L da
+        Mimaki. Com os dois sempre visíveis e rótulos quase iguais ("Marcas:
+        tamanho" × "Tamanho da marca"), o cliente editava o grupo errado e
+        concluía que o campo não funcionava (relato de 06/08)."""
+        reg = self._reg()
+        if hasattr(self, "_reg_group"):
+            self._reg_group.setVisible(
+                reg in ("circles", "both", "squares", "crosses", "corner_l")
+            )
+        if hasattr(self, "_mk_group"):
+            self._mk_group.setVisible(reg in ("mimaki", "both"))
+        self._update_reg_thickness_state()
 
     def _effective_offset(self) -> float:
         # campo único com sinal: +fora (sangria), -dentro (recuo)
@@ -7361,11 +7420,22 @@ class MainWindow(QMainWindow):
 
     # ---- produção ----
     def _material(self) -> Material:
+        # Sem reserva para as marcas de propósito (decisão de 06/08): reservar
+        # encolhia a área útil e gastava chapa a mais só por causa do registro.
+        # A marca é acomodada DENTRO da chapa na hora de posicioná-la, e o
+        # cliente é avisado quando não dá para acomodar — ver _aviso_marcas.
         return Material(
             name="MVP", width=float(self._width.value()),
             spacing=float(self._spacing.value()),
             spacing_y=float(self._spacing_v.value()),
         )
+
+    def _pad_pagina(self, material) -> float:
+        """Quanto a página ainda precisa crescer além da chapa.
+
+        Zero quando o encaixe já reservou a folga das marcas (o caso normal);
+        positivo só em layout antigo/externo que veio sem reserva."""
+        return max(0.0, self._faca_pad() - float(getattr(material, "margin", 0.0)))
 
     # ---- cartelas (fluxo Mimaki + IECHO) ----
     def _cartela_enabled(self) -> bool:
@@ -7923,6 +7993,8 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self._alert.show_message(level, first.text)
+        elif (marcas := self._aviso_marcas(sheets, artworks)) is not None:
+            self._alert.show_message(AlertLevel.WARNING, marcas)
         elif self._faca_notice is not None:
             level = {"warning": AlertLevel.WARNING, "error": AlertLevel.ERROR}.get(
                 self._faca_notice[0], AlertLevel.INFO
@@ -7932,6 +8004,54 @@ class MainWindow(QMainWindow):
             self._alert.clear()
         self._update_property_bar()  # mantem a barra Projeto (peças/chapas) em dia
         self._update_resumo()  # mantem o card "Resumo da produção" sincronizado
+
+    def _campo_afastamento(self) -> tuple[str, float]:
+        """Qual campo manda no afastamento da marca do tipo escolhido."""
+        if self._reg() == "mimaki":
+            return "Distância da marca", float(self._mk_distance.value())
+        return "Marcas: afastamento", float(self._reg_margin.value())
+
+    def _aviso_marcas(self, sheets, artworks) -> str | None:
+        """Marca de registro passando da largura da chapa? Diz o que mudar.
+
+        Decisão de 06/08: NÃO reservamos área da chapa para o registro — isso
+        gastava chapa a mais. Quando a marca não cabe, quem ajusta é o cliente;
+        o trabalho daqui é ele descobrir na hora, e saber QUAL número mexer, em
+        vez de achar o problema no Corel depois de exportar."""
+        from app.application.positioning import cuts_bounding_box
+
+        if not sheets or self._reg() == "none":
+            return None
+        pad = self._faca_pad()
+        if pad <= 0:
+            return None
+        # O encaixe sempre começa em x=0, então "espaço livre à esquerda" não
+        # diz nada. O que decide é se a ARTE MAIS AS MARCAS cabem na largura:
+        # com a chapa cheia não cabem, e é aí que a marca vaza.
+        falta = None
+        for lay in sheets:
+            bbox = cuts_bounding_box(lay, artworks)
+            if bbox is None:
+                continue
+            usado = (bbox.max_x - bbox.min_x) + 2 * pad
+            sobra = usado - float(lay.material.width)
+            if falta is None or sobra > falta:
+                falta = sobra
+        if falta is None or falta <= 0.05:  # 0,05 mm = ruído de float
+            return None
+        campo, atual = self._campo_afastamento()
+        novo = atual - falta / 2  # a folga é dos DOIS lados
+        if novo >= 0:
+            return (
+                f"As marcas de registro não cabem na largura da chapa: faltam "
+                f'{falta:.0f} mm. Baixe "{campo}" para {novo:.0f} mm — ou '
+                f"aumente a largura da chapa."
+            )
+        return (
+            f"As marcas de registro não cabem na largura da chapa: faltam "
+            f'{falta:.0f} mm, e zerar "{campo}" ainda não resolve. Reduza o '
+            f"tamanho da marca ou aumente a largura da chapa."
+        )
 
     def _refresh_preview(self) -> None:
         if self._result is not None:
@@ -9673,16 +9793,8 @@ class MainWindow(QMainWindow):
             if interactive:
                 QMessageBox.warning(self, "PrintNest", "Nenhuma chapa selecionada.")
             return
-        if dpi is None:
-            if interactive:
-                dpi, ok = QInputDialog.getInt(
-                    self, "Exportar Imagem", "Resolucao (DPI):",
-                    int(self._settings.export_dpi), 30, 1200, 10,
-                )
-                if not ok:
-                    return
-            else:
-                dpi = int(self._settings.export_dpi)
+        # o NOME vem antes do DPI de propósito: é o nome que define PNG ou JPEG,
+        # e o limite de tamanho do JPEG muda a leitura mostrada ao vivo
         if interactive:
             path, _ = QFileDialog.getSaveFileName(
                 self, "Exportar Imagem",
@@ -9693,15 +9805,46 @@ class MainWindow(QMainWindow):
                 return
         if image_format is None:
             image_format = "jpeg" if Path(path).suffix.lower() in (".jpg", ".jpeg") else "png"
+        if dpi is None:
+            if interactive:
+                # Leitura ao vivo do risco ENQUANTO o cliente escolhe o número.
+                # Avisar na hora de digitar, e não recusar depois de ele
+                # esperar: o arquivo é dele, quem decide exportar é ele
+                # (decisão de 06/08). Ver panels/dpi_dialog.py.
+                larg, alt = self._maior_pagina_mm(sheets)
+                dlg = DpiDialog(
+                    self, larg, alt, image_format, int(self._settings.export_dpi)
+                )
+                if dlg.exec() != QDialog.Accepted:
+                    return
+                dpi = dlg.dpi()
+            else:
+                dpi = int(self._settings.export_dpi)
         self._settings.export_dpi = int(dpi)
         self._store.save(self._settings)
-        with _wait_cursor():
-            gerados = self._print_export.execute_image(
-                sheets, self._result.artworks, self._result.sources, path,
-                dpi=int(dpi), image_format=image_format, **self._print_kwargs(),
-            )
+        self._status_ctl.start_progress("Exportando imagem…")
+        try:
+            with _wait_cursor():
+                gerados = self._print_export.execute_image(
+                    sheets, self._result.artworks, self._result.sources, path,
+                    dpi=int(dpi), image_format=image_format,
+                    progresso=self._status_ctl.set_progress,
+                    **self._print_kwargs(),
+                )
+        finally:
+            self._status_ctl.end_progress()
         if interactive:
             self._toasts.success(f"{len(gerados)} imagem(ns) exportada(s) a {int(dpi)} DPI")
+
+    def _maior_pagina_mm(self, sheets) -> tuple[float, float]:
+        """Maior página (mm) entre as chapas selecionadas — é ela que manda no
+        tamanho da imagem e, portanto, no risco do DPI escolhido."""
+        larg = alt = 0.0
+        for lay in sheets:
+            pad = self._pad_pagina(lay.material)
+            larg = max(larg, float(lay.material.width) + 2 * pad)
+            alt = max(alt, float(lay.used_length) + 2 * pad)
+        return larg, alt
 
     @staticmethod
     def _parse_pages(spec: str, total: int) -> list[int]:
@@ -9917,12 +10060,15 @@ class MainWindow(QMainWindow):
                 return
         from app.infrastructure.exporters.pdf_writer import PdfWriter
 
-        pad = self._faca_pad()  # folga para as marcas caberem na página
         _FACA_PEN = {"color": (0.86, 0.0, 0.0), "width_pt": 0.5}  # faca (vermelho)
         QApplication.setOverrideCursor(Qt.WaitCursor)  # ver _wait_cursor
         writer = PdfWriter()
         try:
             for sheet in sheets:
+                # zero quando o encaixe já reservou a folga das marcas: a
+                # página da faca acompanha a da impressão, senão as duas
+                # deixariam de bater em coordenada
+                pad = self._pad_pagina(sheet.material)
                 writer.new_page(
                     sheet.material.width + 2 * pad,
                     sheet.used_length + 2 * pad,

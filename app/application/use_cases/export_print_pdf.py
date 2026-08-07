@@ -85,6 +85,12 @@ class ExportPrintPdfUseCase:
 
         print_sheets: list[PrintSheet] = []
         for layout in layouts:
+            # A pagina so cresce no que o encaixe ainda NAO reservou. Com a
+            # reserva feita (Material.margin >= pad), a pagina sai do tamanho
+            # exato da chapa e a marca fica DENTRO do perimetro — antes, com a
+            # chapa cheia, ela caia para fora (relato de 06/08). Layout antigo
+            # ou externo, sem reserva, mantem o comportamento de sempre.
+            pad_pag = max(0.0, pad - float(getattr(layout.material, "margin", 0.0)))
             placements = []
             for item in layout.items:
                 art = by_id.get(item.artwork_id)
@@ -95,8 +101,8 @@ class ExportPrintPdfUseCase:
                     raise ValidationError(f"Origem ausente para id {item.artwork_id}.")
                 footprint = artwork_footprint(art)
                 position = Point2D(
-                    item.position.x - footprint.min_x + pad,
-                    item.position.y - footprint.min_y + pad,
+                    item.position.x - footprint.min_x + pad_pag,
+                    item.position.y - footprint.min_y + pad_pag,
                 )
                 rot = rotations.get(item.artwork_id, rotate) if rotations else rotate
                 esp = mirrors.get(item.artwork_id, "") if mirrors else ""
@@ -107,12 +113,15 @@ class ExportPrintPdfUseCase:
                 )
 
             circles, lines, rects = self._marks(
-                layout, artworks, reg_type, pad,
+                layout, artworks, reg_type, pad_pag,
                 reg_margin_mm, reg_diameter_mm, reg_thickness_mm,
                 mimaki_distance_mm, mimaki_size_mm, mimaki_thickness_mm,
                 mimaki_frames_for=mimaki_frames_for,
             )
-            sheet_size = Size(layout.material.width + 2 * pad, layout.used_length + 2 * pad)
+            sheet_size = Size(
+                layout.material.width + 2 * pad_pag,
+                layout.used_length + 2 * pad_pag,
+            )
             print_sheets.append(
                 PrintSheet(tuple(placements), sheet_size, circles, lines, rects)
             )
@@ -139,12 +148,14 @@ class ExportPrintPdfUseCase:
         *,
         dpi: int = 150,
         image_format: str = "png",
+        progresso: Callable[[float, str], None] | None = None,
         **kwargs,
     ) -> list[str]:
         """Exporta a impressao como imagem (PNG/JPEG) no DPI pedido."""
         print_sheets = self.build_print_sheets(sheets, artworks, sources, **kwargs)
         return self._exporter.export_image(
-            print_sheets, output_path, dpi=dpi, image_format=image_format
+            print_sheets, output_path, dpi=dpi, image_format=image_format,
+            progresso=progresso,
         )
 
     @staticmethod

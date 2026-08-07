@@ -34,6 +34,58 @@ def _layout(items, used_length=98.0):
     return Layout(Material("UV", width=1300), items, used_length)
 
 
+# ---- marca dentro do perimetro (06/08/2026) ---------------------------------
+# Antes, a pagina crescia `pad` para as marcas caberem e o encaixe usava a
+# chapa inteira: com a chapa CHEIA, a marca (que nasce ao redor da faca) caia
+# para fora do perimetro. Agora o encaixe reserva a folga (Material.margin) e a
+# pagina sai do tamanho exato da chapa.
+
+_REG_MARGIN, _REG_DIAM = 12.0, 8.0
+_PAD = _REG_MARGIN + _REG_DIAM
+
+
+def _chapa_cheia(margin):
+    """Chapa 300 de largura com a peca encostando nas bordas da area util."""
+    largura, comprimento = 300.0, 200.0
+    util_w = largura - 2 * margin
+    util_h = comprimento - 2 * margin
+    art = _artwork("a0", util_w, util_h, faca=_rect_faca(util_w, util_h))
+    item = PlacedItem("a0", Point2D(margin, margin))
+    material = Material("UV", width=largura, margin=margin)
+    return Layout(material, [item], comprimento), [art]
+
+
+def _circulos(layout, arts):
+    uc = ExportPrintPdfUseCase(_FakeExporter())
+    folhas = uc.build_print_sheets(
+        [layout], arts, {"a0": ("x.pdf", 0)},
+        reg_type="circles", reg_margin_mm=_REG_MARGIN, reg_diameter_mm=_REG_DIAM,
+    )
+    return folhas[0]
+
+
+def test_chapa_cheia_mantem_a_marca_dentro_do_perimetro():
+    folha = _circulos(*_chapa_cheia(margin=_PAD))
+    assert folha.size.width == pytest.approx(300.0), "pagina cresceu alem da chapa"
+    assert folha.size.height == pytest.approx(200.0)
+    for c in folha.circles:
+        r = c.diameter / 2
+        assert -1e-6 <= c.center.x - r and c.center.x + r <= 300.0 + 1e-6
+        assert -1e-6 <= c.center.y - r and c.center.y + r <= 200.0 + 1e-6
+
+
+def test_layout_sem_reserva_mantem_o_comportamento_antigo():
+    """Projeto antigo (margin=0) continua crescendo a pagina como sempre."""
+    folha = _circulos(*_chapa_cheia(margin=0.0))
+    assert folha.size.width == pytest.approx(300.0 + 2 * _PAD)
+    assert folha.size.height == pytest.approx(200.0 + 2 * _PAD)
+
+
+def test_reserva_parcial_cresce_so_o_que_falta():
+    folha = _circulos(*_chapa_cheia(margin=_PAD / 2))
+    assert folha.size.width == pytest.approx(300.0 + _PAD)
+
+
 class _FakeExporter(IPrintPdfExporter):
     def __init__(self):
         self.sheets = None
@@ -46,11 +98,13 @@ class _FakeExporter(IPrintPdfExporter):
         self.sheets = list(sheets)
         self.path = output_path
 
-    def export_image(self, sheets, output_path, *, dpi=150, image_format="png"):
+    def export_image(self, sheets, output_path, *, dpi=150, image_format="png",
+                     progresso=None):
         self.image_sheets = list(sheets)
         self.path = output_path
         self.dpi = dpi
         self.fmt = image_format
+        self.progresso = progresso
         return [output_path]
 
 
