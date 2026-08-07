@@ -523,7 +523,8 @@ class SnapshotCommand(QUndoCommand):
 class PieceItem(QGraphicsRectItem):
     """Peça na área de trabalho: selecionavel e movel (arte + faca como filhos)."""
 
-    def __init__(self, width, height, *, artwork_id, name, art_size, sheet_index, dx, dy):
+    def __init__(self, width, height, *, artwork_id, name, art_size, sheet_index,
+                 dx, dy, giro=0):
         super().__init__(0.0, 0.0, width, height)
         self.artwork_id = artwork_id
         self.piece_name = name
@@ -531,6 +532,13 @@ class PieceItem(QGraphicsRectItem):
         self.sheet_index = sheet_index
         self.dx = dx
         self.dy = dy
+        # Giro POR PEÇA que o encaixe decidiu (0/90/180/270). A peça CARREGA o
+        # próprio giro porque o caminho de volta tela->modelo recria PlacedItem
+        # em uma dúzia de lugares (mover, duplicar, repetir, desfazer, restaurar
+        # arranjo). Enquanto isto não existia, cada um desses recriava a peça
+        # SEM giro na mesma coordenada, e a peça deitada voltava em pé por cima
+        # da vizinha (relato de 07/08). Usar sempre PieceItem.giro ao remontar.
+        self.giro = int(giro) % 360
         self.snap: SnapConfig | None = None
         self.sheet_rect: tuple[float, float, float, float] | None = None
         self.setPen(QPen(Qt.NoPen))
@@ -2816,6 +2824,13 @@ class MainWindow(QMainWindow):
                             "id": item.artwork_id,
                             "x": round(float(item.position.x), 3),
                             "y": round(float(item.position.y), 3),
+                            # giro POR PEÇA. Chave ADITIVA: projeto salvo antes
+                            # dela abre com giro 0, e versão antiga do app
+                            # ignora. Sem guardar isto, a peça que o encaixe
+                            # pôs deitada voltava EM PÉ na mesma coordenada ao
+                            # reabrir — em cima da vizinha (relato de 07/08).
+                            **({"giro": giro_reto(item.rotation)}
+                               if giro_reto(item.rotation) else {}),
                         }
                         for item in layout.items
                     ],
@@ -5002,7 +5017,7 @@ class MainWindow(QMainWindow):
                 else:
                     px, py = dx, dy
                 add.setdefault(piece.sheet_index, []).append(
-                    PlacedItem(piece.artwork_id, Point2D(px, py))
+                    PlacedItem(piece.artwork_id, Point2D(px, py), piece.giro)
                 )
         self._clear_ghost()
         self._suppress_ghost = True
@@ -5037,7 +5052,11 @@ class MainWindow(QMainWindow):
                     if c == 0 and r == 0:
                         continue
                     add.setdefault(piece.sheet_index, []).append(
-                        PlacedItem(piece.artwork_id, Point2D(bx + c * (w + sh), by + r * (h + sv)))
+                        PlacedItem(
+                            piece.artwork_id,
+                            Point2D(bx + c * (w + sh), by + r * (h + sv)),
+                            piece.giro,
+                        )
                     )
         self._clear_ghost()
         self._suppress_ghost = True
@@ -7805,6 +7824,7 @@ class MainWindow(QMainWindow):
                     items.append(PlacedItem(
                         str(it["id"]),
                         Point2D(float(it["x"]), float(it["y"])),
+                        giro_reto(it.get("giro", 0)),  # ausente = projeto antigo
                     ))
                     instances.append(art)
                 sheets.append(Layout(material, items, float(chapa["comprimento"])))
@@ -8298,7 +8318,7 @@ class MainWindow(QMainWindow):
                     ocupado.width, ocupado.height,
                     artwork_id=item.artwork_id, name=art.name,
                     art_size=art_size_vista,
-                    sheet_index=index, dx=dx, dy=dy,
+                    sheet_index=index, dx=dx, dy=dy, giro=graus_peca,
                 )
                 piece.setPos(dx + item.position.x, dy + item.position.y)
                 # selecionavel em QUALQUER modo (inclusive tela dividida/só-corte):
@@ -9000,7 +9020,7 @@ class MainWindow(QMainWindow):
             px = piece.scenePos().x() - piece.dx + off
             py = piece.scenePos().y() - piece.dy + off
             add.setdefault(piece.sheet_index, []).append(
-                PlacedItem(piece.artwork_id, Point2D(px, py))
+                PlacedItem(piece.artwork_id, Point2D(px, py), piece.giro)
             )
         self._add_placed(add)
 
@@ -9013,7 +9033,7 @@ class MainWindow(QMainWindow):
             return
         self._piece_clipboard = [
             (p.sheet_index, p.artwork_id,
-             p.scenePos().x() - p.dx, p.scenePos().y() - p.dy)
+             p.scenePos().x() - p.dx, p.scenePos().y() - p.dy, p.giro)
             for p in sel
         ]
         self._paste_count = 0
@@ -9028,11 +9048,21 @@ class MainWindow(QMainWindow):
         off = NUDGE_SUPER_MM * self._paste_count
         valid_ids = {a.id for a in self._result.artworks}
         add: dict[int, list] = {}
-        for sheet_index, art_id, x, y in self._piece_clipboard:
+        for copiada in self._piece_clipboard:
+            # o giro entrou na tupla em 07/08; aceitar a forma antiga de 4
+            # mantém o contrato de "colar nunca quebra", que vale inclusive
+            # para clipboard forjado (test_colar_em_cenarios_hostis_nao_quebra)
+            if len(copiada) == 5:
+                sheet_index, art_id, x, y, giro = copiada
+            elif len(copiada) == 4:
+                sheet_index, art_id, x, y = copiada
+                giro = 0
+            else:
+                continue
             if art_id not in valid_ids:
                 continue  # a peça copiada já saiu desta produção
             add.setdefault(sheet_index, []).append(
-                PlacedItem(art_id, Point2D(x + off, y + off))
+                PlacedItem(art_id, Point2D(x + off, y + off), giro)
             )
         if add:
             self._add_placed(add, text="colar")
@@ -9108,7 +9138,7 @@ class MainWindow(QMainWindow):
                     px = bx + col * (width + gap)
                     py = by + row * (height + gap)
                     add.setdefault(piece.sheet_index, []).append(
-                        PlacedItem(piece.artwork_id, Point2D(px, py))
+                        PlacedItem(piece.artwork_id, Point2D(px, py), piece.giro)
                     )
         self._add_placed(add, text="repetir em grade")
 
@@ -9137,7 +9167,9 @@ class MainWindow(QMainWindow):
         for piece in self._piece_items:
             # scenePos funciona mesmo se a peça estiver dentro de um grupo
             pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
-            moved.setdefault(piece.sheet_index, []).append(PlacedItem(piece.artwork_id, pos))
+            moved.setdefault(piece.sheet_index, []).append(
+                PlacedItem(piece.artwork_id, pos, piece.giro)
+            )
         sheets = []
         for index, layout in enumerate(self._result.sheets):
             items = moved.get(index, [])  # vazio = todas as peças excluidas
@@ -9226,6 +9258,7 @@ class MainWindow(QMainWindow):
                 PlacedItem(
                     i.artwork_id,
                     Point2D(i.position.x - minx, i.position.y - miny),
+                    i.rotation,
                 )
                 for i in layout.items
             ]
@@ -9284,7 +9317,7 @@ class MainWindow(QMainWindow):
         for piece in self._piece_items:
             pos = Point2D(piece.scenePos().x() - piece.dx, piece.scenePos().y() - piece.dy)
             moved.setdefault(piece.sheet_index, []).append(
-                PlacedItem(piece.artwork_id, pos)
+                PlacedItem(piece.artwork_id, pos, piece.giro)
             )
         after = [
             Layout(layout.material, moved.get(i, []), layout.used_length)
@@ -9734,6 +9767,7 @@ class MainWindow(QMainWindow):
             PlacedItem(
                 p.artwork_id,
                 Point2D(p.scenePos().x() - box.x(), p.scenePos().y() - box.y()),
+                p.giro,
             )
             for p in pieces
         ]
