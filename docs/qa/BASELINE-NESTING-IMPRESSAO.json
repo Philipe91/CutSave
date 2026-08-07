@@ -5,57 +5,57 @@
       "chapas": 2,
       "pecas": 40,
       "pecas_pedidas": 40,
-      "comprimento_usado_mm": 6000.0,
-      "aproveitamento_pct": 63.969
+      "comprimento_usado_mm": 4218.0,
+      "aproveitamento_pct": 90.995
     },
     "identicas-deitadas": {
       "chapas": 2,
       "pecas": 40,
       "pecas_pedidas": 40,
-      "comprimento_usado_mm": 6000.0,
-      "aproveitamento_pct": 63.969
+      "comprimento_usado_mm": 4240.0,
+      "aproveitamento_pct": 90.522
     },
     "tamanhos-misturados": {
       "chapas": 2,
       "pecas": 58,
       "pecas_pedidas": 58,
-      "comprimento_usado_mm": 6000.0,
-      "aproveitamento_pct": 48.654
+      "comprimento_usado_mm": 3255.0,
+      "aproveitamento_pct": 89.685
     },
     "tiras-compridas": {
       "chapas": 1,
       "pecas": 25,
       "pecas_pedidas": 25,
-      "comprimento_usado_mm": 3000.0,
-      "aproveitamento_pct": 69.231
+      "comprimento_usado_mm": 2370.0,
+      "aproveitamento_pct": 87.634
     },
     "poucas-grandes": {
       "chapas": 2,
       "pecas": 6,
       "pecas_pedidas": 6,
-      "comprimento_usado_mm": 6000.0,
-      "aproveitamento_pct": 36.923
+      "comprimento_usado_mm": 3620.0,
+      "aproveitamento_pct": 61.198
     },
     "mistura-extrema": {
       "chapas": 2,
       "pecas": 87,
       "pecas_pedidas": 87,
-      "comprimento_usado_mm": 6000.0,
-      "aproveitamento_pct": 52.538
+      "comprimento_usado_mm": 3380.0,
+      "aproveitamento_pct": 93.264
     },
     "chapa-estreita": {
       "chapas": 2,
       "pecas": 70,
       "pecas_pedidas": 70,
-      "comprimento_usado_mm": 6000.0,
-      "aproveitamento_pct": 57.556
+      "comprimento_usado_mm": 3769.0,
+      "aproveitamento_pct": 91.625
     },
     "sem-espacamento": {
       "chapas": 1,
       "pecas": 36,
       "pecas_pedidas": 36,
-      "comprimento_usado_mm": 3000.0,
-      "aproveitamento_pct": 70.892
+      "comprimento_usado_mm": 2160.0,
+      "aproveitamento_pct": 98.462
     }
   },
   "porque_cada_caso": {

@@ -91,7 +91,12 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
-from app.application.footprint import artwork_footprint
+from app.application.footprint import (
+    artwork_footprint,
+    giro_reto,
+    mapeador_da_peca,
+    tamanho_ocupado,
+)
 from app.application.ports.page_renderer import IPageRenderer
 from app.application.positioning import (
     SHEET_GAP_MM,
@@ -123,7 +128,10 @@ from app.application.project_io import (
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.application.use_cases.export_print_pdf import ExportPrintPdfUseCase
 from app.application.use_cases.generate_rectangular_cut import GenerateRectangularCutUseCase
-from app.application.use_cases.run_grid_nesting import RunGridNestingUseCase
+from app.application.use_cases.run_grid_nesting import (
+    GIRO_AUTOMATICO,
+    RunGridNestingUseCase,
+)
 from app.application.use_cases.run_production_pipeline import (
     ProductionResult,
     RunProductionPipelineUseCase,
@@ -1776,7 +1784,9 @@ class MainWindow(QMainWindow):
         self._faca_uc = GenerateRectangularCutUseCase()
         # MaxRects = maximo aproveitamento (preenche os vaos). O grid (em linhas)
         # só e usado na faca compartilhada, que precisa das peças alinhadas.
-        self._nesting_uc = RunGridNestingUseCase(MaxRectsPacker())
+        self._nesting_uc = RunGridNestingUseCase(
+            MaxRectsPacker(allow_rotate=GIRO_AUTOMATICO)
+        )
         self._grid_nesting_uc = RunGridNestingUseCase()
 
         self._paths: list[str] = []
@@ -8217,11 +8227,27 @@ class MainWindow(QMainWindow):
         fp_cache: dict = {}
         params_cache: dict = {}
 
+        map_cache: dict = {}
+
         def fp_of(art):
             fp = fp_cache.get(art.id)
             if fp is None:
                 fp = fp_cache[art.id] = artwork_footprint(art)
             return fp
+
+        def giro_of(art, item):
+            """(graus, mapeador, tamanho ocupado) do giro POR PEÇA.
+
+            Memoizado por (arte, giro) pelo mesmo motivo do fp_cache: com
+            centenas de cópias do mesmo arquivo isto rodava por peça."""
+            graus = giro_reto(item.rotation)
+            chave = (art.id, graus)
+            dado = map_cache.get(chave)
+            if dado is None:
+                dado = map_cache[chave] = (
+                    graus, mapeador_da_peca(art, graus), tamanho_ocupado(art, graus)
+                )
+            return dado
 
         def params_of(art_id):
             p = params_cache.get(art_id)
@@ -8259,9 +8285,19 @@ class MainWindow(QMainWindow):
                 if art is None:
                     continue
                 fp = fp_of(art)
+                # Giro POR PEÇA: gira o CONTEÚDO, nunca o PieceItem. O item
+                # segue alinhado aos eixos, com o tamanho já trocado, então
+                # mover, encaixar (snap) e selecionar continuam funcionando
+                # exatamente como antes — girar o item quebraria os três.
+                graus_peca, mapear, ocupado = giro_of(art, item)
+                art_size_vista = (
+                    Size(art.size.height, art.size.width)
+                    if graus_peca in (90, 270) else art.size
+                )
                 piece = PieceItem(
-                    fp.max_x - fp.min_x, fp.max_y - fp.min_y,
-                    artwork_id=item.artwork_id, name=art.name, art_size=art.size,
+                    ocupado.width, ocupado.height,
+                    artwork_id=item.artwork_id, name=art.name,
+                    art_size=art_size_vista,
                     sheet_index=index, dx=dx, dy=dy,
                 )
                 piece.setPos(dx + item.position.x, dy + item.position.y)
@@ -8279,7 +8315,10 @@ class MainWindow(QMainWindow):
                     # referência Python, senao o PySide as coleta (sumiam ao clicar).
                     self._decor_items.append(piece)
 
-                ax, ay = -fp.min_x, -fp.min_y  # origem da arte relativa a celula
+                # origem da arte relativa a celula, ja girada. Sem giro isto e
+                # exatamente o (-fp.min_x, -fp.min_y) de sempre.
+                origem_arte = mapear(Point2D(0.0, 0.0))
+                ax, ay = origem_arte.x, origem_arte.y
                 if draw_art:
                     p = params_of(item.artwork_id)
                     key = self._sources.get(item.artwork_id)
@@ -8291,9 +8330,19 @@ class MainWindow(QMainWindow):
                         )
                         child = QGraphicsPixmapItem(display, piece)
                         child.setScale(art.size.width / display.width())
+                        # setRotation gira em torno da origem local do filho, e
+                        # setPos leva essa origem para onde o mapeador manda —
+                        # por isso a posicao e o mapa de (0,0), sem correcao.
+                        if graus_peca:
+                            child.setRotation(graus_peca)
                         child.setPos(ax, ay)
                     else:
-                        rect = QGraphicsRectItem(ax, ay, art.size.width, art.size.height, piece)
+                        rect = QGraphicsRectItem(
+                            0.0, 0.0, art.size.width, art.size.height, piece
+                        )
+                        if graus_peca:
+                            rect.setRotation(graus_peca)
+                        rect.setPos(ax, ay)
                         rect.setBrush(empty_brush)
                         rect.setPen(material_pen)
                 if draw_cut and art.has_cut and not shared:
@@ -8313,22 +8362,23 @@ class MainWindow(QMainWindow):
                             continue  # esta faca virou linha da grade fundida
                         # contorno curvo vira Bezier no canvas (curva lisa,
                         # igual ao que sai no PDF/DXF); reto segue poligono
+                        # a faca e desenhada ponto a ponto pelo mapeador (e nao
+                        # por setRotation) para casar EXATAMENTE com o que sai
+                        # no PDF e no DXF, que usam o mesmo mapeador
                         segs = cubic_segments(faca.points)
                         if segs and has_curves(segs):
                             pp = QPainterPath()
-                            pp.moveTo(ax + segs[0].p0.x, ay + segs[0].p0.y)
+                            inicio = mapear(segs[0].p0)
+                            pp.moveTo(inicio.x, inicio.y)
                             for s in segs:
-                                pp.cubicTo(
-                                    ax + s.c1.x, ay + s.c1.y,
-                                    ax + s.c2.x, ay + s.c2.y,
-                                    ax + s.p1.x, ay + s.p1.y,
-                                )
+                                c1, c2, p1 = mapear(s.c1), mapear(s.c2), mapear(s.p1)
+                                pp.cubicTo(c1.x, c1.y, c2.x, c2.y, p1.x, p1.y)
                             path_item = QGraphicsPathItem(pp, piece)
                             path_item.setPen(pen)
                             path_item.setBrush(Qt.NoBrush)
                             continue
                         poly = QPolygonF(
-                            [QPointF(ax + p.x, ay + p.y) for p in faca.points]
+                            [QPointF(q.x, q.y) for q in map(mapear, faca.points)]
                         )
                         poly_item = QGraphicsPolygonItem(poly, piece)
                         poly_item.setPen(pen)

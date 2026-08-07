@@ -1,16 +1,23 @@
 """MaxRects: empacotamento por retangulos livres (max aproveitamento de chapa).
 
-Implementa o algoritmo MaxRects (Jukka Jylanki) com a heuristica Best Short
-Side Fit (BSSF): mantem a lista de retangulos LIVRES da chapa e, para cada peca,
-escolhe o espaco livre que sobra mais justo, dividindo o espaco restante. Assim
-pecas de tamanhos diferentes preenchem os vaos (ao contrario do grid simples,
-que so empilha em linhas e desperdica os buracos).
+Implementa o algoritmo MaxRects (Jukka Jylanki) com a heuristica BOTTOM-LEFT:
+mantem a lista de retangulos LIVRES da chapa e, para cada peca, escolhe o espaco
+que deixa a peca mais embaixo (menor topo), depois mais a esquerda. Assim pecas
+de tamanhos diferentes preenchem os vaos (ao contrario do grid simples, que so
+empilha em linhas e desperdica os buracos).
+
+Ate 07/08/2026 este texto dizia "Best Short Side Fit (BSSF)" — o codigo nunca
+fez BSSF. Medimos as tres (scripts/nesting_baseline.py): bottom-left da 87,92%
+de aproveitamento medio nos oito casos, BSSF da 84,28% e Best Area Fit 87,35%.
+Bottom-left fica.
 
 Mesma interface do GridPacker (pack / pack_sheets), entao e plugavel no
-RunGridNestingUseCase sem mexer no resto do motor. Rotacao 90 e OPT-IN
-(allow_rotate=False por padrao: o preview/export da UI ainda gira por arquivo
-via params, nao por instancia via PlacedItem.rotation). Usa espacamento >= 0
-(negativo = sobreposicao nao se aplica ao MaxRects; tratado como 0).
+RunGridNestingUseCase sem mexer no resto do motor. Rotacao 90 continua OPT-IN
+por parametro (allow_rotate); quem liga no app e GIRO_AUTOMATICO, em
+run_grid_nesting.py. Ficou desligada ate 07/08/2026 porque preview, PDF de
+impressao, faca e DXF ignoravam PlacedItem.rotation — hoje os quatro honram
+(app/application/footprint.py). Usa espacamento >= 0 (negativo = sobreposicao
+nao se aplica ao MaxRects; tratado como 0).
 """
 
 from __future__ import annotations
