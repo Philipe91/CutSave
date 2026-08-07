@@ -23,6 +23,13 @@ de perceber como defeito.
 
 Agora a janela é liberada assim que você a fecha.
 
+**Remover e reimportar um arquivo agora começa limpo.**
+
+Quando você excluía uma peça e arrastava o mesmo arquivo de novo para a
+biblioteca, ela voltava com a faca, o tamanho, o recorte, o giro e o espelho
+que tinha antes — em vez de começar do zero, como você esperaria de um arquivo
+recém-importado. Agora volta limpa.
+
 ---
 
 ## Sobre o fechamento inesperado
@@ -70,6 +77,4 @@ Nenhum deles é novo; todos vêm da 1.1.0 ou anterior.
 - **Apagar uma peça quando existem várias cópias do mesmo arquivo** pode remover
   mais peças do que a selecionada na tela. O `Ctrl+Z` desfaz. Ainda não
   reproduzido em bancada — se acontecer com você, anote a sequência de cliques.
-- **Rearrastar um arquivo que você excluiu** traz de volta a faca e o giro
-  antigos, em vez de começar do zero.
 - **O Modo Corte não tem zoom.**
