@@ -23,7 +23,14 @@ from app.shared.errors import ValidationError
 # Ganho medido: +0,52 pp de aproveitamento na media dos oito casos, +3,66 pp
 # em tiras compridas, e nenhum caso piorou. False aqui devolve o encaixe
 # exatamente ao que era, sem versao nova.
-GIRO_AUTOMATICO = True
+#
+# DESLIGADO em 07/08/2026, no mesmo dia: o Philipe testou num projeto real e
+# apareceu PECA EM CIMA DE PECA. O motor nao e o culpado — os oito casos do
+# baseline nao sobrepoem em nenhuma combinacao (com/sem faca, com/sem sangria,
+# com/sem giro) —, entao a falha esta em quem desenha ou num caso que os
+# cenarios sinteticos nao cobrem. +0,52 pp nao paga arquivo errado: fica
+# desligado ate a causa estar provada e coberta por teste.
+GIRO_AUTOMATICO = False
 
 
 class RunGridNestingUseCase:
