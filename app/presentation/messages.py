@@ -41,12 +41,24 @@ def has_traced_image(artworks: Sequence[Artwork]) -> bool:
     return False
 
 
-def oversized_pieces(artworks: Sequence[Artwork], material: Material) -> list[str]:
-    """Nomes das peças que não cabem na largura útil da chapa."""
+def oversized_pieces(
+    artworks: Sequence[Artwork],
+    material: Material,
+    *,
+    pode_girar: bool = False,
+) -> list[str]:
+    """Nomes das peças que não cabem na largura útil da chapa.
+
+    Com o giro automático ligado (pode_girar), uma peça que não cabe em pé mas
+    cabe deitada NÃO é peça grande demais — o encaixe vai virá-la sozinho.
+    Avisar mesmo assim era alarme falso: o cliente lia "não cabe" enquanto a
+    peça entrava normalmente (relato de 07/08)."""
     usable = material.usable_width
     too_big = []
     for art in artworks:
-        if artwork_footprint(art).width > usable + 1e-6:
+        fp = artwork_footprint(art)
+        largura = min(fp.width, fp.height) if pode_girar else fp.width
+        if largura > usable + 1e-6:
             too_big.append(art.name)
     return too_big
 
@@ -56,6 +68,7 @@ def production_notices(
     shared_faca: bool,
     artworks: Sequence[Artwork],
     material: Material,
+    pode_girar: bool = False,
 ) -> list[Notice]:
     """Avisos a exibir após montar a produção (faixa Alert)."""
     notices: list[Notice] = []
@@ -68,14 +81,20 @@ def production_notices(
                 "shared_faca_image",
             )
         )
-    big = oversized_pieces(artworks, material)
+    big = oversized_pieces(artworks, material, pode_girar=pode_girar)
     if big:
         nomes = ", ".join(big[:3]) + ("..." if len(big) > 3 else "")
+        # com o giro ligado, mandar "gire a peça" seria conselho vazio: ela já
+        # foi girada e mesmo assim não coube
+        saida = (
+            "Aumente a chapa ou reduza a peça."
+            if pode_girar
+            else "Aumente a chapa ou gire/reduza a peça."
+        )
         notices.append(
             Notice(
                 "warning",
-                f"Peça maior que a largura útil da chapa: {nomes}. "
-                "Aumente a chapa ou gire/reduza a peça.",
+                f"Peça maior que a largura útil da chapa: {nomes}. {saida}",
                 "oversized",
             )
         )

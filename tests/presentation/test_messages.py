@@ -59,3 +59,64 @@ def test_pecas_maiores_que_a_chapa():
         shared_faca=False, artworks=[grande], material=Material("m", width=500)
     )
     assert "oversized" in [n.code for n in notices]
+
+
+# ---- aviso de peca grande demais x giro automatico (07/08/2026) -------------
+# O aviso comparava so a LARGURA e ignorava rotacao: com o giro automatico
+# ligado, a peca entrava na chapa deitada e o aviso continuava na tela dizendo
+# que nao cabia. Alarme falso — o cliente le "nao cabe" enquanto produz.
+
+def _art_ret(nome, w, h):
+    from app.domain.geometry import Size
+    from app.domain.model.artwork import ArtKind, Artwork, FileFormat
+
+    return Artwork(id=nome, name=nome, file_format=FileFormat.PDF,
+                   size=Size(w, h), kind=ArtKind.RETANGULAR)
+
+
+def _chapa(largura=1001.0):
+    from app.domain.model.material import Material
+
+    return Material(name="UV", width=largura)
+
+
+def test_peca_que_so_cabe_deitada_nao_avisa_com_giro_ligado():
+    """Caso real do Philipe: peca 1450x445 na chapa de 1001 de largura."""
+    from app.presentation import messages
+
+    arte = _art_ret("Maquete GHT", 1450.0, 445.0)
+    assert messages.oversized_pieces([arte], _chapa()) == ["Maquete GHT"]
+    assert messages.oversized_pieces([arte], _chapa(), pode_girar=True) == []
+
+
+def test_peca_que_nao_cabe_em_nenhuma_orientacao_continua_avisando():
+    from app.presentation import messages
+
+    arte = _art_ret("gigante", 1450.0, 1200.0)
+    assert messages.oversized_pieces([arte], _chapa(), pode_girar=True) == ["gigante"]
+
+
+def test_com_giro_ligado_o_aviso_nao_manda_girar():
+    """Mandar 'gire a peca' depois de ela ja ter sido girada e conselho vazio."""
+    from app.presentation import messages
+
+    arte = _art_ret("gigante", 1450.0, 1200.0)
+    (aviso,) = [
+        n for n in messages.production_notices(
+            shared_faca=False, artworks=[arte], material=_chapa(), pode_girar=True
+        ) if n.code == "oversized"
+    ]
+    assert "gire" not in aviso.text
+    assert "Aumente a chapa ou reduza a peça." in aviso.text
+
+
+def test_sem_giro_o_aviso_segue_igual_ao_de_sempre():
+    from app.presentation import messages
+
+    arte = _art_ret("Maquete GHT", 1450.0, 445.0)
+    (aviso,) = [
+        n for n in messages.production_notices(
+            shared_faca=False, artworks=[arte], material=_chapa()
+        ) if n.code == "oversized"
+    ]
+    assert "gire/reduza" in aviso.text

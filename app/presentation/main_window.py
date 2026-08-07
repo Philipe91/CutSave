@@ -8042,6 +8042,7 @@ class MainWindow(QMainWindow):
             shared_faca=self._shared.currentIndex() == 1,
             artworks=artworks,
             material=material,
+            pode_girar=self._auto_rotate.isChecked(),
         )
         if notices:
             first = notices[0]
