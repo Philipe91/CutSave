@@ -29,6 +29,10 @@ class AppSettings:
     crop: float = 0.0
     rotation: int = 0
     shared_faca: bool = False
+    # Giro automatico do encaixe (Modo Impressao). Campo ADITIVO: config
+    # antigo abre com False. Desligado por padrao de proposito — material
+    # direcional (tecido, vinil com veio) nao pode ter peca girada.
+    auto_rotate: bool = False
     reg_type: str = "none"  # none | circles | mimaki | both | squares | crosses | corner_l
     reg_margin: float = 15.0
     reg_diameter: float = 6.0  # tamanho da marca: diametro/lado/comprimento (mm)

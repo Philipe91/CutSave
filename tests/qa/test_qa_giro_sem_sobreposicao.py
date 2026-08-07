@@ -315,3 +315,91 @@ def test_arranjo_salvo_devolve_o_giro(qapp, tmp_path):
         for chapa in w._effective_sheets() for it in chapa.items
     ]
     assert sorted(giros) == sorted(do_motor), "o .printnest perdeu o giro"
+
+
+# ---- o liga/desliga da interface -------------------------------------------
+# Ideia do Philipe (07/08): "RIP de impressora tem como habilitar e desabilitar
+# a rotacao automatica". E opcao e nao padrao porque material DIRECIONAL
+# (tecido, vinil com veio, papel com fibra) nao pode ter peca girada.
+
+def _janela(tmp_path, nome):
+    pasta = tmp_path / nome
+    pasta.mkdir(exist_ok=True)
+    store = SettingsStore(pasta / "config.json")
+    settings = store.load_or_create()
+    w = MainWindow(
+        RunProductionPipelineUseCase(
+            ImportPdfUseCase(PdfiumImporter()),
+            image_uc=ImportImageUseCase(Cv2ImageImporter(cache_dir=pasta / "img")),
+        ),
+        ExportPrintPdfUseCase(PikePdfPrintExporter()),
+        ExportDxfUseCase(DxfExporter()),
+        PdfiumPageRenderer(),
+        store,
+        settings,
+    )
+    return w, store
+
+
+def test_a_opcao_nasce_desligada(qapp, tmp_path):
+    """Padrao conservador: quem tem material direcional nao pode ser
+    surpreendido por peca girada."""
+    w, _ = _janela(tmp_path, "padrao")
+    assert w._auto_rotate.isChecked() is False
+    assert w._nesting_uc._packer._allow_rotate is False
+
+
+def test_ligar_a_opcao_troca_o_motor(qapp, tmp_path):
+    w, _ = _janela(tmp_path, "ligar")
+    w._auto_rotate.setChecked(True)
+    assert w._nesting_uc._packer._allow_rotate is True
+    w._auto_rotate.setChecked(False)
+    assert w._nesting_uc._packer._allow_rotate is False
+
+
+def test_a_escolha_sobrevive_a_fechar_o_programa(qapp, tmp_path):
+    """Marcar e reabrir tem de voltar marcado — senao a opcao nao serve."""
+    w, store = _janela(tmp_path, "persistir")
+    w._auto_rotate.setChecked(True)
+    assert store.load_or_create().auto_rotate is True
+
+    w2, _ = _janela(tmp_path, "persistir")  # mesma pasta = mesmo config.json
+    assert w2._auto_rotate.isChecked() is True
+    assert w2._nesting_uc._packer._allow_rotate is True
+
+
+def test_config_antigo_sem_a_chave_abre_desligado(qapp, tmp_path):
+    """Campo aditivo: config gravado antes da opcao nao pode quebrar."""
+    pasta = tmp_path / "antigo"
+    pasta.mkdir()
+    (pasta / "config.json").write_text('{"material_width": 1300}', encoding="utf-8")
+    store = SettingsStore(pasta / "config.json")
+    assert store.load_or_create().auto_rotate is False
+
+
+def test_peca_que_so_cabe_deitada_entra_com_a_opcao_ligada(qapp, tmp_path):
+    """O caso real do Philipe (07/08): peça 445x1450 numa chapa 1001x1992.
+    Em pé, 1450 de largura passa dos 1001 e ela não cabe. Deitada, 445 cabem
+    na largura e 1450 no comprimento."""
+    w, _ = _janela(tmp_path, "cabe")
+    w._width.setValue(1001.0)
+    w._height.setValue(1992.0)
+    w.add_paths([_pdf(tmp_path, 1450.0, 445.0, "larga.pdf")])
+
+    w._auto_rotate.setChecked(False)
+    w.generate(blocking=True)
+    por_id = {a.id: a for a in w._result.artworks}
+    coube_em_pe = all(
+        tamanho_ocupado(por_id[it.artwork_id], it.rotation).width <= 1001.0 + EPS
+        for chapa in w._effective_sheets() for it in chapa.items
+    )
+    assert not coube_em_pe, "sem girar, a peça não deveria caber na largura"
+
+    w._auto_rotate.setChecked(True)
+    w.generate(blocking=True)
+    por_id = {a.id: a for a in w._result.artworks}
+    for chapa in w._effective_sheets():
+        for it in chapa.items:
+            oc = tamanho_ocupado(por_id[it.artwork_id], it.rotation)
+            assert oc.width <= 1001.0 + EPS, "girada, a peça tem de caber"
+        assert sobreposicoes(chapa, por_id) == []

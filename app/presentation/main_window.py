@@ -5790,6 +5790,19 @@ class MainWindow(QMainWindow):
         )
         self._center_check.toggled.connect(self._set_center_on_sheet)
         card.body.addWidget(self._center_check)
+        # Girar automaticamente (ideia do Philipe, 07/08: "RIP de impressora tem
+        # como habilitar e desabilitar"). É opção e não padrão porque material
+        # DIRECIONAL — tecido, vinil com veio, papel com fibra — não pode ter
+        # peça girada, e só o operador sabe disso. Desligado por padrão.
+        self._auto_rotate = QCheckBox("Girar peças automaticamente")
+        self._auto_rotate.setToolTip(
+            "Deixa o encaixe virar a peça 90° quando isso aproveita melhor a\n"
+            "chapa — ou quando a peça só cabe deitada.\n\n"
+            "DESLIGUE em material direcional (tecido, vinil com veio, papel\n"
+            "com fibra): nesses, peça girada sai com a textura atravessada."
+        )
+        self._auto_rotate.toggled.connect(self._set_auto_rotate)
+        card.body.addWidget(self._auto_rotate)
         # QA 2.0 (fonte única): "Ajustar chapa" e a sangria saíram DESTE card —
         # o controle visível mora na barra Faca; _offset segue vivo como estado
         # (sessão/projeto/testes) sincronizado pela barra.
@@ -6330,6 +6343,14 @@ class MainWindow(QMainWindow):
         self._faca_mode.setCurrentIndex(max(0, self._faca_mode.findData(s.faca_mode)))
         self._rotation.setCurrentText(str(s.rotation))
         self._shared.setCurrentIndex(1 if s.shared_faca else 0)
+        # o packer vem da escolha salva. blockSignals para nao disparar um
+        # relayout no meio da abertura (o desenho ainda nem existe).
+        self._auto_rotate.blockSignals(True)
+        self._auto_rotate.setChecked(bool(s.auto_rotate))
+        self._auto_rotate.blockSignals(False)
+        self._nesting_uc = RunGridNestingUseCase(
+            MaxRectsPacker(allow_rotate=bool(s.auto_rotate))
+        )
         idx = max(0, self._reg_type.findData(s.reg_type))
         self._reg_type.setCurrentIndex(idx)
         self._reg_margin.setValue(s.reg_margin)
@@ -7448,6 +7469,17 @@ class MainWindow(QMainWindow):
             return None
 
     # ---- produção ----
+    def _set_auto_rotate(self, ligado: bool) -> None:
+        """Liga/desliga o giro automático do encaixe e refaz a produção.
+
+        Troca o packer em vez de guardar um sinalizador solto: assim não existe
+        estado do motor divergindo do que a caixa mostra."""
+        self._nesting_uc = RunGridNestingUseCase(MaxRectsPacker(allow_rotate=ligado))
+        self._settings.auto_rotate = bool(ligado)
+        self._store.save(self._settings)
+        if self._result is not None:
+            self._relayout()
+
     def _material(self) -> Material:
         # Sem reserva para as marcas de propósito (decisão de 06/08): reservar
         # encolhia a área útil e gastava chapa a mais só por causa do registro.
