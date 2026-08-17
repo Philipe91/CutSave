@@ -101,3 +101,67 @@ def test_tolerancia_grosseira_gera_menos_pontos_que_fina(tmp_path):
 def test_arquivo_inexistente_lanca_vector_import_error(tmp_path):
     with pytest.raises(VectorImportError):
         SvgVectorImporter().load(str(tmp_path / "nao_existe.svg"))
+
+
+def test_circulo_cubico_do_svg_sai_com_quatro_curvas(tmp_path):
+    from app.infrastructure.importers.svg_vector_importer import SvgVectorImporter
+
+    r, cx, cy = 50.0, 60.0, 60.0
+    k = 4.0 / 3.0 * (2.0**0.5 - 1.0) * r
+    d = (
+        f"M {cx + r},{cy} "
+        f"C {cx + r},{cy + k} {cx + k},{cy + r} {cx},{cy + r} "
+        f"C {cx - k},{cy + r} {cx - r},{cy + k} {cx - r},{cy} "
+        f"C {cx - r},{cy - k} {cx - k},{cy - r} {cx},{cy - r} "
+        f"C {cx + k},{cy - r} {cx + r},{cy - k} {cx + r},{cy} Z"
+    )
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="120px" height="120px" '
+        f'viewBox="0 0 120 120"><path d="{d}" fill="black"/></svg>'
+    )
+    out = tmp_path / "circulo.svg"
+    out.write_text(svg, encoding="utf-8")
+
+    shapes = SvgVectorImporter().load(str(out))
+
+    assert len(shapes) == 1
+    curvos = [s for s in shapes[0].outer.curves if not s.is_line()]
+    assert len(curvos) == 4, f"esperava 4 trechos curvos, veio {len(curvos)}"
+
+
+def test_retangulo_do_svg_sai_com_trechos_retos(tmp_path):
+    from app.infrastructure.importers.svg_vector_importer import SvgVectorImporter
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100px" height="100px" '
+        'viewBox="0 0 100 100"><path d="M 10,10 L 90,10 L 90,50 L 10,50 Z" '
+        'fill="black"/></svg>'
+    )
+    out = tmp_path / "ret.svg"
+    out.write_text(svg, encoding="utf-8")
+
+    curves = SvgVectorImporter().load(str(out))[0].outer.curves
+
+    assert curves
+    assert all(s.is_line() for s in curves)
+
+
+def test_arco_degrada_para_polilinha_sem_inventar_curva(tmp_path):
+    """Arco de SVG nao tem cubica exata. Preferimos perder a curva (saida
+    antiga, correta) a gravar uma aproximacao silenciosa."""
+    from app.infrastructure.importers.svg_vector_importer import SvgVectorImporter
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100px" height="100px" '
+        'viewBox="0 0 100 100">'
+        '<path d="M 20,50 A 30,30 0 1 1 80,50 A 30,30 0 1 1 20,50 Z" fill="black"/>'
+        "</svg>"
+    )
+    out = tmp_path / "arco.svg"
+    out.write_text(svg, encoding="utf-8")
+
+    shapes = SvgVectorImporter().load(str(out))
+
+    assert shapes, "o arco deve continuar virando peca, so sem curva"
+    assert shapes[0].outer.curves == ()
+    assert len(shapes[0].outer.vertices) > 8  # achatou de verdade
