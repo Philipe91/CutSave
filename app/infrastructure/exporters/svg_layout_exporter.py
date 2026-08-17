@@ -10,6 +10,9 @@ Convencoes:
   — mover a peca no Corel carrega os furos junto.
 - Traco MAGENTA hairline sem preenchimento: a convencao de faca do cliente
   (o proprio PrintNest reimporta este SVG como linha de corte).
+- Curva: com a Bezier original do arquivo, cada trecho sai como 'C' (o Corel
+  abre com a MESMA contagem de nos do desenho de origem); trecho reto sai como
+  'L'. Sem curva original, polilinha, como antes.
 """
 
 from __future__ import annotations
@@ -24,13 +27,33 @@ _STROKE_W = 0.2           # hairline em mm
 
 
 def _path_d(rings: Sequence[CutContour]) -> str:
-    parts: list[str] = []
-    for ring in rings:
-        points = ring.points
-        parts.append(
-            "M " + " L ".join(f"{p.x:.3f},{p.y:.3f}" for p in points) + " Z"
-        )
-    return " ".join(parts)
+    return " ".join(_ring_d(ring) for ring in rings)
+
+
+def _ring_d(ring: CutContour) -> str:
+    """Um subpath do atributo 'd'.
+
+    Com a Bezier ORIGINAL do arquivo (ring.curves), grava 'C' por trecho — e a
+    curva de verdade, sem reconstrucao, e o Corel abre com a MESMA contagem de
+    nos do desenho de origem. Trecho cujos controles estao sobre a corda vira
+    'L': reta gravada como reta deixa o arquivo limpo e o corte previsivel. Sem
+    curva (faca detectada na imagem, ou contorno simplificado), cai na
+    polilinha de sempre.
+    """
+    if not ring.curves:
+        return "M " + " L ".join(f"{p.x:.3f},{p.y:.3f}" for p in ring.points) + " Z"
+    start = ring.curves[0].p0
+    out = [f"M {start.x:.3f},{start.y:.3f}"]
+    for s in ring.curves:
+        if s.is_line():
+            out.append(f"L {s.p1.x:.3f},{s.p1.y:.3f}")
+        else:
+            out.append(
+                f"C {s.c1.x:.3f},{s.c1.y:.3f} {s.c2.x:.3f},{s.c2.y:.3f} "
+                f"{s.p1.x:.3f},{s.p1.y:.3f}"
+            )
+    out.append("Z")
+    return " ".join(out)
 
 
 def write_layout_svg(
