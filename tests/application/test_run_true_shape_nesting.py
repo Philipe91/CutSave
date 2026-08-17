@@ -203,3 +203,90 @@ def test_execute_sheets_gera_um_dxf_numerado_por_folha(tmp_path):
         boxes = _polyline_boxes(path)
         assert len(boxes) == 1
         assert boxes[0][2] - boxes[0][0] == pytest.approx(30.0, abs=1e-6)
+
+
+def _shape_curvo(estufa: float = -2.0):
+    """Triangulo cujo lado de baixo e uma curva que estufa 'estufa' em Y."""
+    from app.domain.geometry import Point2D, Polygon
+    from app.domain.geometry.bezier import BezierSegment, line_segment
+    from app.domain.nesting.true_shape import NestingShape
+
+    a, b, c = Point2D(0, 0), Point2D(20, 0), Point2D(20, 20)
+    curvo = BezierSegment(a, Point2D(0, estufa), Point2D(20, estufa), b)
+    contorno = Polygon((a, b, c), curves=(curvo, line_segment(b, c), line_segment(c, a)))
+    return NestingShape("shape-0001", contorno)
+
+
+def test_peca_posicionada_leva_a_curva():
+    from app.application.use_cases.run_true_shape_nesting import placed_cut_contours
+    from app.domain.geometry import Point2D
+    from app.domain.model.placement import PlacedItem
+
+    shape = _shape_curvo()
+    item = PlacedItem("shape-0001", Point2D(100.0, 50.0), 0.0)
+
+    contours = placed_cut_contours(shape, item)
+
+    assert len(contours[0].curves) == 3
+
+
+def test_giro_de_90_graus_gira_os_controles():
+    import pytest
+
+    from app.application.use_cases.run_true_shape_nesting import placed_cut_contours
+    from app.domain.geometry import Point2D
+    from app.domain.geometry.bezier import bezier_bounds
+    from app.domain.model.placement import PlacedItem
+
+    shape = _shape_curvo()
+
+    reto = placed_cut_contours(shape, PlacedItem("shape-0001", Point2D(0.0, 0.0), 0.0))
+    girado = placed_cut_contours(shape, PlacedItem("shape-0001", Point2D(0.0, 0.0), 90.0))
+
+    box_reto = bezier_bounds(reto[0].curves)
+    box_girado = bezier_bounds(girado[0].curves)
+    assert box_girado.width == pytest.approx(box_reto.height, abs=1e-9)
+    assert box_girado.height == pytest.approx(box_reto.width, abs=1e-9)
+
+
+def test_curva_nao_estufa_para_fora_da_posicao_do_encaixe():
+    """REGRESSAO: a peca era posicionada pela caixa do poligono ACHATADO. Uma
+    curva que estufa para fora dele ficaria antes da posicao pedida, ou seja
+    mais perto da vizinha do que o encaixe calculou. Com a caixa exata da
+    curva, o canto minimo cai EXATAMENTE na posicao."""
+    import pytest
+
+    from app.application.use_cases.run_true_shape_nesting import placed_cut_contours
+    from app.domain.geometry import Point2D
+    from app.domain.geometry.bezier import bezier_bounds
+    from app.domain.model.placement import PlacedItem
+
+    # controles a -8: a curva estufa 6mm (0.75 * 8) para y negativo, muito alem
+    # do que os tres vertices mostram
+    shape = _shape_curvo(estufa=-8.0)
+    item = PlacedItem("shape-0001", Point2D(100.0, 50.0), 0.0)
+
+    box = bezier_bounds(placed_cut_contours(shape, item)[0].curves)
+
+    assert box.min_x == pytest.approx(100.0, abs=1e-9)
+    assert box.min_y == pytest.approx(50.0, abs=1e-9)
+
+
+def test_sem_curva_o_posicionamento_nao_muda():
+    """Peca puramente poligonal continua caindo exatamente onde caia."""
+    import pytest
+
+    from app.application.use_cases.run_true_shape_nesting import placed_cut_contours
+    from app.domain.geometry import Point2D, Polygon
+    from app.domain.model.placement import PlacedItem
+    from app.domain.nesting.true_shape import NestingShape
+
+    shape = NestingShape(
+        "shape-0001", Polygon((Point2D(0, 0), Point2D(10, 0), Point2D(10, 10)))
+    )
+    item = PlacedItem("shape-0001", Point2D(7.0, 3.0), 0.0)
+
+    pontos = placed_cut_contours(shape, item)[0].points
+
+    assert min(p.x for p in pontos) == pytest.approx(7.0)
+    assert min(p.y for p in pontos) == pytest.approx(3.0)

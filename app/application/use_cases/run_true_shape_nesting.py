@@ -10,7 +10,8 @@ ORIGINAL por PlacedItem.rotation (graus; o centro nao importa porque a
 normalizacao vem depois), normalizar (bbox.min do outer girado na origem) e
 transladar para position. FUROS recebem EXATAMENTE o mesmo transform do
 outer — mesmo centro de giro e mesmo delta; normalizar o furo pelo proprio
-bbox descolaria o furo da letra.
+bbox descolaria o furo da letra. Com curva original presente, a referencia de
+posicao e a caixa EXATA da Bezier (bezier_bounds), nao a do poligono achatado.
 
 ORDEM DE CORTE (Fase 6): com "Allow inside" ligado uma peca pode cair dentro
 do furo de outra. O DXF sai de DENTRO PARA FORA — ver _cut_order.
@@ -30,6 +31,7 @@ from dataclasses import dataclass
 
 from app.application.use_cases.export_dxf import ExportDxfUseCase
 from app.domain.geometry import Point2D
+from app.domain.geometry.bezier import bezier_bounds
 from app.domain.geometry.polygon import Polygon
 from app.domain.geometry.polygon_with_holes import PolygonWithHoles
 from app.domain.model.cut_contour import CutContour
@@ -64,17 +66,27 @@ def to_nesting_shapes(
 
 def placed_cut_contours(shape: NestingShape, item: PlacedItem) -> list[CutContour]:
     """Peca REAL reconstruida na posicao do layout: outer + um CutContour por
-    furo, todos com o MESMO transform (ver convencao no topo do modulo)."""
+    furo, todos com o MESMO transform (ver convencao no topo do modulo).
+
+    A Bezier ORIGINAL do arquivo viaja dentro do Polygon e recebe o mesmo giro
+    e o mesmo deslocamento — giro e translacao nao deformam curva, entao a
+    letra sai identica a do Corel na posicao do arranjo.
+
+    REFERENCIA DE POSICAO: quando ha curva, o canto minimo vem da caixa EXATA
+    dela, nao da caixa do poligono achatado. A curva pode estufar para fora das
+    cordas: usando a caixa achatada, a peca cairia antes da posicao pedida e
+    ficaria mais perto da vizinha do que o encaixe calculou.
+    """
     degrees = float(item.rotation)
     outer = shape.contour.rotated(degrees, around=_ORIGIN)
-    bb = outer.bounding_box
+    bb = bezier_bounds(outer.curves) if outer.curves else outer.bounding_box
     dx = item.position.x - bb.min_x
     dy = item.position.y - bb.min_y
-    contours = [CutContour(outer.translated(dx, dy).vertices)]
-    contours.extend(
-        CutContour(hole.rotated(degrees, around=_ORIGIN).translated(dx, dy).vertices)
-        for hole in shape.holes
-    )
+    moved = outer.translated(dx, dy)
+    contours = [CutContour(moved.vertices, moved.curves)]
+    for hole in shape.holes:
+        h = hole.rotated(degrees, around=_ORIGIN).translated(dx, dy)
+        contours.append(CutContour(h.vertices, h.curves))
     return contours
 
 
