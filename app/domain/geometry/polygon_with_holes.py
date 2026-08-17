@@ -20,14 +20,35 @@ _AREA_EPS = 1e-4
 _EPS = 1e-6
 
 
+def _reversed_ring(polygon: Polygon) -> Polygon:
+    """Anel percorrido ao contrario.
+
+    Inverter os vertices exige tres coisas na curva, nao duas:
+    1. virar a lista de ponta a ponta;
+    2. trocar o sentido de cada trecho (reversed(), que troca p0<->p1);
+    3. ROTACIONAR a lista em uma posicao.
+
+    O passo 3 e o que engana. Com vertices (v0..vn-1) e trechos s_i = v_i->v_i+1,
+    os vertices invertidos comecam em vn-1, entao o primeiro trecho tem que sair
+    de vn-1 — ou seja s'_n-2. Sem a rotacao, os passos 1 e 2 deixam em primeiro
+    s'_n-1, que sai de v0: vertices e curva comecariam em pontos diferentes e a
+    exportacao gravaria a letra fora de fase com os vertices.
+    """
+    rev = [s.reversed() for s in reversed(polygon.curves)]
+    return Polygon(
+        tuple(reversed(polygon.vertices)),
+        tuple(rev[1:] + rev[:1]) if rev else (),
+    )
+
+
 def _ccw(polygon: Polygon) -> Polygon:
     """Anel com area assinada POSITIVA (anti-horario no sentido do shoelace)."""
-    return Polygon(tuple(reversed(polygon.vertices))) if polygon.is_clockwise else polygon
+    return _reversed_ring(polygon) if polygon.is_clockwise else polygon
 
 
 def _cw(polygon: Polygon) -> Polygon:
     """Anel com area assinada NEGATIVA (horario no sentido do shoelace)."""
-    return polygon if polygon.is_clockwise else Polygon(tuple(reversed(polygon.vertices)))
+    return polygon if polygon.is_clockwise else _reversed_ring(polygon)
 
 
 @dataclass(frozen=True, slots=True)
