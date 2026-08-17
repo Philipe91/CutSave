@@ -65,3 +65,43 @@ def test_imutavel():
 
     with pytest.raises(FrozenInstanceError):
         _quadrado().vertices = ()
+
+
+def test_polygon_sem_curvas_por_padrao():
+    from app.domain.geometry import Point2D, Polygon
+
+    poly = Polygon((Point2D(0, 0), Point2D(10, 0), Point2D(10, 10)))
+    assert poly.curves == ()
+
+
+def test_translated_leva_os_controles_junto():
+    import pytest
+
+    from app.domain.geometry import Point2D, Polygon
+    from app.domain.geometry.bezier import BezierSegment
+
+    seg = BezierSegment(Point2D(0, 0), Point2D(3, 1), Point2D(7, 1), Point2D(10, 0))
+    poly = Polygon((Point2D(0, 0), Point2D(10, 0), Point2D(10, 10)), curves=(seg,))
+    movido = poly.translated(5.0, -1.0)
+    assert movido.curves[0].c1.x == pytest.approx(8.0)
+    assert movido.curves[0].c1.y == pytest.approx(0.0)
+
+
+def test_rotated_leva_os_controles_junto():
+    import pytest
+
+    from app.domain.geometry import Point2D, Polygon
+    from app.domain.geometry.bezier import BezierSegment
+
+    seg = BezierSegment(Point2D(1, 0), Point2D(2, 0), Point2D(3, 0), Point2D(4, 0))
+    poly = Polygon((Point2D(1, 0), Point2D(4, 0), Point2D(4, 4)), curves=(seg,))
+    girado = poly.rotated(90.0, around=Point2D(0, 0))
+    assert girado.curves[0].p0.x == pytest.approx(0.0, abs=1e-9)
+    assert girado.curves[0].p0.y == pytest.approx(1.0, abs=1e-9)
+
+
+def test_from_points_nao_inventa_curva():
+    from app.domain.geometry import Point2D, Polygon
+
+    poly = Polygon.from_points([Point2D(0, 0), Point2D(1, 0), Point2D(1, 1)])
+    assert poly.curves == ()

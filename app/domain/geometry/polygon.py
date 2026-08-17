@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from app.domain.geometry.bezier import BezierSegment
 from app.domain.geometry.bounding_box import BoundingBox
 from app.domain.geometry.point import Point2D
 from app.shared.errors import ValidationError
@@ -10,12 +11,27 @@ from app.shared.errors import ValidationError
 
 @dataclass(frozen=True, slots=True)
 class Polygon:
-    """Poligono fechado (anel de vertices em mm). Fechamento implicito."""
+    """Poligono fechado (anel de vertices em mm). Fechamento implicito.
+
+    'curves' guarda a Bezier ORIGINAL do arquivo importado, quando existe: os
+    vertices sao a amostragem dela e servem ao encaixe (contencao, area, bbox),
+    a curva serve a exportacao. Descrevem o MESMO anel, na mesma ordem de
+    percurso.
+
+    REGRA DE INVALIDACAO: operacao que mexe na forma sem saber mexer na curva
+    devolve curves=(). Perder a curva so degrada a saida para polilinha (o
+    comportamento antigo); uma curva dessincronizada dos vertices cortaria
+    errado. Por isso todo caminho que reconstroi Polygon a partir de
+    coordenadas (offset do pyclipper, simplificacao do shapely) zera o campo
+    sozinho, sem precisar de codigo.
+    """
 
     vertices: tuple[Point2D, ...]
+    curves: tuple[BezierSegment, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "vertices", tuple(self.vertices))
+        object.__setattr__(self, "curves", tuple(self.curves))
         if len(self.vertices) < 3:
             raise ValidationError("Polygon requer ao menos 3 vertices.")
 
@@ -65,15 +81,24 @@ class Polygon:
         return BoundingBox.from_points(self.vertices)
 
     def translated(self, dx: float, dy: float) -> Polygon:
-        return Polygon(tuple(p.translated(dx, dy) for p in self.vertices))
+        return Polygon(
+            tuple(p.translated(dx, dy) for p in self.vertices),
+            tuple(s.translated(dx, dy) for s in self.curves),
+        )
 
     def rotated(self, degrees: float, around: Point2D | None = None) -> Polygon:
         center = around if around is not None else self.centroid
-        return Polygon(tuple(p.rotated(degrees, center) for p in self.vertices))
+        return Polygon(
+            tuple(p.rotated(degrees, center) for p in self.vertices),
+            tuple(s.rotated(degrees, center) for s in self.curves),
+        )
 
     def scaled(self, factor: float, around: Point2D | None = None) -> Polygon:
         center = around if around is not None else self.centroid
-        return Polygon(tuple(p.scaled(factor, center) for p in self.vertices))
+        return Polygon(
+            tuple(p.scaled(factor, center) for p in self.vertices),
+            tuple(s.scaled(factor, center) for s in self.curves),
+        )
 
     def contains(self, point: Point2D) -> bool:
         """Teste ponto-dentro-do-poligono por ray casting (borda nao garantida)."""
