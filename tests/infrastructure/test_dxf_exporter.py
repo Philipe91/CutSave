@@ -180,3 +180,75 @@ def test_sem_marcas_novas_saida_identica(tmp_path):
     assert len(msp.query("LINE")) == 0
     assert len(msp.query("CIRCLE")) == 0
     assert "REGMARK" not in doc.layers
+
+
+def test_dxf_usa_a_curva_original_em_vez_de_refazer(tmp_path):
+    """Com a Bezier do arquivo, o spline sai dos controles ORIGINAIS. Prova: um
+    contorno de 3 nos cuja curva estufa 6mm. O refit (que so ve os nos) nunca
+    produziria essa altura; a curva original produz."""
+    import ezdxf
+
+    from app.domain.geometry import Point2D
+    from app.domain.geometry.bezier import BezierSegment, line_segment
+    from app.domain.model.cut_contour import CutContour
+    from app.infrastructure.exporters.dxf_exporter import DxfExporter
+
+    a, b, c = Point2D(0, 0), Point2D(20, 0), Point2D(20, 20)
+    curvo = BezierSegment(a, Point2D(0, -8), Point2D(20, -8), b)
+    contorno = CutContour((a, b, c), (curvo, line_segment(b, c), line_segment(c, a)))
+    out = str(tmp_path / "curva.dxf")
+
+    DxfExporter().export([contorno], out)
+
+    doc = ezdxf.readfile(out)
+    splines = list(doc.modelspace().query("SPLINE"))
+    assert len(splines) == 1
+    # control_points do ezdxf vem como ndarray (x, y, z), nao como Vec3
+    alturas = [p[1] for p in splines[0].control_points]
+    # a curva estufa 6mm alem da corda, entao a altura passa dos 20mm dos nos
+    assert max(alturas) - min(alturas) > 24.0
+
+
+def test_dxf_sem_curva_original_continua_no_refit(tmp_path):
+    """Regressao: contorno de deteccao (sem curva) mantem o comportamento
+    aprovado — refit por cubic_segments e spline fechado."""
+    import math
+
+    import ezdxf
+
+    from app.domain.geometry import Point2D
+    from app.domain.model.cut_contour import CutContour
+    from app.infrastructure.exporters.dxf_exporter import DxfExporter
+
+    pts = tuple(
+        Point2D(50 + 40 * math.cos(i * math.pi / 8), 50 + 40 * math.sin(i * math.pi / 8))
+        for i in range(16)
+    )
+    out = str(tmp_path / "refit.dxf")
+
+    DxfExporter().export([CutContour(pts)], out)
+
+    doc = ezdxf.readfile(out)
+    assert len(list(doc.modelspace().query("SPLINE"))) == 1
+
+
+def test_dxf_de_retas_continua_lwpolyline(tmp_path):
+    import ezdxf
+
+    from app.domain.geometry import Point2D
+    from app.domain.geometry.bezier import line_segment
+    from app.domain.model.cut_contour import CutContour
+    from app.infrastructure.exporters.dxf_exporter import DxfExporter
+
+    a, b, c, d = Point2D(0, 0), Point2D(10, 0), Point2D(10, 10), Point2D(0, 10)
+    contorno = CutContour(
+        (a, b, c, d),
+        (line_segment(a, b), line_segment(b, c), line_segment(c, d), line_segment(d, a)),
+    )
+    out = str(tmp_path / "ret.dxf")
+
+    DxfExporter().export([contorno], out)
+
+    doc = ezdxf.readfile(out)
+    assert len(list(doc.modelspace().query("LWPOLYLINE"))) == 1
+    assert not list(doc.modelspace().query("SPLINE"))

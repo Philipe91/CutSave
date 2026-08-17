@@ -7,6 +7,7 @@ from ezdxf.math import Bezier4P, Vec3, bezier_to_bspline
 
 from app.application.ports.dxf_exporter import IDxfExporter
 from app.domain.cut.curves import cubic_segments, has_curves
+from app.domain.geometry.bezier import BezierSegment, bezier_bounds
 from app.domain.cut.registration import RegistrationMark
 from app.domain.cut.shared import Segment
 from app.domain.geometry import Point2D
@@ -57,7 +58,17 @@ class DxfExporter(IDxfExporter):
             # a letra abria em pedacos no Corel). Bezier -> B-spline e EXATO
             # (mesma curva, nos internos com multiplicidade 3 preservam os
             # cantos vivos); retas/retangulos seguem como polyline.
-            segs = cubic_segments(flipped)
+            #
+            # ORIGEM DA CURVA: se o contorno trouxe a Bezier do ARQUIVO
+            # (importador vetorial), usa ela — e a curva de verdade, com a
+            # contagem de nos do desenho. Sem ela (faca detectada na imagem,
+            # ou contorno simplificado), cai no refit de cubic_segments, que
+            # adivinha uma curva por cima dos pontos.
+            segs = (
+                [_flip_segment(s, fy) for s in contour.curves]
+                if contour.curves
+                else cubic_segments(flipped)
+            )
             if segs and has_curves(segs):
                 beziers = [
                     Bezier4P((
@@ -114,6 +125,11 @@ class DxfExporter(IDxfExporter):
         ys: list[float] = []
         for c in contours:
             ys += [p.y for p in c.points]
+            # a curva original pode estufar para fora das cordas; sem contar os
+            # extremos EXATOS dela a referencia do espelhamento sairia baixa e o
+            # DXF ganharia Y negativo
+            if c.curves:
+                ys.append(bezier_bounds(c.curves).max_y)
         for s in (*segments, *mark_segments):
             ys += [s.start.y, s.end.y]
         for m in marks:
@@ -121,3 +137,17 @@ class DxfExporter(IDxfExporter):
         for poly in mark_polylines:
             ys += [p.y for p in poly]
         return max(ys) if ys else 0.0
+
+
+def _flip_segment(s: BezierSegment, fy) -> BezierSegment:
+    """Espelha o trecho no mesmo eixo do resto da geometria (y' = H - y).
+
+    Espelhar inverte o sentido de percurso do anel, o que nao altera a forma
+    gravada — o DXF descreve a mesma curva.
+    """
+    return BezierSegment(
+        Point2D(s.p0.x, fy(s.p0.y)),
+        Point2D(s.c1.x, fy(s.c1.y)),
+        Point2D(s.c2.x, fy(s.c2.y)),
+        Point2D(s.p1.x, fy(s.p1.y)),
+    )
