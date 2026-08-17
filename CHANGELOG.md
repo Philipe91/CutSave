@@ -4,6 +4,45 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [1.1.3] — 2026-08-17 — **curvas do Modo Corte saem como curvas**
+
+Relato de produção com letras de acrílico (logo do Hospital Santa Lucia, letras
+de até 264 × 336 mm). Suíte: 831 testes, 0 falhas, 5 skips, mais
+`tests/presentation` verde arquivo por arquivo.
+
+**As curvas do desenho original chegavam ao corte trocadas por retas.** Em letra
+grande as cordas retas ficam visíveis e o laser perde acabamento. Medido no
+arquivo do cliente: entravam 720 nós com **365 curvas Bézier**; saíam 2.089
+vértices e **zero curvas**.
+
+- **Causa raiz:** a curva era destruída no *import*. Os importadores de PDF e de
+  SVG achatavam a Bézier em polilinha e descartavam os pontos de controle — não
+  havia como recuperá-los depois. O `Polygon` só sabia representar vértices.
+- **O que o operador via, e por qual caminho.** "Exportar DXF" reconstruía uma
+  curva por cima dos pontos achatados (aproximação, não o original). Já
+  **"Enviar para o Corel" gravava `M ... L ... L ... Z`: polilinha pura, nenhuma
+  curva**, apesar de o módulo prometer "curvas do corte". Foi por esse caminho
+  que o defeito apareceu.
+- **Correção:** a Bézier original do arquivo agora viaja ao lado do polígono
+  achatado até a exportação. O motor de encaixe continua trabalhando só com o
+  polígono e **não foi alterado**; giro e translação não deformam Bézier, então
+  o mesmo transform do arranjo aplicado aos pontos de controle devolve a letra
+  idêntica à do Corel. SVG e DXF gravam a curva de verdade, com a **mesma
+  contagem de nós do desenho de origem** — 365 curvas entram, 365 saem.
+- **Precisão de posicionamento:** a peça era posicionada pela caixa do polígono
+  achatado. Como a curva pode estufar para fora das cordas, ela podia ficar até
+  a tolerância de achatamento mais perto da vizinha do que o encaixe calculou.
+  A referência passou a ser a caixa envolvente **exata** da Bézier.
+- **Degradação segura:** contorno sem curva original (faca detectada em imagem,
+  contorno simplificado ou suavizado, arco de SVG que não tem cúbica exata)
+  mantém exatamente o comportamento anterior. Nunca se grava curva
+  dessincronizada dos vértices.
+
+Fora deste escopo, registrado em
+[`docs/especificacoes/CURVAS-ORIGINAIS-MODO-CORTE.md`](docs/especificacoes/CURVAS-ORIGINAIS-MODO-CORTE.md):
+texto digitado dentro do PrintNest continua achatando, e a faca de impressão
+ainda faceta curvas com raio abaixo de ~1,5 mm.
+
 ## [1.0.2] — 2026-07-31 — **correção de impressão girada/espelhada**
 
 Correção do commit `a1c8f9c`, empacotada. Suíte: 990 testes, 0 falhas, 5 skips.
