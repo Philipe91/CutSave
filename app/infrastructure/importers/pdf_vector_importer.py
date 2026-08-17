@@ -27,6 +27,8 @@ import ctypes
 import pypdfium2.raw as raw
 
 from app.application.ports.vector_importer import IVectorImporter
+from app.domain.geometry import Point2D
+from app.domain.geometry.bezier import BezierSegment, line_segment
 from app.domain.geometry.polygon import Polygon
 from app.domain.geometry.polygon_with_holes import PolygonWithHoles, group_rings
 from app.infrastructure.importers._flatten import PointAt, flatten_curve, to_ring
@@ -79,7 +81,13 @@ class PdfVectorImporter(IVectorImporter):
 
     def _object_rings(self, obj, page_h: float) -> list[Polygon]:
         """Cada subpath (MOVETO ate o proximo MOVETO) do objeto vira um anel
-        em mm. Fechamento fica implicito (Polygon fecha sozinho)."""
+        em mm. Fechamento fica implicito (Polygon fecha sozinho).
+
+        Alem dos vertices achatados, monta a lista de BezierSegment ORIGINAL do
+        subpath: e ela que os exportadores gravam. Reta do arquivo entra como
+        trecho com controles sobre a corda (line_segment), para a lista ficar
+        homogenea e is_line() reconhecer de volta na hora de gravar.
+        """
         m = raw.FS_MATRIX()
         raw.FPDFPageObj_GetMatrix(obj.raw, m)
 
@@ -90,8 +98,9 @@ class PdfVectorImporter(IVectorImporter):
             return tx, page_h - ty
 
         tol_pt = self._approximation / PT2MM
-        subpaths: list[list[tuple[float, float]]] = []
+        subpaths: list[tuple[list[tuple[float, float]], list[BezierSegment]]] = []
         points: list[tuple[float, float]] = []
+        segs: list[BezierSegment] = []
         pending_bezier: list[tuple[float, float]] = []
         for i in range(raw.FPDFPath_CountSegments(obj.raw)):
             seg = raw.FPDFPath_GetPathSegment(obj.raw, i)
@@ -101,17 +110,57 @@ class PdfVectorImporter(IVectorImporter):
             seg_type = raw.FPDFPathSegment_GetType(seg)
             if seg_type == raw.FPDF_SEGMENT_MOVETO:
                 if points:
-                    subpaths.append(points)
+                    subpaths.append((points, segs))
                 points = [pt]
+                segs = []
                 pending_bezier = []
             elif seg_type == raw.FPDF_SEGMENT_LINETO:
+                if points:
+                    segs.append(line_segment(_pt(points[-1]), _pt(pt)))
                 points.append(pt)
             elif seg_type == raw.FPDF_SEGMENT_BEZIERTO:
                 pending_bezier.append(pt)
                 if len(pending_bezier) == 3:
                     if points:  # sem MOVETO previo o path e malformado: pula
-                        flatten_curve(_cubic_at(points[-1], *pending_bezier), tol_pt, points)
+                        start = points[-1]
+                        segs.append(
+                            BezierSegment(
+                                _pt(start),
+                                _pt(pending_bezier[0]),
+                                _pt(pending_bezier[1]),
+                                _pt(pending_bezier[2]),
+                            )
+                        )
+                        flatten_curve(_cubic_at(start, *pending_bezier), tol_pt, points)
                     pending_bezier = []
         if points:
-            subpaths.append(points)
-        return [ring for sp in subpaths if (ring := to_ring(sp, PT2MM)) is not None]
+            subpaths.append((points, segs))
+        return [
+            ring
+            for sp, sc in subpaths
+            if (ring := to_ring(sp, PT2MM, _closed(sc, sp))) is not None
+        ]
+
+
+def _pt(xy: tuple[float, float]) -> Point2D:
+    return Point2D(xy[0], xy[1])
+
+
+def _closed(
+    segs: list[BezierSegment], points: list[tuple[float, float]]
+) -> list[BezierSegment]:
+    """Fecha o anel da curva quando o subpath nao volta ao inicio.
+
+    No PDF o 'h' (close) nao aparece como segmento: o subpath simplesmente
+    termina longe do inicio e o fechamento e implicito. Os vertices ganham esse
+    fechamento de graca (Polygon fecha sozinho); a lista de curvas precisa do
+    trecho explicito, senao ela nao descreve o anel inteiro e to_ring descarta
+    tudo.
+    """
+    if not segs or not points:
+        return segs
+    fim = segs[-1].p1
+    inicio = _pt(points[0])
+    if abs(fim.x - inicio.x) <= 1e-6 and abs(fim.y - inicio.y) <= 1e-6:
+        return segs
+    return [*segs, line_segment(fim, inicio)]

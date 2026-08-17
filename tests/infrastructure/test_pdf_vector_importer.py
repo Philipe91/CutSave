@@ -95,3 +95,47 @@ def test_pagina_so_com_texto_retorna_lista_vazia(tmp_path):
 def test_arquivo_inexistente_lanca_vector_import_error(tmp_path):
     with pytest.raises(VectorImportError):
         PdfVectorImporter().load(str(tmp_path / "nao_existe.pdf"))
+
+
+def test_circulo_do_pdf_sai_com_curvas(tmp_path):
+    """O circulo do PDF e feito de Beziers. Elas tem que CHEGAR ao anel — antes
+    desta correcao o importador achatava e jogava os controles fora."""
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=400)
+    page.draw_circle(fitz.Point(200, 200), 80, color=(0, 0, 0), fill=(0, 0, 0))
+    shapes = PdfVectorImporter().load(_save(tmp_path, doc))
+
+    assert len(shapes) == 1
+    curvos = [s for s in shapes[0].outer.curves if not s.is_line()]
+    assert len(curvos) >= 4, f"esperava ao menos 4 trechos curvos, veio {len(curvos)}"
+
+
+def test_retangulo_do_pdf_sai_com_trechos_retos(tmp_path):
+    """Reta do original entra como trecho reto (is_line), nao como curva."""
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=400)
+    page.draw_rect(fitz.Rect(50, 100, 150, 150), color=(0, 0, 0), fill=(0, 0, 0))
+    shapes = PdfVectorImporter().load(_save(tmp_path, doc))
+
+    assert len(shapes) == 1
+    curves = shapes[0].outer.curves
+    assert curves, "retangulo tambem tem que trazer os trechos, so que retos"
+    assert all(s.is_line() for s in curves)
+
+
+def test_curva_e_vertices_descrevem_o_mesmo_anel(tmp_path):
+    """Invariante do contrato: o primeiro trecho comeca no primeiro vertice e o
+    fim de cada trecho e o inicio do proximo (anel fechado, em fase)."""
+    doc = fitz.open()
+    page = doc.new_page(width=400, height=400)
+    page.draw_circle(fitz.Point(200, 200), 60, color=(0, 0, 0), fill=(0, 0, 0))
+    ring = PdfVectorImporter().load(_save(tmp_path, doc))[0].outer
+
+    curves = ring.curves
+    assert curves
+    assert curves[0].p0.x == pytest.approx(ring.vertices[0].x, abs=1e-9)
+    assert curves[0].p0.y == pytest.approx(ring.vertices[0].y, abs=1e-9)
+    for i in range(len(curves)):
+        prox = curves[(i + 1) % len(curves)]
+        assert curves[i].p1.x == pytest.approx(prox.p0.x, abs=1e-3)
+        assert curves[i].p1.y == pytest.approx(prox.p0.y, abs=1e-3)

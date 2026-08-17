@@ -23,21 +23,22 @@ _EPS = 1e-6
 def _reversed_ring(polygon: Polygon) -> Polygon:
     """Anel percorrido ao contrario.
 
-    Inverter os vertices exige tres coisas na curva, nao duas:
-    1. virar a lista de ponta a ponta;
-    2. trocar o sentido de cada trecho (reversed(), que troca p0<->p1);
-    3. ROTACIONAR a lista em uma posicao.
+    O PRIMEIRO VERTICE FICA NO LUGAR: (v0, vn-1, vn-2, ..., v1). Num anel
+    fechado isso e uma inversao legitima (o percurso v0->vn-1->...->v1->v0
+    visita as mesmas arestas ao contrario) e resolve o alinhamento com a curva
+    de graca: invertendo a lista de trechos e o sentido de cada um, o novo
+    primeiro trecho sai do FIM do ultimo trecho original, que e justamente v0.
 
-    O passo 3 e o que engana. Com vertices (v0..vn-1) e trechos s_i = v_i->v_i+1,
-    os vertices invertidos comecam em vn-1, entao o primeiro trecho tem que sair
-    de vn-1 — ou seja s'_n-2. Sem a rotacao, os passos 1 e 2 deixam em primeiro
-    s'_n-1, que sai de v0: vertices e curva comecariam em pontos diferentes e a
-    exportacao gravaria a letra fora de fase com os vertices.
+    Virar os vertices de ponta a ponta (vn-1 primeiro) parece mais natural mas
+    desalinha: a curva comecaria em v0 e os vertices em vn-1. Compensar com uma
+    rotacao da lista de trechos SO funcionaria se houvesse um trecho por
+    vertice — e nao ha: depois do achatamento uma Bezier cobre dezenas de
+    vertices, entao rotacionar um trecho pularia uma curva inteira.
     """
-    rev = [s.reversed() for s in reversed(polygon.curves)]
+    verts = polygon.vertices
     return Polygon(
-        tuple(reversed(polygon.vertices)),
-        tuple(rev[1:] + rev[:1]) if rev else (),
+        (verts[0], *reversed(verts[1:])),
+        tuple(s.reversed() for s in reversed(polygon.curves)),
     )
 
 

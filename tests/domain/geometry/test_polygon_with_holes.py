@@ -104,10 +104,12 @@ def test_normalizacao_de_orientacao_inverte_as_curvas_junto():
 
     forma = PolygonWithHoles(poly)
 
-    assert forma.outer.vertices[0] == c  # confirmou a inversao dos vertices
-    # percurso invertido: c->b, b->a, a->c. O trecho curvo (era a->b) virou
-    # b->a e caiu no MEIO da lista — nao no fim; ver _reversed_ring.
-    curvo_invertido = forma.outer.curves[1]
+    # a inversao mantem o primeiro vertice e vira o resto (ver _reversed_ring):
+    # a, c, b — percurso a->c->b->a
+    assert forma.outer.vertices[0] == a
+    assert forma.outer.vertices[1] == c
+    # o trecho curvo (era a->b) virou b->a e fechou o percurso, no fim da lista
+    curvo_invertido = forma.outer.curves[-1]
     assert curvo_invertido.p0 == b
     assert curvo_invertido.p1 == a
     assert curvo_invertido.c1.y == pytest.approx(7.0)  # era o c2 do original
