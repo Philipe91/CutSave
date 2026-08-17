@@ -10,15 +10,20 @@ Regras que preservam a intencao do corte:
   (cada lado segue a propria corda). Retangulos continuam retangulos exatos.
 - Trecho entre dois cantos e RETA exata (controles sobre a corda).
 - Viradas suaves ganham tangente media -> curva continua (estilo Corel).
+
+O tipo BezierSegment mora em app.domain.geometry.bezier (a camada de baixo,
+porque Polygon carrega curva) e e reexportado aqui por compatibilidade.
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from app.domain.geometry import Point2D
+from app.domain.geometry.bezier import BezierSegment
+
+__all__ = ["BezierSegment", "CORNER_DEG", "cubic_segments", "flatten", "has_curves"]
 
 # virada (graus) acima da qual o no e tratado como canto vivo
 CORNER_DEG = 32.0
@@ -26,21 +31,6 @@ CORNER_DEG = 32.0
 # cima da corda, entao o exportador emite LINHA (nao spline) e o corte sai reto
 LINE_SNAP_MM = 0.02
 _EPS = 1e-9
-
-
-@dataclass(frozen=True, slots=True)
-class BezierSegment:
-    p0: Point2D
-    c1: Point2D
-    c2: Point2D
-    p1: Point2D
-
-    def is_line(self, tol: float = 1e-6) -> bool:
-        """True se os controles estao sobre a corda (trecho reto exato)."""
-        return (
-            _dist_point_line(self.c1, self.p0, self.p1) <= tol
-            and _dist_point_line(self.c2, self.p0, self.p1) <= tol
-        )
 
 
 def _dist_point_line(p: Point2D, a: Point2D, b: Point2D) -> float:
