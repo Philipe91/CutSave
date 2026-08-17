@@ -1,7 +1,7 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.1.2 (Modo Corte e ciclo de vida do arquivo corrigidos)
+Versao:        1.1.3 (curvas originais preservadas no Modo Corte)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
