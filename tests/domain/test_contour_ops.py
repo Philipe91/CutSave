@@ -192,3 +192,41 @@ def test_a_ordem_espelhar_depois_girar_e_a_que_vale():
     # e o resultado canonico e ESTE, ponto a ponto:
     # (1,2) espelha para (9,2) na caixa 10x4 e gira 90 -> (H-y, x) = (2, 9)
     assert canon == [(2, 9), (4, 0), (0, 0), (0, 10)]
+
+
+def test_simplify_contour_descarta_a_curva():
+    """Simplificar move os nos: a curva original deixa de descrever o anel e
+    PRECISA ser descartada (regra de invalidacao). Sem curva, a saida degrada
+    para o comportamento antigo, que e correto — nunca para corte errado."""
+    import math
+
+    from app.domain.cut.contour_ops import simplify_contour
+    from app.domain.geometry import Point2D
+    from app.domain.geometry.bezier import line_segment
+    from app.domain.model.cut_contour import CutContour
+
+    pts = tuple(
+        Point2D(50 * math.cos(i * math.pi / 16), 50 * math.sin(i * math.pi / 16))
+        for i in range(32)
+    )
+    curves = tuple(line_segment(pts[i], pts[(i + 1) % 32]) for i in range(32))
+    c = CutContour(pts, curves)
+    assert c.curves != ()
+
+    simplificado = simplify_contour(c, 1.0)
+    assert simplificado.curves == ()
+
+
+def test_smooth_contour_descarta_a_curva():
+    """Chaikin cria nos novos: mesma regra de invalidacao."""
+    from app.domain.cut.contour_ops import smooth_contour
+    from app.domain.geometry import Point2D
+    from app.domain.geometry.bezier import line_segment
+    from app.domain.model.cut_contour import CutContour
+
+    pts = (Point2D(0, 0), Point2D(10, 0), Point2D(10, 10), Point2D(0, 10))
+    curves = tuple(line_segment(pts[i], pts[(i + 1) % 4]) for i in range(4))
+    c = CutContour(pts, curves)
+
+    suavizado = smooth_contour(c, 1)
+    assert suavizado.curves == ()

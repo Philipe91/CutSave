@@ -30,3 +30,21 @@ def test_minimo_de_tres_pontos():
 
 def test_contour_igualdade():
     assert _retangulo() == _retangulo()
+
+
+def test_cut_contour_sem_curvas_por_padrao():
+    from app.domain.geometry import Point2D
+    from app.domain.model.cut_contour import CutContour
+
+    c = CutContour((Point2D(0, 0), Point2D(10, 0), Point2D(10, 10)))
+    assert c.curves == ()
+
+
+def test_cut_contour_aceita_curvas():
+    from app.domain.geometry import Point2D
+    from app.domain.geometry.bezier import BezierSegment
+    from app.domain.model.cut_contour import CutContour
+
+    seg = BezierSegment(Point2D(0, 0), Point2D(3, 2), Point2D(7, 2), Point2D(10, 0))
+    c = CutContour((Point2D(0, 0), Point2D(10, 0), Point2D(10, 10)), (seg,))
+    assert c.curves == (seg,)
