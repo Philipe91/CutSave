@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.application.dto.print_placement import PrintSheet
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
+from app.infrastructure.color_space import origem_e_cmyk
 from app.infrastructure.exporters.pdf_writer import PdfWriter, bbox_normalizada
 from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf, raw_box, trim_clip_pdf
 from app.infrastructure.pdfium_knife import knife_free_pdf
@@ -50,6 +51,67 @@ _ROTULO_NIVEL = {
 
 def _is_image_source(path: str) -> bool:
     return Path(path).suffix.lower() in _IMAGE_SUFFIXES
+
+
+_srgb: bytes | None = None
+_srgb_lido = False
+
+
+def _perfil_srgb() -> bytes | None:
+    """Bytes do perfil sRGB para marcar a imagem exportada (None se o Pillow
+    desta instalacao vier sem littleCMS). Montado uma vez so."""
+    global _srgb, _srgb_lido
+    if not _srgb_lido:
+        _srgb_lido = True
+        try:
+            from PIL import ImageCms
+
+            _srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+        except Exception:
+            _srgb = None
+    return _srgb
+
+
+def _no_espaco_de_saida(pil, fmt: str, color_space: str, icc_path: str | None):
+    """(imagem, bytes do perfil) no espaco de cor pedido para a exportacao.
+
+    CMYK so em JPEG — PNG nao guarda CMYK, e o pedido cai para RGB em vez de
+    virar erro. Conversao que falha (perfil corrompido, Pillow sem littleCMS)
+    tambem cai para RGB: entregar a chapa em RGB e melhor do que nao entregar
+    chapa nenhuma."""
+    if (color_space or "rgb").lower() == "cmyk" and fmt == "jpeg":
+        convertida, perfil = _para_cmyk(pil, icc_path)
+        if convertida is not None:
+            return convertida, perfil
+    return pil, _perfil_srgb()
+
+
+def _para_cmyk(pil, icc_path: str | None):
+    """Converte a imagem RGB para CMYK com gerenciamento de cor.
+
+    Colorimetrico relativo COM compensacao de ponto preto: e o que mantem a
+    imagem sem estourar as sombras na conversao para tinta, e o padrao que as
+    graficas esperam. (None, None) quando nao da para converter."""
+    from app.infrastructure.color_profiles import caminho_do_perfil_padrao
+
+    destino = icc_path or caminho_do_perfil_padrao()
+    if not destino:
+        return None, None
+    try:
+        from PIL import ImageCms
+
+        origem = ImageCms.createProfile("sRGB")
+        perfil = ImageCms.getOpenProfile(destino)
+        convertida = ImageCms.profileToProfile(
+            pil, origem, perfil, outputMode="CMYK",
+            renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+            flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
+        )
+        if convertida is None:
+            return None, None
+        return convertida, perfil.tobytes()
+    except Exception:
+        return None, None  # perfil ilegivel: exporta em RGB, sem quebrar
 
 
 def _ram_livre_bytes() -> int | None:
@@ -145,9 +207,36 @@ class PikePdfPrintExporter(IPrintPdfExporter):
     exportacao em imagem rasteriza esse mesmo documento com o pdfium.
     """
 
+    @staticmethod
+    def _trabalho_e_cmyk(sheets: Sequence[PrintSheet]) -> bool:
+        """Alguma peca desta exportacao esta em CMYK?"""
+        return any(
+            origem_e_cmyk(pl.source_path, pl.source_page)
+            for sheet in sheets
+            for pl in sheet.placements
+        )
+
+    @staticmethod
+    def _herdar_output_intent(writer: PdfWriter, sheets: Sequence[PrintSheet]) -> None:
+        """Traz o OutputIntent da primeira origem que tiver um."""
+        for sheet in sheets:
+            for pl in sheet.placements:
+                if _is_image_source(pl.source_path):
+                    continue
+                if writer.copiar_output_intents(pl.source_path):
+                    return
+
     def _build_writer(self, sheets: Sequence[PrintSheet]) -> PdfWriter:
         writer = PdfWriter()
         clips: dict = {}  # (path, pagina, box, crop) -> clip em pt (ou None)
+        # Espaco de cor do trabalho: com arte CMYK as marcas do PrintNest saem
+        # em K puro e o OutputIntent da origem vem junto. Sem isso o arquivo
+        # vira hibrido (arte CMYK + marcas RGB, sem perfil de destino) e o RIP
+        # decide sozinho como converter — foi o que deixou a chapa impressa
+        # com a cor trocada em relacao a arte (relatado em 03/09/2026).
+        if self._trabalho_e_cmyk(sheets):
+            writer.usar_marcas_cmyk()
+            self._herdar_output_intent(writer, sheets)
         try:
             for sheet in sheets:
                 writer.new_page(sheet.size.width, sheet.size.height)
@@ -218,10 +307,27 @@ class PikePdfPrintExporter(IPrintPdfExporter):
         dpi: int = 150,
         image_format: str = "png",
         progresso: Callable[[float, str], None] | None = None,
+        color_space: str = "rgb",
+        icc_path: str | None = None,
+        quality: int = 95,
     ) -> list[str]:
         """Rasteriza o documento de impressao: uma imagem por chapa, no DPI
         dado. Com mais de uma chapa, gera arquivos numerados (..._01, _02).
         Retorna os caminhos gerados.
+
+        color_space: 'rgb' (padrao) ou 'cmyk'. Em CMYK a imagem e convertida
+        com gerenciamento de cor para 'icc_path' (ou o perfil padrao da
+        maquina) e o perfil vai EMBUTIDO no arquivo. So vale para JPEG: PNG
+        nao guarda CMYK, e pedir CMYK em PNG exporta em RGB em vez de recusar
+        — o arquivo e do cliente e ele pediu a chapa, nao uma negativa.
+
+        ATENCAO ao que esta opcao NAO faz: o pdfium so rasteriza em RGB,
+        entao o CMYK aqui e uma CONVERSAO (CMYK->RGB->CMYK), nao o CMYK
+        original da arte. Tinta pura nao sobrevive ao ida e volta (K puro
+        vira preto de quatro cores). Para cor identica a da arte, o caminho e
+        exportar em PDF, que preserva as tintas byte a byte. O ganho aqui e
+        outro e real: sem esta opcao o RIP fazia essa mesma conversao as
+        cegas, com um perfil que ninguem escolheu.
 
         O arquivo do cliente SEMPRE e gravado — a decisao de exportar e dele
         (06/08). PrintExportError so em falha de verdade: memoria que nao deu
@@ -266,11 +372,22 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                         # dpi GRAVADO no arquivo: sem ele o RIP/Corel abre a
                         # 96dpi e a chapa de 19,7cm vira 92cm (teste real
                         # 16/07 — regressão da migração PyMuPDF->pdfium)
+                        #
+                        # O arquivo tem que DIZER em que espaco de cor ele
+                        # esta: sem perfil embutido cada RIP assume um
+                        # diferente e a mesma chapa imprime diferente em cada
+                        # maquina (03/09/2026). Em CMYK converte e embute o
+                        # perfil de destino; em RGB embute o sRGB.
+                        pil, icc = _no_espaco_de_saida(pil, fmt, color_space, icc_path)
+                        extra = {"icc_profile": icc} if icc else {}
                         try:
                             if fmt == "jpeg":
-                                pil.save(target, format="JPEG", quality=95, dpi=(dpi, dpi))
+                                pil.save(target, format="JPEG",
+                                         quality=int(quality),
+                                         dpi=(dpi, dpi), **extra)
                             else:
-                                pil.save(target, format=fmt.upper(), dpi=(dpi, dpi))
+                                pil.save(target, format=fmt.upper(),
+                                         dpi=(dpi, dpi), **extra)
                         except Exception as exc:
                             raise PrintExportError(
                                 f"Falha ao gerar imagem: {target}"

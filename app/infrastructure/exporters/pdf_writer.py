@@ -29,6 +29,26 @@ MM2PT = 72.0 / 25.4
 # fator do arco de circulo por Bezier (4 arcos de 90 graus)
 _K = 0.5522847498307936
 
+# modo do Pillow -> espaco de cor do PDF (e quantos canais ele tem)
+_DEVICE_DO_MODO = {
+    "RGB": Name.DeviceRGB,
+    "L": Name.DeviceGray,
+    "CMYK": Name.DeviceCMYK,
+}
+_N_DO_MODO = {"RGB": 3, "L": 1, "CMYK": 4}
+# assinatura do espaco de cor no cabecalho ICC (bytes 16..20) -> modo Pillow
+_ESPACO_ICC = {b"RGB ": "RGB", b"CMYK": "CMYK", b"GRAY": "L"}
+
+
+def _espaco_do_perfil(icc: bytes) -> str | None:
+    """Espaco de cor declarado no cabecalho do perfil ICC, ou None.
+
+    Serve para nao colar num XObject um perfil que nao corresponde aos canais
+    da imagem — o leitor descarta a imagem inteira quando isso acontece."""
+    if not icc or len(icc) < 20:
+        return None
+    return _ESPACO_ICC.get(bytes(icc[16:20]))
+
 
 def bbox_normalizada(caixa) -> tuple[float, float, float, float]:
     """(x0, y0, x1, y1) com x0<=x1 e y0<=y1, sempre.
@@ -63,6 +83,7 @@ class PdfWriter:
         self._images: dict = {}     # path -> image xobject
         self._pages: list[dict] = []
         self._cur: dict | None = None
+        self._cmyk_marcas = False  # ver usar_marcas_cmyk()
 
     # ---- paginas ----
     def new_page(self, width_mm: float, height_mm: float) -> None:
@@ -216,31 +237,64 @@ class PdfWriter:
         )
 
     def _image_xobject(self, path: str):
+        """Imagem embutida NO ESPACO DE COR EM QUE ELA ENTROU.
+
+        Ate 03/09/2026 toda imagem virava DeviceRGB: um JPEG CMYK de grafica
+        era convertido pela formula ingenua do Pillow (ciano 100% virava
+        RGB 0,255,255 em vez de ~0,158,224) e o RIP re-separava esse RGB em
+        tres tintas — o impresso nao tinha nada a ver com a arte. E um JPEG
+        com perfil embutido (Adobe RGB, ProPhoto) perdia o perfil e passava a
+        ser lido como sRGB, que desloca a cor inteira. Relatado em producao.
+
+        Agora: CMYK sai CMYK, cinza sai cinza, e o perfil do cliente viaja
+        junto como /ICCBased.
+        """
         cached = self._images.get(path)
         if cached is not None:
             return cached
         suffix = Path(path).suffix.lower()
         pil = Image.open(path)
         pil.load()
-        if suffix in (".jpg", ".jpeg") and pil.mode in ("RGB", "L"):
+        icc = pil.info.get("icc_profile")
+        if suffix in (".jpg", ".jpeg") and pil.mode in ("RGB", "L", "CMYK"):
             # JPEG sem alpha: embute o arquivo ORIGINAL (DCT), sem recomprimir
             xo = pikepdf.Stream(self._pdf, Path(path).read_bytes())
+            campos = dict(
+                Type=Name.XObject, Subtype=Name.Image,
+                Width=pil.width, Height=pil.height,
+                ColorSpace=self._colorspace(pil.mode, icc),
+                BitsPerComponent=8, Filter=Name.DCTDecode,
+            )
+            if pil.mode == "CMYK" and pil.info.get("adobe"):
+                # JPEG CMYK da Adobe guarda as tintas INVERTIDAS (marcador
+                # APP14). Sem este /Decode a arte sai quase preta no PDF —
+                # medido no arquivo de teste: ciano 100% renderizava (23,0,0).
+                campos["Decode"] = Array([1, 0, 1, 0, 1, 0, 1, 0])
+            xo.stream_dict = Dictionary(**campos)
+        elif pil.mode == "CMYK":
+            # CMYK que nao entra por DCT: recomprime em Flate, mas CONTINUA
+            # com as quatro tintas (aqui o Pillow ja devolve nao-invertido).
+            xo = pikepdf.Stream(self._pdf, zlib.compress(pil.tobytes()))
             xo.stream_dict = Dictionary(
                 Type=Name.XObject, Subtype=Name.Image,
                 Width=pil.width, Height=pil.height,
-                ColorSpace=(Name.DeviceRGB if pil.mode == "RGB" else Name.DeviceGray),
-                BitsPerComponent=8, Filter=Name.DCTDecode,
+                ColorSpace=self._colorspace("CMYK", icc),
+                BitsPerComponent=8, Filter=Name.FlateDecode,
             )
         else:
             has_alpha = pil.mode in ("RGBA", "LA", "PA") or "transparency" in pil.info
             rgba = pil.convert("RGBA") if has_alpha else None
-            rgb = (rgba or pil).convert("RGB")
-            xo = pikepdf.Stream(self._pdf, zlib.compress(rgb.tobytes()))
+            # cinza continua cinza (1 canal em vez de 3): sem alpha e sem
+            # paleta, abrir para RGB so inchava o arquivo e tirava a garantia
+            # de que a arte cinza imprime em UMA tinta
+            cinza = rgba is None and pil.mode in ("L", "1")
+            base = pil.convert("L") if cinza else (rgba or pil).convert("RGB")
+            xo = pikepdf.Stream(self._pdf, zlib.compress(base.tobytes()))
             xo.stream_dict = Dictionary(
                 Type=Name.XObject, Subtype=Name.Image,
-                Width=rgb.width, Height=rgb.height,
-                ColorSpace=Name.DeviceRGB, BitsPerComponent=8,
-                Filter=Name.FlateDecode,
+                Width=base.width, Height=base.height,
+                ColorSpace=self._colorspace("L" if cinza else "RGB", icc),
+                BitsPerComponent=8, Filter=Name.FlateDecode,
             )
             if rgba is not None:
                 smask = pikepdf.Stream(
@@ -256,15 +310,82 @@ class PdfWriter:
         self._images[path] = xo
         return xo
 
+    def _colorspace(self, modo: str, icc: bytes | None):
+        """Espaco de cor do PDF para um modo do Pillow, levando o perfil do
+        arquivo quando ele existe e CONFERE com o modo.
+
+        O perfil so entra se o cabecalho ICC declarar o mesmo espaco da
+        imagem: perfil trocado (um CMYK colado numa imagem RGB) faz o leitor
+        recusar a imagem inteira. Nao batendo, vale o Device — pior que o
+        perfil certo, melhor que arquivo que nao abre."""
+        device = _DEVICE_DO_MODO[modo]
+        if not icc or _espaco_do_perfil(icc) != modo:
+            return device
+        perfil = pikepdf.Stream(self._pdf, icc)
+        perfil.stream_dict = Dictionary(N=_N_DO_MODO[modo], Alternate=device)
+        return Array([Name.ICCBased, perfil])
+
+    # ---- espaco de cor das marcas que o PrintNest desenha ----
+    def usar_marcas_cmyk(self) -> None:
+        """Desenha marcas/facas em K puro (DeviceCMYK 0 0 0 1) em vez de RGB.
+
+        QA-F2A-03: marca de registro em '0 0 0 rg' vira PRETO COMPOSTO no RIP
+        (quatro tintas). Composto sai fora de registro e o sensor optico da
+        mesa de corte erra a leitura — a marca precisa ser so o canal K. Em
+        documento CMYK isso tambem evita misturar objeto RGB num arquivo que
+        o resto do fluxo trata como CMYK."""
+        self._cmyk_marcas = True
+
+    def _cor(self, color, *, traco: bool) -> str:
+        """Operador de cor para o content stream, no espaco das marcas."""
+        r, g, b = color
+        if not self._cmyk_marcas:
+            return f"{_f(r)} {_f(g)} {_f(b)} {'RG' if traco else 'rg'}"
+        k = 1.0 - max(r, g, b)
+        if k >= 1.0:  # preto puro: SO o canal K (o caso das marcas)
+            c = m = y = 0.0
+        else:
+            c = (1.0 - r - k) / (1.0 - k)
+            m = (1.0 - g - k) / (1.0 - k)
+            y = (1.0 - b - k) / (1.0 - k)
+        return f"{_f(c)} {_f(m)} {_f(y)} {_f(k)} {'K' if traco else 'k'}"
+
+    def copiar_output_intents(self, origem: str) -> bool:
+        """Traz o OutputIntent do PDF de origem para o documento de saida.
+
+        O OutputIntent e quem diz QUAL CMYK e aquele CMYK (Coated FOGRA39,
+        SWOP, o perfil da grafica...). Sem ele o RIP adivinha o perfil de
+        destino, e adivinhar errado desloca a cor da chapa inteira.
+
+        A origem fica em self._sources ate o close(): o pikepdf le o objeto
+        copiado de forma preguicosa, e fechar o arquivo antes do save gravaria
+        um intent vazio. Devolve True se copiou."""
+        try:
+            src = self._sources.get(origem)
+            if src is None:
+                src = pikepdf.open(origem)
+                self._sources[origem] = src
+            intents = src.Root.get("/OutputIntents")
+            if intents is None or len(intents) == 0:
+                return False
+            # copy_foreign so aceita objeto INDIRETO: o array em si costuma ser
+            # direto, entao cada intent e copiado de um em um.
+            copiados = [self._pdf.copy_foreign(oi) for oi in intents.as_list()]
+            if not copiados:
+                return False
+            self._pdf.Root.OutputIntents = Array(copiados)
+        except Exception:
+            return False  # origem sem intent legivel: segue sem, como antes
+        return True
+
     # ---- desenho vetorial (coords topo-esquerda em mm) ----
     def draw_line(
         self, p1_mm, p2_mm, *, width_pt: float = 1.0, color=(0, 0, 0)
     ) -> None:
         x1, y1 = self._pt(*p1_mm)
         x2, y2 = self._pt(*p2_mm)
-        r, g, b = color
         self._cur["ops"].append(
-            f"q {_f(r)} {_f(g)} {_f(b)} RG {_f(width_pt)} w "
+            f"q {self._cor(color, traco=True)} {_f(width_pt)} w "
             f"{_f(x1)} {_f(y1)} m {_f(x2)} {_f(y2)} l S Q\n"
         )
 
@@ -275,11 +396,9 @@ class PdfWriter:
         cx, cy = self._pt(*center_mm)
         rr = radius_mm * MM2PT
         k = _K * rr
-        r, g, b = color
-        ops = [f"q {_f(r)} {_f(g)} {_f(b)} RG {_f(width_pt)} w"]
+        ops = [f"q {self._cor(color, traco=True)} {_f(width_pt)} w"]
         if fill is not None:
-            fr, fg, fb = fill
-            ops.append(f"{_f(fr)} {_f(fg)} {_f(fb)} rg")
+            ops.append(self._cor(fill, traco=False))
         ops.append(
             f"{_f(cx + rr)} {_f(cy)} m "
             f"{_f(cx + rr)} {_f(cy + k)} {_f(cx + k)} {_f(cy + rr)} {_f(cx)} {_f(cy + rr)} c "
@@ -297,13 +416,12 @@ class PdfWriter:
         if len(points_mm) < 2:
             return
         pts = [self._pt(x, y) for x, y in points_mm]
-        r, g, b = color
         body = f"{_f(pts[0][0])} {_f(pts[0][1])} m " + " ".join(
             f"{_f(x)} {_f(y)} l" for x, y in pts[1:]
         )
         end = "h S Q" if close else "S Q"
         self._cur["ops"].append(
-            f"q {_f(r)} {_f(g)} {_f(b)} RG {_f(width_pt)} w {body} {end}\n"
+            f"q {self._cor(color, traco=True)} {_f(width_pt)} w {body} {end}\n"
         )
 
     def draw_bezier_path(
@@ -314,7 +432,6 @@ class PdfWriter:
         Fecha e traceja como um unico objeto (a maquina corta sem levantar)."""
         if not segments_mm:
             return
-        r, g, b = color
         p0 = self._pt(*segments_mm[0][0])
         body = [f"{_f(p0[0])} {_f(p0[1])} m"]
         for _p0, c1, c2, p1 in segments_mm:
@@ -327,15 +444,14 @@ class PdfWriter:
             )
         end = "h S Q" if close else "S Q"
         self._cur["ops"].append(
-            f"q {_f(r)} {_f(g)} {_f(b)} RG {_f(width_pt)} w "
+            f"q {self._cor(color, traco=True)} {_f(width_pt)} w "
             + " ".join(body) + f" {end}\n"
         )
 
     def draw_rect_filled(self, x_mm, y_mm, w_mm, h_mm, color=(0, 0, 0)) -> None:
         x, y = self._pt(x_mm, y_mm + h_mm)  # canto inferior-esquerdo
-        r, g, b = color
         self._cur["ops"].append(
-            f"q {_f(r)} {_f(g)} {_f(b)} rg {_f(x)} {_f(y)} "
+            f"q {self._cor(color, traco=False)} {_f(x)} {_f(y)} "
             f"{_f(w_mm * MM2PT)} {_f(h_mm * MM2PT)} re f Q\n"
         )
 

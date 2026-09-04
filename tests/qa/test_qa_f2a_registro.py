@@ -383,13 +383,14 @@ def test_persistencia_quadrados_margem_tamanho_e_espessura(qapp, tmp_path):
 
 def test_marcas_de_registro_deveriam_ser_100pct_k_puro():
     pytest.xfail(
-        "QA-F2A-03: marcas de registro (circulos/quadrados preenchidos e "
-        "linhas de cruz/L) saem no PDF de impressao como DeviceRGB '0 0 0 "
-        "rg'/'RG' (pdf_writer.draw_circle/draw_line/draw_rect_filled), nunca "
-        "como K puro ('0 0 0 0 k'/'K' ou DeviceGray '0 g'). Visualmente e "
-        "preto, mas uma grafica que confia em K=100%% para a marca de "
-        "registro (sem rebuild de preto/GCR do RIP) pode ver um preto "
-        "composto em vez de canal K puro."
+        "QA-F2A-03, resolvido PELA METADE em 03/09/2026: em trabalho CMYK as "
+        "marcas ja saem em K puro ('0 0 0 1 k'/'K' — ver "
+        "tests/infrastructure/test_export_perfil_de_cor.py). Em trabalho RGB "
+        "elas continuam DeviceRGB '0 0 0 rg'/'RG', DE PROPOSITO: o contrato "
+        "novo da exportacao e nao trocar o espaco de cor do arquivo, e "
+        "injetar objeto CMYK num documento RGB quebraria isso. Fica aberto "
+        "so o caso RGB, onde uma grafica que confia em K=100%% para a marca "
+        "pode ver preto composto."
     )
 
 
