@@ -99,12 +99,16 @@ class _FakeExporter(IPrintPdfExporter):
         self.path = output_path
 
     def export_image(self, sheets, output_path, *, dpi=150, image_format="png",
-                     progresso=None):
+                     progresso=None, color_space="rgb", icc_path=None,
+                     quality=95):
         self.image_sheets = list(sheets)
         self.path = output_path
         self.dpi = dpi
         self.fmt = image_format
         self.progresso = progresso
+        self.color_space = color_space
+        self.icc_path = icc_path
+        self.quality = quality
         return [output_path]
 
 

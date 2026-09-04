@@ -21,8 +21,13 @@ class IPrintPdfExporter(ABC):
         dpi: int = 150,
         image_format: str = "png",
         progresso: Callable[[float, str], None] | None = None,
+        color_space: str = "rgb",
+        icc_path: str | None = None,
+        quality: int = 95,
     ) -> list[str]:
         """Rasteriza as chapas em imagem (PNG/JPEG). Opcional na porta.
 
-        'progresso' recebe (fracao 0..1, texto) na mesma thread da chamada."""
+        'progresso' recebe (fracao 0..1, texto) na mesma thread da chamada.
+        'color_space' e 'rgb' ou 'cmyk' (CMYK so em JPEG, convertido para
+        'icc_path'); 'quality' vale para JPEG."""
         raise NotImplementedError

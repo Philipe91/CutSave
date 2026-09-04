@@ -167,7 +167,11 @@ from app.presentation import (
     units,
 )
 from app.presentation.panels import ribbon as ribbon_panel
-from app.presentation.panels.dpi_dialog import DpiDialog, LeituraDpi
+from app.presentation.panels.dpi_dialog import (
+    ExportarImagemDialog,
+    LeituraDpi,
+    OpcoesDeCor,
+)
 from app.presentation.panels.status_bar import StatusBarController
 from app.presentation.widgets import (
     Alert,
@@ -1349,7 +1353,13 @@ class ExportCenterDialog(QDialog):
         super().__init__(window)
         self._w = window
         self.setWindowTitle("Centro de Exportação")
-        self.setMinimumSize(720, 480)
+        # Largura tem piso fixo; ALTURA fica por conta do layout. Minimo
+        # explicito de altura GANHA do minimo calculado pelo layout, entao o
+        # 480 que havia aqui autorizava o Qt a espremer o conteudo: quando o
+        # painel de imagem ganhou espaco de cor/perfil/qualidade, o layout
+        # passou a pedir ~613px e os campos sairam desenhados uns por cima
+        # dos outros (relatado em 03/09/2026).
+        self.setMinimumWidth(720)
 
         sheets = window._effective_sheets()
         pre = set(window._selected_sheet_indices())  # chapas selecionadas no canvas
@@ -1477,6 +1487,20 @@ class ExportCenterDialog(QDialog):
         dpi_box.setSpacing(theme.SPACE_XS)
         dpi_box.addLayout(dpi_row)
         dpi_box.addWidget(self._dpi_hint)
+        # Espaco de cor no MESMO painel do DPI: e por aqui que o cliente
+        # exporta de verdade. A primeira versao da opcao so existia no
+        # diálogo do menu "Exportar Imagem", e este caminho passava reto
+        # pelas opcoes (relatado em 03/09/2026).
+        self._opt_cor = OpcoesDeCor(
+            color_space_inicial=window._settings.export_color_space,
+            icc_inicial=window._settings.export_icc,
+            quality_inicial=int(window._settings.export_quality),
+            sugerir_cmyk=window._arte_e_cmyk(None),
+            # aqui o PNG/JPEG so e decidido na hora de dar o nome do arquivo
+            formato_conhecido=False,
+            compacto=True,  # coluna estreita: nota em uma linha + tooltip
+        )
+        dpi_box.addWidget(self._opt_cor)
         self._dpi_host = QWidget()
         self._dpi_host.setLayout(dpi_box)
         right.addWidget(self._dpi_host)
@@ -1574,6 +1598,14 @@ class ExportCenterDialog(QDialog):
             return
         self._preview.setPixmap(self._w._sheet_thumbnail(idxs[0], 360))
 
+    def _opcoes_de_cor(self) -> dict:
+        """Espaco de cor escolhido no painel, pronto para o export_image."""
+        return {
+            "color_space": self._opt_cor.color_space(),
+            "icc_path": self._opt_cor.icc_path(),
+            "quality": self._opt_cor.quality(),
+        }
+
     def _do_export(self) -> None:
         fmt = self._current_format()
         if self._selection_mode():
@@ -1584,7 +1616,10 @@ class ExportCenterDialog(QDialog):
             elif fmt == "faca":
                 self._w.export_faca_pdf(sheets_override=synthetic)
             elif fmt == "img":
-                self._w.export_image(sheets_override=synthetic, dpi=int(self._opt_dpi.value()))
+                self._w.export_image(
+                    sheets_override=synthetic, dpi=int(self._opt_dpi.value()),
+                    **self._opcoes_de_cor(),
+                )
             elif fmt == "dxf":
                 self._w.export_dxf(sheets_override=synthetic)
             return
@@ -1598,7 +1633,10 @@ class ExportCenterDialog(QDialog):
         elif fmt == "faca":
             self._w.export_faca_pdf(pages=idxs)
         elif fmt == "img":
-            self._w.export_image(pages=idxs, dpi=int(self._opt_dpi.value()))
+            self._w.export_image(
+                pages=idxs, dpi=int(self._opt_dpi.value()),
+                **self._opcoes_de_cor(),
+            )
         elif fmt == "dxf":
             if self._opt_dxf_per.isChecked():
                 self._w.export_dxf_per_sheet(pages=idxs)
@@ -9987,7 +10025,7 @@ class MainWindow(QMainWindow):
     @_guard_export
     def export_image(
         self, path: str | None = None, pages=None, dpi=None, image_format=None,
-        sheets_override=None,
+        sheets_override=None, color_space=None, icc_path=None, quality=None,
     ) -> None:
         if self._result is None:
             return
@@ -10020,15 +10058,39 @@ class MainWindow(QMainWindow):
                 # esperar: o arquivo é dele, quem decide exportar é ele
                 # (decisão de 06/08). Ver panels/dpi_dialog.py.
                 larg, alt = self._maior_pagina_mm(sheets)
-                dlg = DpiDialog(
-                    self, larg, alt, image_format, int(self._settings.export_dpi)
+                dlg = ExportarImagemDialog(
+                    self, larg, alt, image_format, int(self._settings.export_dpi),
+                    color_space_inicial=self._settings.export_color_space,
+                    icc_inicial=self._settings.export_icc,
+                    quality_inicial=int(self._settings.export_quality),
+                    # arte CMYK já abre a tela em CMYK: é o espaço dela
+                    sugerir_cmyk=self._arte_e_cmyk(sheets),
                 )
                 if dlg.exec() != QDialog.Accepted:
                     return
                 dpi = dlg.dpi()
+                color_space = dlg.color_space()
+                icc_path = dlg.icc_path()
+                quality = dlg.quality()
+                # o formato pode ter mudado na tela: a extensão acompanha,
+                # senão o arquivo sai JPEG com nome .png
+                if dlg.formato() != image_format:
+                    image_format = dlg.formato()
+                    path = str(Path(path).with_suffix(
+                        ".jpg" if image_format == "jpeg" else ".png"
+                    ))
             else:
                 dpi = int(self._settings.export_dpi)
+        if color_space is None:
+            color_space = self._settings.export_color_space
+        if icc_path is None:
+            icc_path = self._settings.export_icc
+        if quality is None:
+            quality = int(self._settings.export_quality)
         self._settings.export_dpi = int(dpi)
+        self._settings.export_color_space = str(color_space)
+        self._settings.export_icc = str(icc_path or "")
+        self._settings.export_quality = int(quality)
         self._store.save(self._settings)
         self._status_ctl.start_progress("Exportando imagem…")
         try:
@@ -10037,6 +10099,9 @@ class MainWindow(QMainWindow):
                     sheets, self._result.artworks, self._result.sources, path,
                     dpi=int(dpi), image_format=image_format,
                     progresso=self._status_ctl.set_progress,
+                    color_space=str(color_space),
+                    icc_path=str(icc_path or "") or None,
+                    quality=int(quality),
                     **self._print_kwargs(),
                 )
         finally:
@@ -10058,6 +10123,22 @@ class MainWindow(QMainWindow):
                 yield
         finally:
             self._status_ctl.end_progress()
+
+    def _arte_e_cmyk(self, sheets=None) -> bool:
+        """Alguma arte destas chapas esta em CMYK?
+
+        Serve so para a tela de exportacao ja abrir no espaco da arte. Erro
+        aqui nao estraga nada: o operador ve e troca."""
+        try:
+            from app.infrastructure.color_space import origem_e_cmyk
+
+            fontes = (self._result.sources or {}) if self._result else {}
+            return any(
+                origem_e_cmyk(caminho, pagina)
+                for caminho, pagina in fontes.values()
+            )
+        except Exception:
+            return False
 
     def _maior_pagina_mm(self, sheets) -> tuple[float, float]:
         """Maior página (mm) entre as chapas selecionadas — é ela que manda no

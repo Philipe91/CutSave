@@ -46,6 +46,9 @@ class AppSettings:
     import_box: str = "media"  # media (Caixa de Midia) | trim (Caixa de Apara)
     snap_enabled: bool = True  # encaixe (snap) ao arrastar pecas
     export_dpi: int = 150  # resolucao da exportacao em imagem (PNG/JPEG)
+    export_color_space: str = "rgb"  # espaco da exportacao em imagem: rgb | cmyk
+    export_icc: str = ""  # perfil CMYK de destino (vazio = padrao da maquina)
+    export_quality: int = 95  # qualidade do JPEG exportado (1-100)
     auto_sensitivity: float = 50.0  # faca automatica de imagem: sensibilidade (0-100)
     auto_ignore_white: bool = True  # imagens opacas: recortar ignorando fundo branco
     auto_offset_external: float = 2.0  # faca de imagem: offset externo (sangria) mm

@@ -169,13 +169,18 @@ class ExportPrintPdfUseCase:
         dpi: int = 150,
         image_format: str = "png",
         progresso: Callable[[float, str], None] | None = None,
+        color_space: str = "rgb",
+        icc_path: str | None = None,
+        quality: int = 95,
         **kwargs,
     ) -> list[str]:
-        """Exporta a impressao como imagem (PNG/JPEG) no DPI pedido."""
+        """Exporta a impressao como imagem (PNG/JPEG) no DPI e espaco de cor
+        pedidos."""
         print_sheets = self.build_print_sheets(sheets, artworks, sources, **kwargs)
         return self._exporter.export_image(
             print_sheets, output_path, dpi=dpi, image_format=image_format,
-            progresso=progresso,
+            progresso=progresso, color_space=color_space, icc_path=icc_path,
+            quality=quality,
         )
 
     @staticmethod
