@@ -4,6 +4,57 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [1.2.0] — 2026-09-04 — **a cor sai como entrou**
+
+Relato de produção: chapa exportada imprimia com cor **completamente diferente**
+da arte. O cliente exportava em JPEG.
+
+### Corrigido
+
+- **Toda imagem era reescrita como `DeviceRGB` no PDF de impressão.** Um JPEG
+  CMYK de gráfica passava pela conversão ingênua do Pillow — ciano 100% virava
+  RGB (0,255,255) em vez de ~(0,158,224) — e o RIP re-separava esse RGB em três
+  tintas. Perfil ICC embutido (Adobe RGB e afins) era descartado e o arquivo
+  passava a ser lido como sRGB. Agora CMYK sai CMYK, cinza sai cinza e o perfil
+  vira `/ICCBased` no PDF. Medido: as tintas saem idênticas às da origem
+  (`C100 → (255,0,0,0)`).
+- **JPEG CMYK da Adobe precisa de `/Decode [1 0 1 0 1 0 1 0]`** (o marcador
+  APP14 grava as tintas invertidas). Sem isso a arte renderizava quase preta —
+  medido: `(23,0,0)`. Confirmado por teste antes de escolher a implementação.
+- **JPEG deixou de ser recomprimido**: passthrough `/DCTDecode` em vez de
+  reencode em Flate.
+- **`OutputIntent` da origem é herdado** pelo PDF de impressão. Sem ele o RIP
+  adivinha o perfil de destino, e adivinhar errado desloca a chapa inteira.
+- **Marcas de registro em K puro** (`0 0 0 1 k`) em trabalho CMYK — fecha metade
+  do QA-F2A-03. Em RGB seguem `rg`, de propósito: injetar objeto CMYK num
+  documento RGB contraria o contrato de não trocar o espaço do arquivo.
+
+### Adicionado
+
+- **Escolha de RGB/CMYK na exportação em imagem**, estilo Corel: espaço de cor,
+  perfil e qualidade JPEG. Os perfis vêm dos instalados no Windows (o RSWOP
+  acompanha o sistema, então a lista nunca fica vazia) e dá para apontar o
+  `.icc` da gráfica. Arte CMYK já abre a tela em CMYK.
+- Disponível nas **duas** portas de saída — menu *Exportar Imagem* e *Centro de
+  Exportação* — pelo widget `OpcoesDeCor`, reusado nas duas telas.
+- A exportação em imagem passou a **declarar o perfil** (sRGB quando RGB, o
+  perfil escolhido quando CMYK). Antes saía sem perfil nenhum e cada RIP
+  assumia um espaço diferente.
+
+### Limitação conhecida
+
+O pdfium só rasteriza em RGB, então a exportação em **imagem** não devolve o
+CMYK da arte: é conversão gerenciada CMYK→RGB→CMYK e tinta pura não sobrevive
+ao ida e volta. **Fidelidade real só na exportação em PDF**, que preserva as
+tintas byte a byte. A tela avisa isso na hora da escolha.
+
+### Notas de atualização
+
+Instalação por cima preserva licença e configurações: a licença vive em
+`%APPDATA%\PrintNest\license.key` e o `AppId` do instalador não muda. Os três
+campos novos de configuração (`export_color_space`, `export_icc`,
+`export_quality`) têm default seguro — `config.json` de 1.1.3 abre sem eles.
+
 ## [1.1.3] — 2026-08-17 — **curvas do Modo Corte saem como curvas**
 
 Relato de produção com letras de acrílico (logo do Hospital Santa Lucia, letras

@@ -1,6 +1,6 @@
 # Quais arquivos vão para o cliente
 
-Referência rápida para não errar na hora de entregar. Versão 1.0.0.
+Referência rápida para não errar na hora de entregar. Versão 1.2.0.
 
 ---
 
@@ -9,7 +9,7 @@ Referência rápida para não errar na hora de entregar. Versão 1.0.0.
 **Um só:**
 
 ```
-c:\projetos\Cutph\dist_installer\PrintNest-Setup-1.0.0.exe
+c:\projetos\PROJETOS PH\Cutph\dist_installer\PrintNest-Setup-1.2.0.exe
 ```
 
 É o **instalador**. Dentro dele já vai tudo: o programa, o LEIA-ME, o Tutor IA
@@ -34,7 +34,7 @@ serve para entregar.
 
 | Caminho | O que é | Entrega? |
 |---|---|---|
-| `dist_installer\PrintNest-Setup-1.0.0.exe` | **o instalador** | ✅ **sim** |
+| `dist_installer\PrintNest-Setup-1.2.0.exe` | **o instalador** | ✅ **sim** |
 | `PrintNest_Build\PrintNest.exe` | o programa solto + LEIA-ME + Tutor IA + plugin. É a matéria-prima que o instalador empacota | ❌ não |
 | `dist\PrintNest.exe` | saída crua do PyInstaller, antes de montar a pasta | ❌ não |
 | `C:\Program Files\PrintNest\PrintNest.exe` | o que ficou instalado na sua máquina | ❌ não |
@@ -50,8 +50,8 @@ Além do instalador, mande estes dois (no e-mail ou na página de download):
 
 | Arquivo | Onde está | Para quê |
 |---|---|---|
-| `RELEASE-NOTES-1.0.0.md` | `docs\cliente\` | o que o programa faz, como instalar, como ativar |
-| `PROBLEMAS-CONHECIDOS-1.0.0.md` | `docs\cliente\` | os 11 probleminhas conhecidos, cada um com a solução |
+| `RELEASE-NOTES-1.2.0.md` | `docs\cliente\` | o que o programa faz, como instalar, como ativar |
+| `PROBLEMAS-CONHECIDOS-1.0.0.md` | `docs\cliente\` | os 11 probleminhas conhecidos, cada um com a solução (ainda válido; não há versão mais nova) |
 
 O segundo parece contraintuitivo — mas cliente avisado não abre chamado, ou abre
 já sabendo o que fazer.
@@ -87,17 +87,18 @@ precisa.
 ## Antes de enviar: conferir se é o arquivo certo
 
 ```powershell
-Get-FileHash "c:\projetos\Cutph\dist_installer\PrintNest-Setup-1.0.0.exe" -Algorithm SHA256
+Get-FileHash "c:\projetos\PROJETOS PH\Cutph\dist_installer\PrintNest-Setup-1.2.0.exe" -Algorithm SHA256
 ```
 
-O programa dentro dele tem de bater com o build validado:
+Registre aqui o hash de cada build validado, na hora em que ele for gerado:
 
 ```
-2A49367B388BFF6AF056716718CC81548F6C884A1059C444DA00A0D5E76DA2DE
+1.2.0 → (preencher com o SHA-256 do PrintNest-Setup-1.2.0.exe validado)
+1.0.0 → 2A49367B388BFF6AF056716718CC81548F6C884A1059C444DA00A0D5E76DA2DE  (hash do PrintNest.exe)
 ```
 
-(esse hash é o do `PrintNest.exe`; para conferir o instalador em si, registre o
-hash dele na primeira vez e compare nas próximas)
+O hash é a prova de qual programa está na mão de cada cliente: anote o da
+versão nova assim que ela passar no smoke test e compare antes de cada envio.
 
 E confira a data em `PrintNest_Build\VERSAO.txt` — a última linha carimba a
 data e hora reais da build.
@@ -110,7 +111,7 @@ data e hora reais da build.
 `PrintNest_Build`. Se você rodar o build de novo por qualquer motivo, o
 instalador que foi validado deixa de existir com aquele conteúdo exato.
 
-Copie o `PrintNest-Setup-1.0.0.exe` para uma pasta de arquivamento, um HD
+Copie o `PrintNest-Setup-1.2.0.exe` para uma pasta de arquivamento, um HD
 externo ou a nuvem, com o hash anotado ao lado. É a sua prova de qual programa
 está na mão de cada cliente.
 
@@ -118,7 +119,7 @@ está na mão de cada cliente.
 
 ## Testando em outro computador
 
-1. Copie **só o `PrintNest-Setup-1.0.0.exe`** para o pendrive
+1. Copie **só o `PrintNest-Setup-1.2.0.exe`** para o pendrive
 2. Leve junto 2 ou 3 PDFs de arte real sua (não os de exemplo)
 3. **Deixe o robô de licenças rodando na sua máquina**
    (`tools\iniciar_robo_licencas.bat`) — sem ele a ativação não responde e o
@@ -135,7 +136,7 @@ O passo a passo completo está em
 Se um dia precisar refazer o pacote do zero:
 
 ```powershell
-cd c:\projetos\Cutph
+cd c:\projetos\PROJETOS PH\Cutph
 .\build.bat                                              # gera PrintNest_Build\
 cd installer
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" printnest.iss   # gera o instalador

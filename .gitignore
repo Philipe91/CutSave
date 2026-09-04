@@ -53,3 +53,6 @@ docs/conversas/
 
 # pasta temporaria de teste manual da 1.1.2 (build nao publicada)
 PARA-TESTE-1.1.2/
+
+# Pacotes de teste do cliente (artes reais, nao versionar)
+*.zip

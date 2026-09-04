@@ -14,7 +14,7 @@
 
 #define MyAppName "PrintNest Pro"
 ; ATENCAO: alinhar com app/__init__.py (__version__) e docs/build/VERSAO.txt.
-#define MyAppVersion "1.1.3"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "PrintNest — Philipe Fernandes"
 #define MyAppExeName "PrintNest.exe"
 

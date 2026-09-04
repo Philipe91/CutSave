@@ -20,3 +20,30 @@ Instalador: `dist_installer\PrintNest-Setup-<versão>.exe`
 | 10 | Pasta "Plugin CorelDRAW" instalada junto; `instalar_plugin_corel.bat` presente. | ☐ |
 
 Qualquer ☐ que falhar: anotar o número + o que apareceu na tela e me mandar.
+
+---
+
+## Cor (a partir da 1.2.0)
+
+O defeito que a 1.2.0 corrige é de COR, e ele só aparece em arquivo CMYK real —
+os PDFs de exemplo são RGB e passam mesmo com o bug presente. Use uma arte
+CMYK sua.
+
+| # | Passo | OK? |
+|---|---|---|
+| 11 | Importar uma arte **CMYK** (JPEG fechado pela gráfica serve), montar a chapa e exportar **PDF**. Abrir no Acrobat → Produção de impressão → **Visualização de saída**: as separações aparecem em **CMYK**, não em RGB. | ☐ |
+| 12 | Na mesma janela, desligar os canais M, Y e K: um ciano de 100% da arte continua inteiro (ele está só no ciano). Se ele aparecer também nos outros canais, a cor foi convertida — falhou. | ☐ |
+| 13 | Ainda na Visualização de saída, isolar o canal **K**: as marcas de registro aparecem só nele. | ☐ |
+| 14 | **Ctrl+E** → formato "Imagem (PNG / JPG)": aparecem **Espaço de cor**, **Perfil** e **Qualidade (JPEG)**, cada um em sua linha, sem campos sobrepostos. Escolher CMYK mostra a linha do Perfil com um perfil do Windows já selecionado. | ☐ |
+| 15 | Exportar em JPEG com CMYK. O arquivo abre no Corel/Photoshop **como CMYK**, com perfil embutido. (Lembrete: essa imagem é conversão, não a tinta original — para impressão, vale o PDF do passo 11.) | ☐ |
+
+## Upgrade por cima (obrigatório antes de atualizar PC de cliente)
+
+| # | Passo | OK? |
+|---|---|---|
+| 16 | Num PC que já tenha a versão anterior **ativada**, instalar a nova por cima sem desinstalar. O app abre **já ativado** — não pede código de novo. | ☐ |
+| 17 | As configurações continuam como estavam (DPI de exportação, tipo de marca de registro, unidade). | ☐ |
+| 18 | "Sobre" mostra a versão nova. | ☐ |
+
+Se o 16 falhar, **pare**: não atualize mais nenhum PC de cliente até entender o
+motivo — o cliente fica travado sem conseguir trabalhar.
