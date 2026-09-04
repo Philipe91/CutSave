@@ -93,8 +93,11 @@ Get-FileHash "c:\projetos\PROJETOS PH\Cutph\dist_installer\PrintNest-Setup-1.2.0
 Registre aqui o hash de cada build validado, na hora em que ele for gerado:
 
 ```
-1.2.0 → (preencher com o SHA-256 do PrintNest-Setup-1.2.0.exe validado)
-1.0.0 → 2A49367B388BFF6AF056716718CC81548F6C884A1059C444DA00A0D5E76DA2DE  (hash do PrintNest.exe)
+1.2.0  instalador  C388CE7B57E4F4FE94C1A3F032C7D3FB6B0C6B53A8D78D44118B9FE34443AAB3
+1.2.0  PrintNest.exe  502117FD0DA9D9CC944F115B157B3FF3C21B50050AEF1644A95D52E024059F07
+       (build de 04/09/2026 09:30, tag v1.2.0, selftest OK)
+
+1.0.0  PrintNest.exe  2A49367B388BFF6AF056716718CC81548F6C884A1059C444DA00A0D5E76DA2DE
 ```
 
 O hash é a prova de qual programa está na mão de cada cliente: anote o da

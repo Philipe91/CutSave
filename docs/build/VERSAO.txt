@@ -1,10 +1,42 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.1.3 (curvas originais preservadas no Modo Corte)
+Versao:        1.2.0 (a cor sai como entrou)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
+
+Novidades da 1.2.0
+------------------
+- A COR DA ARTE SAI COMO ENTROU. Quem mandava um arquivo em CMYK (um JPEG
+  fechado pela grafica, por exemplo) via a chapa impressa com cor
+  visivelmente diferente da arte. O programa reescrevia TODA imagem como RGB
+  ao montar a chapa: um ciano de 100% virava o ciano de monitor, e o RIP, ao
+  separar aquele RGB de volta para tinta, produzia uma mistura das quatro
+  cores em vez do ciano puro. Arquivo com perfil de cor embutido (Adobe RGB,
+  o perfil da sua grafica) perdia o perfil e passava a ser lido como sRGB.
+  Agora CMYK continua CMYK com as quatro tintas identicas as do original,
+  cinza continua em um canal so, o perfil do arquivo viaja junto para o PDF e
+  o OutputIntent da arte e herdado pela chapa. O JPEG tambem deixou de ser
+  recomprimido.
+- MARCAS DE REGISTRO EM PRETO PURO (so o canal K) em trabalho CMYK. Antes
+  saiam em preto de quatro cores, que sai fora de registro e atrapalha a
+  leitura optica da mesa de corte.
+- ESCOLHA DE RGB OU CMYK AO EXPORTAR IMAGEM, com perfil e qualidade do JPEG,
+  tanto no menu Exportar Imagem quanto no Centro de Exportacao (Ctrl+E). Os
+  perfis oferecidos sao os instalados no seu Windows, e da para apontar o
+  .icc da sua grafica. Se a arte for CMYK, a tela ja abre em CMYK.
+
+  ATENCAO: para cor fiel a arte, exporte em PDF. A exportacao em IMAGEM passa
+  por uma rasterizacao em RGB antes de virar arquivo, entao o CMYK dela e uma
+  conversao — tinta pura nao volta igual (um preto de 100% K volta como preto
+  de quatro cores). Imagem serve para conferencia; PDF e o que vai para a
+  impressao. E o PNG nunca guarda CMYK: e limite do formato.
+
+Novidades da 1.1.3
+------------------
+- AS CURVAS DO DESENHO ORIGINAL CHEGAM AO CORTE COMO CURVAS. Em letra grande
+  as cordas retas ficavam visiveis e o laser perdia acabamento.
 
 Novidades da 1.1.2
 ------------------

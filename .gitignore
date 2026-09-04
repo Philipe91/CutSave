@@ -6,8 +6,11 @@ venv/
 .ruff_cache/
 .coverage
 *.egg-info/
-build/
-dist/
+# com barra na frente: SO na raiz. Sem ela, "build/" casava tambem com
+# docs/build/ — a pasta do VERSAO.txt e do roteiro de entrega — e qualquer
+# arquivo novo la seria ignorado em silencio.
+/build/
+/dist/
 logs/
 data/
 *.db
