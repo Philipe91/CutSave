@@ -1,0 +1,5 @@
+{
+  "versao": "1.2.0",
+  "url": "https://github.com/Philipe91/printnest-releases/releases/download/v1.2.0/PrintNest-Setup-1.2.0.exe",
+  "notas": "A cor da arte agora sai como entrou. Arquivo em CMYK continua em CMYK, com as quatro tintas identicas as do original, e o perfil de cor embutido viaja junto - antes tudo virava RGB e a impressao saia com a cor trocada. As marcas de registro passam a sair em preto puro (canal K). Novo: escolha de RGB ou CMYK ao exportar imagem, com perfil e qualidade do JPEG. Para cor fiel a arte, exporte em PDF. Instale por cima: sua licenca e configuracoes sao preservadas."
+}
