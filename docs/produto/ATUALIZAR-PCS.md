@@ -62,7 +62,7 @@ Anote — se um PC ficar para trás, é isso que vai te dizer qual:
 | PC / Máquina | Data | Versão antes | Abriu ativado? | OK |
 |---|---|---|---|---|
 | PC do Philipe (dev) — **gate** | 04/09/2026 | 1.1.3 | sim, licença com hash idêntico ao de antes | ✅ |
-| | | | | |
+| PC do Philipe (dev) — **gate 1.2.1** | 11/09/2026 | 1.2.0 | sim, license.key com hash idêntico | ✅ |
 | | | | | |
 
 ---
