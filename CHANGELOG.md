@@ -4,6 +4,38 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [1.2.1] — 2026-09-11 — **exportação em imagem rápida e acompanhada**
+
+Relato de produção: chapa de 1120×1750 mm com 40 cópias de um JPEG CMYK
+(5512×2205, perfil ICC embutido), exportada em JPEG a 300 DPI, deixava o
+programa "Não está respondendo" por mais de 10 minutos. O operador matou o
+processo achando que tinha travado.
+
+### Corrigido
+
+- **Exportação em imagem de arte CMYK levava minutos.** A 1.2.0 passou a
+  embutir o JPEG CMYK como `/ICCBased` de 4 canais + `/Decode` no documento
+  intermediário — certo para o PDF de impressão, mas na exportação em imagem o
+  pdfium converte isso pixel a pixel via LittleCMS, sem cache, para **cada
+  cópia em cada faixa**. Medido numa faixa de 8 peças a 150 DPI: 61,9 s contra
+  1,1 s em RGB. Agora `PdfWriter(imagens_em_rgb=True)` converte a imagem CMYK
+  para sRGB **uma vez**, com o perfil dela (ou o CMYK padrão do Windows) e o
+  mesmo intent do pdfium, e o exportador de imagem usa esse modo. Cor
+  idêntica (diferença média 0,04/255, máximo 3); a chapa do relato caiu de
+  ~10 min para ~45 s. `export()` (PDF) não mudou.
+
+### Adicionado
+
+- **Janela de acompanhamento da exportação em imagem**
+  (`panels/export_progress_dialog.py`): a exportação roda em `QThread` (padrão
+  do `_NestThread`) e a janela mostra a etapa, a barra, "Decorrido m:ss ·
+  restante ~m:ss" (estimativa a partir de 10%), uma dica rotativa a cada 6 s e
+  **Cancelar**. O exportador ganhou `cancelado=` (consultado entre faixas e
+  chapas; cancelou → `ExportacaoCancelada`, nenhum arquivo fica) e os rótulos
+  "Convertendo para CMYK…" / "Gravando arquivo…" para os ~20 s finais que
+  ficavam mudos em 97%. Esc e Alt+F4 viram Cancelar; a janela só fecha com a
+  thread parada.
+
 ## [1.2.0] — 2026-09-04 — **a cor sai como entrou**
 
 Relato de produção: chapa exportada imprimia com cor **completamente diferente**

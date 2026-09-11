@@ -1,10 +1,29 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.2.0 (a cor sai como entrou)
+Versao:        1.2.1 (exportacao em imagem rapida e acompanhada)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
+
+Novidades da 1.2.1
+------------------
+- EXPORTACAO EM IMAGEM DE ARTE CMYK VOLTOU A SER RAPIDA. Na 1.2.0 uma chapa
+  de 1120x1750mm com 40 copias de um JPEG CMYK, exportada em JPEG a 300 DPI,
+  levava mais de 10 minutos com o programa "Nao respondendo" — parecia
+  travado, e era facil matar o processo no meio. Causa: o documento que o
+  rasterizador le passou a carregar a imagem CMYK com o perfil de cor, e o
+  rasterizador convertia isso pixel a pixel, de novo para cada copia em cada
+  faixa. Agora a conversao e feita UMA vez por arquivo, com o mesmo perfil e o
+  mesmo resultado (medido: diferenca media de 0,04 em 255 por canal). A mesma
+  chapa sai em cerca de 45 segundos. A exportacao em PDF nao mudou: continua
+  entregando as tintas originais ao RIP.
+- JANELA DE ACOMPANHAMENTO NA EXPORTACAO EM IMAGEM. A exportacao agora roda
+  em segundo plano e uma janela mostra a etapa (montando o documento,
+  exportando, convertendo para CMYK, gravando o arquivo), a barra de
+  progresso, o tempo decorrido com estimativa do restante e dicas de uso
+  enquanto voce espera. O programa nao fica mais "Nao respondendo". O botao
+  Cancelar interrompe entre faixas e nao deixa arquivo pela metade na pasta.
 
 Novidades da 1.2.0
 ------------------

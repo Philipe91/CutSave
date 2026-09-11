@@ -1,0 +1,5 @@
+{
+  "versao": "1.2.1",
+  "url": "https://github.com/Philipe91/printnest-releases/releases/download/v1.2.1/PrintNest-Setup-1.2.1.exe",
+  "notas": "Exportacao em imagem de arte CMYK voltou a ser rapida: uma chapa cheia que levava mais de 10 minutos com o programa 'Nao respondendo' sai em menos de um minuto, com a mesma cor. Novo: janela de acompanhamento com etapa, barra, tempo decorrido, dicas e botao Cancelar. A exportacao em PDF nao mudou. Instale por cima: sua licenca e configuracoes sao preservadas."
+}

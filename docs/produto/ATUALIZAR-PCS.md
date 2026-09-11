@@ -1,6 +1,6 @@
 # Atualizar os PCs que já usam o PrintNest
 
-Roteiro de campo. Versão atual: **1.2.0**.
+Roteiro de campo. Versão atual: **1.2.1**.
 
 Atualizar é **instalar por cima**. Não desinstale a versão antiga — o
 instalador reconhece a instalação existente pelo `AppId` e troca só o
@@ -12,7 +12,7 @@ programa. Licença e configurações ficam onde estão.
 
 | # | O quê | Feito |
 |---|---|---|
-| 1 | Copiar `dist_installer\PrintNest-Setup-1.2.0.exe` para pendrive ou nuvem | ☐ |
+| 1 | Copiar `dist_installer\PrintNest-Setup-1.2.1.exe` para pendrive ou nuvem | ☐ |
 | 2 | Guardar **uma cópia do instalador fora da pasta do projeto** (HD externo, nuvem). Rodar `build.bat` de novo apaga e refaz `dist_installer\` | ☐ |
 | 3 | Conferir o SHA-256 do arquivo que você copiou (tabela em `docs/build/ARQUIVOS-DA-ENTREGA.md`) | ☐ |
 | 4 | Subir o robô de licenças (`tools\iniciar_robo_licencas.bat`) e deixar rodando | ☐ |
@@ -35,7 +35,7 @@ meio de um trabalho. Ele decide se os outros podem ser atualizados.
 | 3 | Rodar o instalador. SmartScreen pode avisar: *Mais informações* → *Executar assim mesmo* | ☐ |
 | 4 | **Não** marcar "executar agora" ao final. Espere alguns segundos e abra pelo atalho — o antivírus varre o executável recém-gravado, e abrir naquele instante já causou "Failed to load Python DLL" | ☐ |
 | 5 | O app abre **já ativado**. Não pode pedir código de novo | ☐ |
-| 6 | Ajuda → Sobre mostra **1.2.0** | ☐ |
+| 6 | Ajuda → Sobre mostra **1.2.1** | ☐ |
 | 7 | As configurações continuam como estavam: DPI de exportação, tipo de marca de registro, unidade (cm/mm) | ☐ |
 | 8 | Abrir um projeto `.printnest` antigo: o arranjo volta como estava | ☐ |
 | 9 | Exportar um PDF de impressão de teste — só para ver o fluxo inteiro funcionando | ☐ |
@@ -69,6 +69,17 @@ Anote — se um PC ficar para trás, é isso que vai te dizer qual:
 
 ## Depois de atualizar: o teste que importa
 
+### Na 1.2.1 — exportação em imagem
+
+Em pelo menos um PC, com uma arte **CMYK** do cliente e uma chapa cheia (dezenas
+de cópias): **Centro de Exportação → JPEG 300 DPI CMYK**. Tem de aparecer a
+janela "Exportando imagem" com etapa, barra, tempo decorrido e dicas; a barra
+de título **não** pode marcar "Não está respondendo"; a chapa sai em menos de
+um minuto (na 1.2.0 passava de 10). Clicar **Cancelar** numa segunda tentativa
+fecha em poucos segundos e não deixa arquivo na pasta.
+
+### Na 1.2.0 — cor
+
 A 1.2.0 corrige um defeito de **cor**. Ele não aparece nos arquivos de
 exemplo, que são RGB — só numa arte **CMYK** de verdade.
 
@@ -93,9 +104,9 @@ instala na mão). Para acionar, publique o `versao.json` com:
 
 ```json
 {
-  "versao": "1.2.0",
-  "url": "https://seu-site/downloads/PrintNest-Setup-1.2.0.exe",
-  "notas": "A cor da arte sai como entrou. Escolha de RGB/CMYK ao exportar imagem."
+  "versao": "1.2.1",
+  "url": "https://seu-site/downloads/PrintNest-Setup-1.2.1.exe",
+  "notas": "Exportacao em imagem de arte CMYK voltou a ser rapida, com janela de acompanhamento e Cancelar."
 }
 ```
 
