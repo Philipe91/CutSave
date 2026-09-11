@@ -9,8 +9,10 @@ toda aqui dentro.
   PRESERVADOS, sem rasterizar), com recorte (BBox) e rotacao 0/90/180/270 —
   a matriz de posicionamento foi validada pixel a pixel contra o motor
   antigo (sonda de 13/07: 0,04%% de divergencia, so antialiasing).
-- place_image: embute PNG/JPG/WEBP; JPEG (RGB/cinza) entra passthrough (DCT,
-  sem recomprimir); demais viram Flate, com SMask quando ha transparencia.
+- place_image: embute PNG/JPG/WEBP; JPEG (RGB/cinza/CMYK) entra passthrough
+  (DCT, sem recomprimir); demais viram Flate, com SMask quando ha
+  transparencia. Com imagens_em_rgb=True (documento que vai ser RASTERIZADO,
+  nao entregue ao RIP) a imagem CMYK entra ja convertida para sRGB.
 - draw_*: desenho vetorial via content stream (linhas, circulos e caminhos
   com Bezier) — a faca curva sai como UM caminho fechado por contorno.
 """
@@ -50,6 +52,38 @@ def _espaco_do_perfil(icc: bytes) -> str | None:
     return _ESPACO_ICC.get(bytes(icc[16:20]))
 
 
+def _cmyk_para_srgb(pil: Image.Image, icc: bytes | None) -> Image.Image:
+    """Imagem CMYK convertida UMA vez para sRGB, com gerenciamento de cor.
+
+    Usa o perfil embutido na propria imagem quando ele e CMYK; sem perfil,
+    o CMYK padrao da maquina (o mesmo que a exportacao em CMYK usa como
+    destino). Intent perceptual, sem flags: e exatamente a transformacao que
+    o pdfium faz ao rasterizar um /ICCBased de 4 canais, entao a chapa sai
+    com a mesma cor de antes — so que convertida aqui, uma vez por arquivo,
+    em vez de pixel a pixel para cada copia em cada faixa. Sem littleCMS ou
+    sem perfil nenhum cai na conversao ingenua do Pillow: chapa em RGB e
+    melhor do que chapa nenhuma."""
+    from app.infrastructure.color_profiles import caminho_do_perfil_padrao
+
+    try:
+        from PIL import ImageCms
+
+        if icc and _espaco_do_perfil(icc) == "CMYK":
+            origem = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+        else:
+            padrao = caminho_do_perfil_padrao()
+            if not padrao:
+                return pil.convert("RGB")
+            origem = ImageCms.getOpenProfile(padrao)
+        convertida = ImageCms.profileToProfile(
+            pil, origem, ImageCms.createProfile("sRGB"), outputMode="RGB",
+            renderingIntent=ImageCms.Intent.PERCEPTUAL,
+        )
+        return convertida if convertida is not None else pil.convert("RGB")
+    except Exception:
+        return pil.convert("RGB")
+
+
 def bbox_normalizada(caixa) -> tuple[float, float, float, float]:
     """(x0, y0, x1, y1) com x0<=x1 e y0<=y1, sempre.
 
@@ -76,7 +110,14 @@ def _f(v: float) -> str:
 class PdfWriter:
     """Monta um PDF pagina a pagina e salva em arquivo ou bytes."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, imagens_em_rgb: bool = False) -> None:
+        # imagens_em_rgb: este documento vai ser RASTERIZADO pelo pdfium, nao
+        # entregue ao RIP. Imagem CMYK entra ja em sRGB — o pdfium converte
+        # /ICCBased de 4 canais pixel a pixel, sem cache, para CADA copia em
+        # CADA faixa: 40 copias de um JPEG CMYK levavam >10min a 300 DPI
+        # (11/09/2026). Convertida aqui, uma vez, a mesma chapa sai em
+        # segundos e com a mesma cor.
+        self._imagens_em_rgb = imagens_em_rgb
         self._pdf = pikepdf.new()
         self._sources: dict[str, pikepdf.Pdf] = {}
         self._xobjects: dict = {}   # (path, pagina, clip) -> form xobject
@@ -256,7 +297,13 @@ class PdfWriter:
         pil = Image.open(path)
         pil.load()
         icc = pil.info.get("icc_profile")
-        if suffix in (".jpg", ".jpeg") and pil.mode in ("RGB", "L", "CMYK"):
+        dct = suffix in (".jpg", ".jpeg") and pil.mode in ("RGB", "L", "CMYK")
+        if self._imagens_em_rgb and pil.mode == "CMYK":
+            # ver __init__: para rasterizar, CMYK vira sRGB aqui, uma vez.
+            # Sai por Flate (sem segunda geracao de JPEG) e como DeviceRGB,
+            # que o pdfium le direto, sem transformar.
+            pil, icc, dct = _cmyk_para_srgb(pil, icc), None, False
+        if dct:
             # JPEG sem alpha: embute o arquivo ORIGINAL (DCT), sem recomprimir
             xo = pikepdf.Stream(self._pdf, Path(path).read_bytes())
             campos = dict(

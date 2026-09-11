@@ -49,6 +49,14 @@ _ROTULO_NIVEL = {
 }
 
 
+class ExportacaoCancelada(PrintExportError):
+    """O operador cancelou pela janela de acompanhamento. Nao e falha: a UI
+    mostra um aviso curto, nao um dialogo de erro. Nenhum arquivo fica."""
+
+    def __init__(self) -> None:
+        super().__init__("Exportação cancelada.")
+
+
 def _is_image_source(path: str) -> bool:
     return Path(path).suffix.lower() in _IMAGE_SUFFIXES
 
@@ -226,8 +234,10 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                 if writer.copiar_output_intents(pl.source_path):
                     return
 
-    def _build_writer(self, sheets: Sequence[PrintSheet]) -> PdfWriter:
-        writer = PdfWriter()
+    def _build_writer(
+        self, sheets: Sequence[PrintSheet], *, imagens_em_rgb: bool = False
+    ) -> PdfWriter:
+        writer = PdfWriter(imagens_em_rgb=imagens_em_rgb)
         clips: dict = {}  # (path, pagina, box, crop) -> clip em pt (ou None)
         # Espaco de cor do trabalho: com arte CMYK as marcas do PrintNest saem
         # em K puro e o OutputIntent da origem vem junto. Sem isso o arquivo
@@ -310,6 +320,7 @@ class PikePdfPrintExporter(IPrintPdfExporter):
         color_space: str = "rgb",
         icc_path: str | None = None,
         quality: int = 95,
+        cancelado: Callable[[], bool] | None = None,
     ) -> list[str]:
         """Rasteriza o documento de impressao: uma imagem por chapa, no DPI
         dado. Com mais de uma chapa, gera arquivos numerados (..._01, _02).
@@ -333,8 +344,18 @@ class PikePdfPrintExporter(IPrintPdfExporter):
         (06/08). PrintExportError so em falha de verdade: memoria que nao deu
         ou lado maior do que o formato guarda.
 
-        'progresso' recebe (fracao 0..1, texto) e e chamado na MESMA thread."""
+        'progresso' recebe (fracao 0..1, texto) e e chamado na MESMA thread.
+
+        'cancelado' e consultado antes de cada chapa e de cada faixa (a janela
+        de acompanhamento liga o botao Cancelar nele). Cancelou: levanta
+        ExportacaoCancelada e apaga TUDO que esta exportacao ja gravou —
+        inclusive chapas anteriores inteiras. Exportacao cancelada nao deixa
+        arquivo: meia serie na pasta do cliente vira chapa faltando na
+        producao sem ninguem perceber."""
         import pypdfium2 as pdfium
+
+        def _parar() -> bool:
+            return bool(cancelado and cancelado())
 
         fmt = image_format.lower()
         if fmt == "jpg":
@@ -343,7 +364,12 @@ class PikePdfPrintExporter(IPrintPdfExporter):
         stem = str(Path(output_path).with_suffix(""))
         if progresso:
             progresso(0.0, "Montando o documento…")
-        writer = self._build_writer(sheets)
+        # imagens_em_rgb: este documento existe so para o pdfium rasterizar.
+        # Imagem CMYK entra ja convertida para sRGB (uma vez, com o perfil
+        # dela) em vez de /ICCBased de 4 canais, que o pdfium converte pixel
+        # a pixel para cada copia em cada faixa — 40 copias de um JPEG CMYK
+        # a 300 DPI passavam de 10min (11/09/2026). A cor e a mesma.
+        writer = self._build_writer(sheets, imagens_em_rgb=True)
         try:
             data = writer.save_bytes()
         finally:
@@ -358,17 +384,26 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                 total = len(doc)
                 multi = total > 1
                 for index in range(total):
+                    if _parar():
+                        raise ExportacaoCancelada()
                     page = doc[index]
                     target = f"{stem}_{index + 1:02d}{ext}" if multi else output_path
                     rotulo = f"Chapa {index + 1} de {total}" if multi else "Exportando"
 
-                    def _passo(fr: float, _i=index, _r=rotulo) -> None:
+                    def _passo(fr: float, etapa: str = "", _i=index, _r=rotulo) -> None:
                         if progresso:
-                            progresso((_i + fr) / total, _r)
+                            # etapa (converter/gravar) e o que o operador ve
+                            # nos ~20s finais; em serie, a chapa vem junto
+                            if etapa:
+                                texto = f"{_r} · {etapa}" if multi else etapa
+                            else:
+                                texto = _r
+                            progresso((_i + fr) / total, texto)
 
-                    pil = self._rasterizar_pagina(page, dpi, fmt, _passo)
+                    pil = self._rasterizar_pagina(page, dpi, fmt, _passo, _parar)
                     try:
-                        _passo(0.97)
+                        em_cmyk = (color_space or "rgb").lower() == "cmyk" and fmt == "jpeg"
+                        _passo(0.96, "Convertendo para CMYK…" if em_cmyk else "")
                         # dpi GRAVADO no arquivo: sem ele o RIP/Corel abre a
                         # 96dpi e a chapa de 19,7cm vira 92cm (teste real
                         # 16/07 — regressão da migração PyMuPDF->pdfium)
@@ -380,6 +415,7 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                         # perfil de destino; em RGB embute o sRGB.
                         pil, icc = _no_espaco_de_saida(pil, fmt, color_space, icc_path)
                         extra = {"icc_profile": icc} if icc else {}
+                        _passo(0.98, "Gravando arquivo…")
                         try:
                             if fmt == "jpeg":
                                 pil.save(target, format="JPEG",
@@ -396,13 +432,25 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                         pil.close()
                     generated.append(target)
                     _passo(1.0)
+            except ExportacaoCancelada:
+                # nada desta exportacao fica: o parcial e as chapas prontas
+                for caminho in {*generated, target}:
+                    try:
+                        Path(caminho).unlink()
+                    except OSError:
+                        pass
+                raise
             finally:
                 doc.close()
         return generated
 
     @staticmethod
-    def _rasterizar_pagina(page, dpi: int, fmt: str, passo):
+    def _rasterizar_pagina(page, dpi: int, fmt: str, passo, parar=None):
         """Rasteriza UMA pagina em RGB, em faixas. Devolve a imagem.
+
+        'parar' (opcional) e consultado antes de cada faixa: True levanta
+        ExportacaoCancelada — uma faixa de 300 DPI leva ~5s, entao o Cancelar
+        responde nesse prazo sem precisar interromper o pdfium no meio.
 
         NAO recusa por causa do DPI: quem decide exportar e o dono do arquivo
         (06/08). So levanta PrintExportError quando nao ha imagem nenhuma para
@@ -440,6 +488,8 @@ class PikePdfPrintExporter(IPrintPdfExporter):
 
         try:
             for i in range(n_faixas):
+                if parar and parar():
+                    raise ExportacaoCancelada()
                 y0 = i * altura_faixa
                 y1 = min(h_px, y0 + altura_faixa)
                 # crop do pdfium = quanto cortar de (esquerda, baixo, direita, topo)

@@ -172,15 +172,16 @@ class ExportPrintPdfUseCase:
         color_space: str = "rgb",
         icc_path: str | None = None,
         quality: int = 95,
+        cancelado: Callable[[], bool] | None = None,
         **kwargs,
     ) -> list[str]:
         """Exporta a impressao como imagem (PNG/JPEG) no DPI e espaco de cor
-        pedidos."""
+        pedidos. 'cancelado' (ver exportador) deixa a UI interromper."""
         print_sheets = self.build_print_sheets(sheets, artworks, sources, **kwargs)
         return self._exporter.export_image(
             print_sheets, output_path, dpi=dpi, image_format=image_format,
             progresso=progresso, color_space=color_space, icc_path=icc_path,
-            quality=quality,
+            quality=quality, cancelado=cancelado,
         )
 
     @staticmethod
