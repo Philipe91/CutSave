@@ -10092,20 +10092,35 @@ class MainWindow(QMainWindow):
         self._settings.export_icc = str(icc_path or "")
         self._settings.export_quality = int(quality)
         self._store.save(self._settings)
-        self._status_ctl.start_progress("Exportando imagem…")
-        try:
-            with _wait_cursor():
-                gerados = self._print_export.execute_image(
-                    sheets, self._result.artworks, self._result.sources, path,
-                    dpi=int(dpi), image_format=image_format,
-                    progresso=self._status_ctl.set_progress,
-                    color_space=str(color_space),
-                    icc_path=str(icc_path or "") or None,
-                    quality=int(quality),
-                    **self._print_kwargs(),
-                )
-        finally:
-            self._status_ctl.end_progress()
+        # Em thread, com janela de acompanhamento (11/09/2026): na thread da
+        # UI a janela congelava entre faixas e o Windows carimbava "Não está
+        # respondendo" — o operador matou o processo no meio de uma chapa de
+        # 40 peças achando que tinha travado. Tudo que a UI precisa é lido
+        # AQUI, antes; o trabalho só recebe dados e callbacks.
+        from app.infrastructure.exporters.pikepdf_print_exporter import ExportacaoCancelada
+        from app.presentation.panels.export_progress_dialog import ExportandoImagemDialog
+
+        artworks, sources = self._result.artworks, self._result.sources
+        print_kwargs = self._print_kwargs()
+
+        def _trabalho(progresso, cancelado):
+            return self._print_export.execute_image(
+                sheets, artworks, sources, path,
+                dpi=int(dpi), image_format=image_format,
+                progresso=progresso, cancelado=cancelado,
+                color_space=str(color_space),
+                icc_path=str(icc_path or "") or None,
+                quality=int(quality),
+                **print_kwargs,
+            )
+
+        gerados, erro = ExportandoImagemDialog(self).executar(_trabalho)
+        if isinstance(erro, ExportacaoCancelada):
+            if interactive:
+                self._toasts.info("Exportação cancelada — nenhum arquivo foi gravado")
+            return
+        if erro is not None:
+            raise erro  # _guard_export mostra o diálogo de falha de sempre
         if interactive:
             self._toasts.success(f"{len(gerados)} imagem(ns) exportada(s) a {int(dpi)} DPI")
 
