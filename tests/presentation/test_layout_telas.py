@@ -133,3 +133,34 @@ def test_barra_da_faca_rola_em_vez_de_espremer(janela_com_arquivo, qapp):
         "a barra da Faca foi espremida abaixo do proprio minimo"
     )
     assert scroll.width() < w._prop_bar.width(), "sem rolagem, a barra seria cortada"
+
+
+@pytest.mark.parametrize(("larg", "alt", "apelido"), TELAS)
+def test_nada_e_espremido_dentro_das_rolagens(janela_com_arquivo, qapp, larg, alt, apelido):
+    """Painel dentro de rolagem rola — nunca fica menor que o proprio minimo.
+
+    Relato real (13/10/2026, 1366x768 a 100%): com uma peca selecionada, o
+    card "Faca deste arquivo" aparecia com os campos desenhados uns por cima
+    dos outros. A pilha da aba Selecao tinha setMinimumHeight(120): dentro de
+    um QScrollArea o minimo EXPLICITO substitui o que o layout calcula, entao
+    a rolagem achava que 120px bastavam e espremia a pagina (474 de 523px).
+    """
+    from PySide6.QtWidgets import QScrollArea
+
+    w = janela_com_arquivo
+    w._piece_items[0].setSelected(True)  # a pagina de peca e a mais alta
+    for aba in range(w._props_tabs.count()):
+        w._props_tabs.setCurrentIndex(aba)
+        w.resize(larg, alt)
+        for _ in range(6):
+            qapp.processEvents()
+        for scroll in w.findChildren(QScrollArea):
+            conteudo = scroll.widget()
+            if conteudo is None or not scroll.isVisible() or not scroll.widgetResizable():
+                continue
+            precisa = conteudo.minimumSizeHint()
+            assert conteudo.height() >= precisa.height(), (
+                f"em {apelido}, aba {aba}: {conteudo.metaObject().className()} "
+                f"'{conteudo.objectName()}' espremido para {conteudo.height()}px "
+                f"de {precisa.height()}px — os campos se sobrepoem"
+            )

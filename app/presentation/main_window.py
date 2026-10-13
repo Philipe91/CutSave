@@ -4850,10 +4850,11 @@ class MainWindow(QMainWindow):
 
         # aba Seleção: pilha interna (vazio / peça / grupo)
         self._sel_stack = QStackedWidget()
-        # a pilha nao pode herdar a altura minima da maior pagina (a de peca
-        # pedia 619px e empurrava a altura minima da JANELA): quem rola e a
-        # area de rolagem em volta, adicionada logo abaixo
-        self._sel_stack.setMinimumHeight(120)
+        # SEM setMinimumHeight aqui: a altura minima da pilha nao chega a
+        # janela porque _painel_rolavel ja limita a rolagem em volta. Um
+        # minimo explicito dentro do QScrollArea SUBSTITUI o do layout, e a
+        # rolagem espremia a pagina de peca abaixo do necessario — os campos
+        # da "Faca deste arquivo" saiam uns por cima dos outros (13/10/2026)
         hint = QLabel("Clique numa peça na área de trabalho para ver medidas e ações.")
         hint.setWordWrap(True)
         hint.setProperty("role", "caption")
