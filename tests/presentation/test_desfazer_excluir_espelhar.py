@@ -58,6 +58,8 @@ def test_snapshot_tem_sempre_o_mesmo_formato(janela):
         antes, arts,
         dict(janela._piece_rotations), dict(janela._faca_manual),
         dict(janela._piece_mirrors), dict(janela._piece_faca_mirrors),
+        # tamanho e faca por arquivo (auditoria 13/10/2026)
+        dict(janela._file_sizes), dict(janela._file_overrides),
     )
     assert len(de_arranjo) == len(completo), (
         f"formatos divergentes: arranjo={len(de_arranjo)} "

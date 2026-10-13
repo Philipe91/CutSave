@@ -223,7 +223,8 @@ def test_tutorial_guiado_avanca_quando_o_aluno_faz(tmp_path):
     assert tour._index == indice
 
 
-def test_todo_passo_com_alvo_realmente_aponta_algo(tmp_path):
+@pytest.mark.parametrize("tela", [(1500, 950), (1092, 614)])
+def test_todo_passo_com_alvo_realmente_aponta_algo(tmp_path, tela):
     # ESTE e o teste que faltava. Um alvo que nao resolve vira balao
     # centralizado: o tutorial FALA mas nao MOSTRA onde clicar. Foi assim que
     # os tutoriais de Modo Corte e de Registro sairam mudos — o alvo era
@@ -237,7 +238,9 @@ def test_todo_passo_com_alvo_realmente_aponta_algo(tmp_path):
     import tests.presentation.test_main_window as t
 
     w = t._window(tmp_path)
-    w.resize(1500, 950)
+    # 1092x614: tela estreita em que blocos da Faca vao para o "»" da barra
+    # (13/10/2026) — o tour tem de traze-los de volta para apontar
+    w.resize(*tela)
     w.show()  # sem mostrar, TUDO seria invisivel e o teste passaria de mentira
     app.processEvents()
     # producao montada: a barra da Faca so existe com peca na chapa

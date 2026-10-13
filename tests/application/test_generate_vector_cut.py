@@ -18,7 +18,7 @@ class _FakeExtractor(IVectorExtractor):
         self._rings = rings
         self.called_with = None
 
-    def extract_rings(self, path, page_index=0):
+    def extract_rings(self, path, page_index=0, box="media"):
         self.called_with = (path, page_index)
         return self._rings
 

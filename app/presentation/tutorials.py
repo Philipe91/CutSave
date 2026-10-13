@@ -130,6 +130,17 @@ def _alvo(window, *names):
             widget = getattr(window, name, None)
             if widget is not None and widget.isVisible():
                 return widget
+        # nenhum visível: em tela estreita o controle pode estar no "»" da
+        # barra da Faca (13/10/2026). Traz o 1º de volta e confere de novo.
+        fixar = getattr(window, "_fixar_na_barra", None)
+        if fixar is not None:
+            for name in names:
+                widget = getattr(window, name, None)
+                if widget is None:
+                    continue
+                fixar(widget)
+                if widget.isVisible():
+                    return widget
         return None
     return resolver
 

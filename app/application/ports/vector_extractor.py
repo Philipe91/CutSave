@@ -12,12 +12,18 @@ class IVectorExtractor(ABC):
     """
 
     @abstractmethod
-    def extract_rings(self, path: str, page_index: int = 0) -> list[list[tuple[float, float]]]:
+    def extract_rings(
+        self, path: str, page_index: int = 0, box: str = "media"
+    ) -> list[list[tuple[float, float]]]:
+        """``box``: caixa de importação ("media"/"trim") — os aneis saem no
+        referencial da MESMA região que virou a arte (pdfium_boxes.regiao_pdf)."""
         raise NotImplementedError
 
-    def extract_rings_info(self, path: str, page_index: int = 0) -> list[RingInfo]:
+    def extract_rings_info(
+        self, path: str, page_index: int = 0, box: str = "media"
+    ) -> list[RingInfo]:
         """Aneis + pintura (traço/preenchimento/cor) para separar FACA de arte.
 
         Implementação padrão degrada para extract_rings sem metadados (tudo
         cai no tier "all" da seleção — o comportamento antigo)."""
-        return [RingInfo(ring) for ring in self.extract_rings(path, page_index)]
+        return [RingInfo(ring) for ring in self.extract_rings(path, page_index, box=box)]

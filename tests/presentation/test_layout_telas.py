@@ -123,16 +123,36 @@ def test_paineis_laterais_deixam_espaco_para_a_chapa(janela_com_arquivo, qapp, l
 
 
 def test_barra_da_faca_rola_em_vez_de_espremer(janela_com_arquivo, qapp):
-    # a barra junta Projeto/Objeto/Grupo + Faca e pede ~2660px. Numa janela
-    # estreita ela tem de manter o tamanho e ROLAR, nunca ser cortada.
+    # a barra junta Projeto/Objeto/Grupo + Faca e pede ~2660px (offscreen).
+    # Até 13/10/2026 ela ROLAVA na horizontal e, na prática, aparecia cortada
+    # em 1366x768 ("1288.0 mı", "Sensib." sem o slider). Agora funciona como
+    # a barra de propriedades do CorelDRAW: o que não cabe vai para o "»".
     w = janela_com_arquivo
-    w.resize(1092, 614)
-    qapp.processEvents()
-    scroll = w._prop_bar_scroll
-    assert w._prop_bar.width() >= w._prop_bar.minimumSizeHint().width(), (
-        "a barra da Faca foi espremida abaixo do proprio minimo"
-    )
-    assert scroll.width() < w._prop_bar.width(), "sem rolagem, a barra seria cortada"
+    for larg in (1366, 1092):
+        w.resize(larg, 614)
+        for _ in range(4):
+            qapp.processEvents()
+        na_barra = [b for b in w._ct_chunks if b.parentWidget() is w._ct_tool]
+        fora = [b for b in w._ct_chunks if b.parentWidget() is not w._ct_tool]
+        # o de uso diário fica: Gerar Faca e Tipo saem por último
+        assert w._ct_gerar.parentWidget().parentWidget() is w._ct_tool
+        assert fora and w._ct_more.isVisible(), f"em {larg}px faltou o menu »"
+        for bloco in na_barra:  # nada CORTADO: quem fica, fica inteiro
+            assert bloco.width() >= bloco.minimumSizeHint().width(), (
+                f"em {larg}px um bloco da barra Faca foi espremido"
+            )
+        for bloco in fora:  # quem sai está no menu, não perdido
+            assert bloco.parentWidget() is w._ct_more_panel
+        direita = w._ct_more.geometry().right()
+        assert direita <= w._prop_bar.width(), "o » ficou fora da barra"
+    # janela larga (3000 px offscreen ~ Full HD com a fonte real do Windows,
+    # que é bem mais estreita): tudo na barra, sem "»"
+    w.resize(3000, 900)
+    for _ in range(4):
+        qapp.processEvents()
+    assert w._ct_na_barra == len(w._ct_chunks)
+    assert not w._ct_more.isVisible()
+    assert all(b.parentWidget() is w._ct_tool for b in w._ct_chunks)
 
 
 @pytest.mark.parametrize(("larg", "alt", "apelido"), TELAS)

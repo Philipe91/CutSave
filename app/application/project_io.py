@@ -85,13 +85,29 @@ class ProjectFile:
         cru = data.get("pages")
         pages = None
         if isinstance(cru, (list, tuple)) and cru:
-            pages = sorted({int(p) for p in cru if isinstance(p, (int, float))})
+            pages = sorted({
+                n for n in (_inteiro(p, -1) for p in cru
+                            if isinstance(p, (int, float)) and p == p)
+                if n >= 0
+            }) or None
         return cls(
             path=str(data.get("path", "")),
-            quantity=int(data.get("quantity", 1) or 1),
-            rotation=int(data.get("rotation", 0) or 0),
+            # projeto editado à mão / corrompido com "quantity": "abc" estourava
+            # ValueError cru na abertura (auditoria 13/10/2026): cai no padrão
+            quantity=max(1, _inteiro(data.get("quantity"), 1)),
+            rotation=_inteiro(data.get("rotation"), 0),
             pages=pages,
         )
+
+
+def _inteiro(valor, padrao: int) -> int:
+    """int tolerante: número (ou texto numérico) vira int; o resto, padrão."""
+    if isinstance(valor, bool) or valor is None:
+        return padrao
+    try:
+        return int(float(valor))
+    except (TypeError, ValueError, OverflowError):
+        return padrao
 
 
 @dataclass
@@ -111,17 +127,26 @@ class ProjectDocument:
        "chapas": [{"comprimento": mm, "itens": [{"id", "x", "y"}, ...]}]}.
       A produção continua sendo regenerada ao abrir; o arranjo só é
       reaplicado se a assinatura (arquivos+quantidades) ainda bater.
-    Sem eles, salvar/reabrir PERDIA esses ajustes (varredura 09/07; A0 24/07)."""
+    - ``page_crops``: recorte de página POR ARQUIVO,
+      caminho -> {página (0-based): (esq, cima, dir, baixo) mm}.
+    - ``file_sizes``: tamanho personalizado POR ARQUIVO,
+      caminho -> (largura, altura) mm.
+    Sem eles, salvar/reabrir PERDIA esses ajustes (varredura 09/07; A0 24/07).
+    Recorte e tamanho entraram na auditoria de 13/10/2026: sem eles o arranjo
+    salvo era reaplicado em peças de OUTRO tamanho (arte recortada voltava
+    inteira e as posições gravadas sobrepunham as vizinhas)."""
 
     files: list[ProjectFile] = field(default_factory=list)
     settings: dict = field(default_factory=dict)
     file_overrides: dict = field(default_factory=dict)
     faca_manual: dict = field(default_factory=dict)
     arranjo: dict = field(default_factory=dict)
+    page_crops: dict = field(default_factory=dict)
+    file_sizes: dict = field(default_factory=dict)
     version: int = PROJECT_VERSION
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "version": self.version,
             "files": [f.to_dict() for f in self.files],
             "settings": dict(self.settings),
@@ -129,6 +154,18 @@ class ProjectDocument:
             "faca_manual": dict(self.faca_manual),
             "arranjo": dict(self.arranjo),
         }
+        # chaves aditivas só quando há conteúdo: projeto sem recorte/tamanho
+        # sai byte a byte igual ao de antes
+        if self.page_crops:
+            data["page_crops"] = {
+                path: {str(int(pg)): [float(v) for v in box] for pg, box in pages.items()}
+                for path, pages in self.page_crops.items()
+            }
+        if self.file_sizes:
+            data["file_sizes"] = {
+                path: [float(w), float(h)] for path, (w, h) in self.file_sizes.items()
+            }
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> ProjectDocument:
@@ -161,8 +198,60 @@ class ProjectDocument:
             file_overrides={k: v for k, v in overrides.items() if isinstance(v, dict)},
             faca_manual={k: v for k, v in manual.items() if isinstance(v, dict)},
             arranjo=arranjo,
+            page_crops=_page_crops_from_json(data.get("page_crops")),
+            file_sizes=_file_sizes_from_json(data.get("file_sizes")),
             version=version,
         )
+
+
+def _numeros(valores, n: int) -> tuple[float, ...] | None:
+    """n números finitos (lista/tupla do JSON) ou None se vier corrompido."""
+    if not isinstance(valores, (list, tuple)) or len(valores) != n:
+        return None
+    out = []
+    for v in valores:
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return None
+        f = float(v)
+        if f != f or f in (float("inf"), float("-inf")):
+            return None
+        out.append(f)
+    return tuple(out)
+
+
+def _page_crops_from_json(raw) -> dict:
+    """Recortes de página; entrada corrompida é ignorada item a item (nunca
+    impede a abertura do projeto, mesma regra das facas manuais)."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for path, pages in raw.items():
+        if not isinstance(pages, dict):
+            continue
+        boas: dict = {}
+        for pg, box in pages.items():
+            try:
+                idx = int(pg)
+            except (TypeError, ValueError):
+                continue
+            nums = _numeros(box, 4)
+            if idx >= 0 and nums is not None and all(v >= 0 for v in nums):
+                boas[idx] = nums
+        if boas:
+            out[str(path)] = boas
+    return out
+
+
+def _file_sizes_from_json(raw) -> dict:
+    """Tamanhos por arquivo (largura, altura) mm; só valores positivos."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for path, wh in raw.items():
+        nums = _numeros(wh, 2)
+        if nums is not None and nums[0] > 0 and nums[1] > 0:
+            out[str(path)] = nums
+    return out
 
 
 class ProjectStore:

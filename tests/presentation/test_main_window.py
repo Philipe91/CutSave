@@ -918,7 +918,9 @@ def test_tipo_de_faca_na_barra_respeita_a_selecao(qapp, tmp_path):
     window._ct_offset.setValue(5.0)
     window._apply_contour_offset()
     assert window._file_overrides[src]["offset"] == 5.0
-    assert window._file_overrides[src]["auto_offset"] == 5.0
+    # PDF usa só a sangria "offset": gravar também a de imagem congelava o
+    # auto_offset no override (auditoria 13/10/2026)
+    assert "auto_offset" not in window._file_overrides[src]
     window._ct_smooth.setValue(3)
     assert window._file_overrides[src]["smooth"] == 3
     assert int(window._auto_smooth.value()) != 3 or True  # global preservado

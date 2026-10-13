@@ -198,8 +198,17 @@ class TourOverlay(QWidget):
         if alvo is None:
             return None
         widget, rect = alvo if isinstance(alvo, tuple) else (alvo, None)
-        if widget is None or not widget.isVisible():
+        if widget is None:
             return None
+        if not widget.isVisible():
+            # em tela estreita o bloco da Faca pode estar no "»" da barra
+            # (13/10/2026): pede para a janela trazê-lo de volta e confere de novo
+            fixar = getattr(self.parentWidget(), "_fixar_na_barra", None)
+            if fixar is not None:
+                with contextlib.suppress(Exception):
+                    fixar(widget)
+            if not widget.isVisible():
+                return None
         return widget, (widget.rect() if rect is None else rect)
 
     def _current_hole(self) -> QRect | None:
