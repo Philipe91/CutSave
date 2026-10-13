@@ -1,6 +1,6 @@
 # Quais arquivos vão para o cliente
 
-Referência rápida para não errar na hora de entregar. Versão 1.2.1.
+Referência rápida para não errar na hora de entregar. Versão 1.2.2.
 
 ---
 
@@ -9,7 +9,7 @@ Referência rápida para não errar na hora de entregar. Versão 1.2.1.
 **Um só:**
 
 ```
-c:\projetos\PROJETOS PH\Cutph\dist_installer\PrintNest-Setup-1.2.1.exe
+c:\projetos\PROJETOS PH\Cutph\dist_installer\PrintNest-Setup-1.2.2.exe
 ```
 
 É o **instalador**. Dentro dele já vai tudo: o programa, o LEIA-ME, o Tutor IA
@@ -34,7 +34,7 @@ serve para entregar.
 
 | Caminho | O que é | Entrega? |
 |---|---|---|
-| `dist_installer\PrintNest-Setup-1.2.1.exe` | **o instalador** | ✅ **sim** |
+| `dist_installer\PrintNest-Setup-1.2.2.exe` | **o instalador** | ✅ **sim** |
 | `PrintNest_Build\PrintNest.exe` | o programa solto + LEIA-ME + Tutor IA + plugin. É a matéria-prima que o instalador empacota | ❌ não |
 | `dist\PrintNest.exe` | saída crua do PyInstaller, antes de montar a pasta | ❌ não |
 | `C:\Program Files\PrintNest\PrintNest.exe` | o que ficou instalado na sua máquina | ❌ não |
@@ -50,7 +50,7 @@ Além do instalador, mande estes dois (no e-mail ou na página de download):
 
 | Arquivo | Onde está | Para quê |
 |---|---|---|
-| `RELEASE-NOTES-1.2.1.md` | `docs\cliente\` | o que o programa faz, como instalar, como ativar |
+| `RELEASE-NOTES-1.2.2.md` | `docs\cliente\` | o que o programa faz, como instalar, como ativar |
 | `PROBLEMAS-CONHECIDOS-1.0.0.md` | `docs\cliente\` | os 11 probleminhas conhecidos, cada um com a solução (ainda válido; não há versão mais nova) |
 
 O segundo parece contraintuitivo — mas cliente avisado não abre chamado, ou abre
@@ -87,12 +87,16 @@ precisa.
 ## Antes de enviar: conferir se é o arquivo certo
 
 ```powershell
-Get-FileHash "c:\projetos\PROJETOS PH\Cutph\dist_installer\PrintNest-Setup-1.2.1.exe" -Algorithm SHA256
+Get-FileHash "c:\projetos\PROJETOS PH\Cutph\dist_installer\PrintNest-Setup-1.2.2.exe" -Algorithm SHA256
 ```
 
 Registre aqui o hash de cada build validado, na hora em que ele for gerado:
 
 ```
+1.2.2  instalador  BD0D42643BCCC68F16B89CEE9CE9730F57BD0C66BD2BBB817CCFB37F43579300
+1.2.2  PrintNest.exe  5BE3E0F87DA391DE143FFD4E3B5D9BF612F78B19D385FC3737353CB5BB501713
+       (build de 13/10/2026 13:28, tag v1.2.2, selftest OK; publicada sem gate de upgrade na maquina real)
+
 1.2.1  instalador  90EF744782E7B46BBA682359EBCFBE6E65070E641E7FFC485E151B942E433ED1
 1.2.1  PrintNest.exe  434264BE948EC542A74DA10A5B705FEF8840FA1D7647127D4B5F47ACDB06D7CC
        (build de 11/09/2026 10:52, tag v1.2.1, selftest OK, instalado por cima da 1.2.0 no PC dev: abriu ativado)
@@ -118,7 +122,7 @@ data e hora reais da build.
 `PrintNest_Build`. Se você rodar o build de novo por qualquer motivo, o
 instalador que foi validado deixa de existir com aquele conteúdo exato.
 
-Copie o `PrintNest-Setup-1.2.1.exe` para uma pasta de arquivamento, um HD
+Copie o `PrintNest-Setup-1.2.2.exe` para uma pasta de arquivamento, um HD
 externo ou a nuvem, com o hash anotado ao lado. É a sua prova de qual programa
 está na mão de cada cliente.
 
@@ -126,7 +130,7 @@ está na mão de cada cliente.
 
 ## Testando em outro computador
 
-1. Copie **só o `PrintNest-Setup-1.2.1.exe`** para o pendrive
+1. Copie **só o `PrintNest-Setup-1.2.2.exe`** para o pendrive
 2. Leve junto 2 ou 3 PDFs de arte real sua (não os de exemplo)
 3. **Deixe o robô de licenças rodando na sua máquina**
    (`tools\iniciar_robo_licencas.bat`) — sem ele a ativação não responde e o

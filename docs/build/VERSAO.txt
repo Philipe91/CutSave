@@ -1,10 +1,23 @@
 PrintNest Pro - Preparacao de Producao Grafica
 ===============================================
 
-Versao:        1.2.1 (exportacao em imagem rapida e acompanhada)
+Versao:        1.2.2 (varredura de qualidade)
 Empacotamento: PyInstaller 6.21 (executavel unico, Windows 64-bit)
 Runtime:       Python 3.10 embarcado (nao requer Python instalado)
 (a data/hora exata desta build e carimbada no rodape deste arquivo)
+
+Novidades da 1.2.2
+------------------
+- MONITOR MENOR: os campos da "Faca deste arquivo" nao se sobrepoem mais (o
+  painel rola) e a barra de cima manda o que nao cabe para o botao >>, como
+  a barra de propriedades do CorelDRAW.
+- FACA: imagem com moldura fina invisivel na borda gera contorno (antes saia
+  retangulo); faca vetorial do PDF do cliente nao fica deslocada; Modo Corte
+  sem contornos invadindo e com Organizar cancelavel.
+- IMPRESSAO: peca quase da largura do rolo nao faz a proxima ir por cima;
+  PDF com pagina girada e foto de celular (EXIF) saem como na previa.
+- PROJETO: salva recortes de pagina e tamanhos por arquivo.
+- Mais ~45 correcoes da varredura (ver CHANGELOG.md).
 
 Novidades da 1.2.1
 ------------------

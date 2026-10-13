@@ -1,6 +1,6 @@
 # Atualizar os PCs que já usam o PrintNest
 
-Roteiro de campo. Versão atual: **1.2.1**.
+Roteiro de campo. Versão atual: **1.2.2**.
 
 Atualizar é **instalar por cima**. Não desinstale a versão antiga — o
 instalador reconhece a instalação existente pelo `AppId` e troca só o
@@ -12,7 +12,7 @@ programa. Licença e configurações ficam onde estão.
 
 | # | O quê | Feito |
 |---|---|---|
-| 1 | Copiar `dist_installer\PrintNest-Setup-1.2.1.exe` para pendrive ou nuvem | ☐ |
+| 1 | Copiar `dist_installer\PrintNest-Setup-1.2.2.exe` para pendrive ou nuvem | ☐ |
 | 2 | Guardar **uma cópia do instalador fora da pasta do projeto** (HD externo, nuvem). Rodar `build.bat` de novo apaga e refaz `dist_installer\` | ☐ |
 | 3 | Conferir o SHA-256 do arquivo que você copiou (tabela em `docs/build/ARQUIVOS-DA-ENTREGA.md`) | ☐ |
 | 4 | Subir o robô de licenças (`tools\iniciar_robo_licencas.bat`) e deixar rodando | ☐ |
@@ -35,7 +35,7 @@ meio de um trabalho. Ele decide se os outros podem ser atualizados.
 | 3 | Rodar o instalador. SmartScreen pode avisar: *Mais informações* → *Executar assim mesmo* | ☐ |
 | 4 | **Não** marcar "executar agora" ao final. Espere alguns segundos e abra pelo atalho — o antivírus varre o executável recém-gravado, e abrir naquele instante já causou "Failed to load Python DLL" | ☐ |
 | 5 | O app abre **já ativado**. Não pode pedir código de novo | ☐ |
-| 6 | Ajuda → Sobre mostra **1.2.1** | ☐ |
+| 6 | Ajuda → Sobre mostra **1.2.2** | ☐ |
 | 7 | As configurações continuam como estavam: DPI de exportação, tipo de marca de registro, unidade (cm/mm) | ☐ |
 | 8 | Abrir um projeto `.printnest` antigo: o arranjo volta como estava | ☐ |
 | 9 | Exportar um PDF de impressão de teste — só para ver o fluxo inteiro funcionando | ☐ |
@@ -68,6 +68,14 @@ Anote — se um PC ficar para trás, é isso que vai te dizer qual:
 ---
 
 ## Depois de atualizar: o teste que importa
+
+### Na 1.2.2 — tela pequena e faca
+
+- Selecione uma peça: os campos da "Faca deste arquivo" não podem aparecer
+  uns por cima dos outros (o painel rola).
+- Diminua a janela: a barra de cima não ganha rolagem lateral; o que não cabe
+  aparece no botão **»**.
+- Gere a faca de uma imagem PNG/JPG: o contorno segue a arte.
 
 ### Na 1.2.1 — exportação em imagem
 
