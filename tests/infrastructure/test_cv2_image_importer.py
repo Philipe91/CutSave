@@ -199,3 +199,43 @@ def test_ruido_minusculo_nao_vira_faca(tmp_path):
     Image.fromarray(im).save(p, dpi=(96, 96))
     art = _imp(tmp_path).import_image(p).artwork
     assert len(art.raw_contours) == 0  # so o desenho real, ruido ignorado
+
+
+def _png_com_moldura(tmp_path, espessura, cor=(0, 0, 0)):
+    """Fundo branco, círculo vermelho de 100px no meio e moldura fina na borda."""
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGB", (300, 200), (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    d.ellipse((100, 50, 199, 149), fill=(200, 30, 30))
+    for k in range(espessura):
+        d.rectangle((k, k, 299 - k, 199 - k), outline=cor)
+    p = tmp_path / f"moldura_{espessura}.png"
+    im.save(p, dpi=(150, 150))
+    return str(p)
+
+
+@pytest.mark.parametrize(("espessura", "cor"), [(1, (0, 0, 0)), (3, (90, 90, 90))])
+def test_moldura_fina_na_borda_nao_vira_faca_retangular(tmp_path, espessura, cor):
+    # Relato real (13/10/2026): PNG exportado com uma moldura preta de 1px
+    # invisivel. O fundo era estimado SO por essa linha -> "fundo preto", todo
+    # o branco virava arte e a moldura ligava tudo: a faca saia um retangulo.
+    p = _png_com_moldura(tmp_path, espessura, cor)
+    art = _imp(tmp_path).import_image(p, ignore_white=True).artwork
+    bb = art.raw_contour.size
+    assert bb.width == pytest.approx(100 * MM_PER_PX, abs=2.0)
+    assert bb.height == pytest.approx(100 * MM_PER_PX, abs=2.0)
+
+
+def test_arte_que_encosta_na_borda_nao_e_tratada_como_moldura(tmp_path):
+    # faixa vermelha de cima a baixo: a linha da borda nao e uniforme (branco +
+    # vermelho), entao nada pode ser "descascado" e a faixa continua inteira
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGB", (300, 200), (255, 255, 255))
+    ImageDraw.Draw(im).rectangle((120, 0, 179, 199), fill=(200, 30, 30))
+    p = tmp_path / "faixa.png"
+    im.save(p, dpi=(150, 150))
+    art = _imp(tmp_path).import_image(str(p), ignore_white=True).artwork
+    assert art.raw_contour.size.height == pytest.approx(200 * MM_PER_PX, abs=0.5)
+    assert art.raw_contour.size.width == pytest.approx(60 * MM_PER_PX, abs=2.0)

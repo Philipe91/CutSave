@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
@@ -197,15 +198,79 @@ class Cv2ImageImporter(IImageImporter):
         height, width = rgba.shape[:2]
         longest = max(width, height)
         bg = None
+        moldura = (0, 0, 0, 0)
         if ignore_white and not has_alpha:
-            bg = self._background_color(rgba[:, :, :3])
+            moldura = self._moldura_fina(rgba[:, :, :3])
+            cima, baixo, esq, dir_ = moldura
+            bg = self._background_color(
+                rgba[cima:height - baixo, esq:width - dir_, :3]
+            )
+        scale = 1.0
         if longest > MAX_DETECT_SIDE:
             scale = MAX_DETECT_SIDE / longest
             rgba = cv2.resize(
                 rgba, (max(1, int(width * scale)), max(1, int(height * scale))),
                 interpolation=cv2.INTER_NEAREST,
             )
-        return self._mask(rgba, has_alpha, sensitivity, ignore_white, bg)
+        mask = self._mask(rgba, has_alpha, sensitivity, ignore_white, bg)
+        if any(moldura):
+            # a moldura e fundo: sem apagar, ela ligaria todo o desenho num
+            # retangulo encostado nas 4 bordas
+            cima, baixo, esq, dir_ = (math.ceil(v * scale) for v in moldura)
+            mh, mw = mask.shape
+            mask[:cima, :] = 0
+            mask[mh - baixo:, :] = 0
+            mask[:, :esq] = 0
+            mask[:, mw - dir_:] = 0
+        return mask
+
+    @staticmethod
+    def _moldura_fina(rgb: np.ndarray) -> tuple[int, int, int, int]:
+        """Espessura (cima, baixo, esq, dir) de uma moldura fina na borda.
+
+        Relato real (13/10/2026): um PNG veio com uma linha preta de 1px em
+        volta, invisivel na tela. O fundo era estimado SO pela borda de 1px, ou
+        seja, pela moldura: "fundo preto", todo o branco virava arte e a faca
+        saia um retangulo. Linha da borda que e uniforme e DIFERENTE do que vem
+        logo depois e moldura; descasca ate poucos px. Arte que encosta na
+        borda nao e uniforme na linha (desenho + fundo) e fica intacta."""
+        h, w = rgb.shape[:2]
+        limite = max(4, min(12, min(h, w) // 100))
+        if min(h, w) <= 4 * limite:
+            return (0, 0, 0, 0)
+
+        def linha(lado: str, d: int) -> np.ndarray:
+            if lado == "cima":
+                return rgb[d, :, :]
+            if lado == "baixo":
+                return rgb[h - 1 - d, :, :]
+            if lado == "esq":
+                return rgb[:, d, :]
+            return rgb[:, w - 1 - d, :]
+
+        def uniforme(px: np.ndarray) -> np.ndarray | None:
+            cor = np.median(px, axis=0)
+            perto = np.abs(px.astype(np.int16) - cor).max(axis=1) <= 24
+            return cor if perto.mean() >= 0.97 else None
+
+        espessuras = []
+        for lado in ("cima", "baixo", "esq", "dir"):
+            d = 0
+            while d < limite:
+                cor = uniforme(linha(lado, d))
+                if cor is None:
+                    break
+                # referencia ALEM da espessura maxima: logo depois da linha
+                # ainda pode ser moldura (moldura de 3px "parecia" fundo)
+                dentro = np.median(
+                    np.concatenate([linha(lado, k) for k in range(limite, 2 * limite)]),
+                    axis=0,
+                )
+                if np.abs(cor - dentro).max() <= 24:
+                    break  # a linha e igual ao que vem depois: e fundo, nao moldura
+                d += 1
+            espessuras.append(d)
+        return tuple(espessuras)
 
     def _mask(
         self, rgba: np.ndarray, has_alpha: bool, sensitivity: float, ignore_white: bool,
