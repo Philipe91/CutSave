@@ -4,6 +4,40 @@ Todas as mudanças relevantes do PrintNest Pro. Formato inspirado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/). O histórico detalhado por
 sessão fica em [`docs/historico/`](docs/historico/).
 
+## [1.2.2] — 2026-10-13 — **varredura de qualidade: tela pequena, faca e impressão**
+
+Relatos de produção: em monitor menor os campos da "Faca deste arquivo"
+saíam uns por cima dos outros e a barra de cima era cortada; uma imagem
+gerou faca retangular em vez de contorno. Uma varredura do código inteiro
+achou mais ~55 defeitos, todos corrigidos com teste.
+
+### Tela e monitores
+- Painel da peça rola em vez de sobrepor os campos em tela pequena.
+- Barra de propriedades no estilo CorelDRAW: o que não cabe vai para o
+  botão **»**, sem rolagem lateral.
+- Ícones nítidos no 2º monitor com escala diferente; avisos legíveis nos
+  temas escuros; tema "Automático" volta a seguir o Windows.
+
+### Faca
+- Imagem com moldura fina invisível na borda gera faca de contorno.
+- Modo Corte: contornos reais não se invadem; "Organizar" pode ser cancelado.
+- Faca vetorial do PDF do cliente não fica mais deslocada da arte.
+- Faca compartilhada com peças de tamanhos diferentes corta todas as peças.
+
+### Impressão e encaixe
+- Peça não é mais posta em cima de outra quando é quase da largura do rolo.
+- PDF com página girada e foto de celular (EXIF) imprimem como na prévia.
+- PNG cinza 16 bits não sai mais branco; banners grandes abrem.
+- Exportação cancelada ou com erro não deixa arquivo pela metade.
+
+### Projeto e janela
+- Projeto salva recortes de página e tamanhos por arquivo.
+- Geração em segundo plano não cai na aba errada.
+- Campos em cm aceitam qualquer valor válido; Ctrl+Z de tamanho persiste;
+  ferramenta Mão arrasta; zoom limitado.
+- Config ou tema corrompido não impedem mais o programa de abrir.
+- Abrir vários arquivos pelo Explorer/Corel abre uma janela só.
+
 ## [1.2.1] — 2026-09-11 — **exportação em imagem rápida e acompanhada**
 
 Relato de produção: chapa de 1120×1750 mm com 40 cópias de um JPEG CMYK
