@@ -9,9 +9,10 @@ Convencoes e limites:
   PdfiumVectorExtractor (faca/arte), que funde os subpaths de um objeto num
   anel so. Para o nesting isso e essencial: o furo do "O" e um subpath e
   precisa virar anel proprio; a contencao (group_rings) decide quem e furo.
-- Coordenadas: matriz do objeto aplicada ANTES do flip de Y (page_h - ty),
-  depois pt -> mm com 25.4/72. Rotacao de pagina assumida 0 (mesma limitacao
-  do extractor).
+- Coordenadas: matriz do objeto (composta com a dos Form XObjects-pai)
+  aplicada ANTES da conversao para o referencial da arte — topo-esquerda da
+  pagina visivel, com o /Rotate (pdfium_boxes.para_topo_esquerda, o mesmo do
+  preview) —, depois pt -> mm com 25.4/72.
 - Curvas (sempre Bezier cubica em PDF) viram polilinha por subdivisao
   adaptativa com desvio maximo 'approximation' (mm) — helper compartilhado
   com o importador de SVG (3A).
@@ -32,7 +33,12 @@ from app.domain.geometry.bezier import BezierSegment, line_segment
 from app.domain.geometry.polygon import Polygon
 from app.domain.geometry.polygon_with_holes import PolygonWithHoles, group_rings
 from app.infrastructure.importers._flatten import PointAt, flatten_curve, to_ring
-from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf
+from app.infrastructure.pdfium_boxes import (
+    PDFIUM_LOCK,
+    matriz_acumulada,
+    open_pdf,
+    para_topo_esquerda,
+)
 from app.shared.errors import PdfImportError, VectorImportError
 
 PT2MM = 25.4 / 72.0
@@ -67,19 +73,19 @@ class PdfVectorImporter(IVectorImporter):
                 raise VectorImportError(str(exc)) from exc
             try:
                 page = document[0]
-                _w, page_h = page.get_size()
+                topo_esq = para_topo_esquerda(page, "media")
                 rings: list[Polygon] = []
                 for obj in page.get_objects(max_depth=4):
                     if obj.type != raw.FPDF_PAGEOBJ_PATH:
                         continue  # texto/imagem: texto digitado e a 3C
-                    rings.extend(self._object_rings(obj, page_h))
+                    rings.extend(self._object_rings(obj, topo_esq))
                 return group_rings(rings)
             finally:
                 document.close()
 
     # -- internas ---------------------------------------------------------------
 
-    def _object_rings(self, obj, page_h: float) -> list[Polygon]:
+    def _object_rings(self, obj, topo_esq) -> list[Polygon]:
         """Cada subpath (MOVETO ate o proximo MOVETO) do objeto vira um anel
         em mm. Fechamento fica implicito (Polygon fecha sozinho).
 
@@ -88,14 +94,12 @@ class PdfVectorImporter(IVectorImporter):
         trecho com controles sobre a corda (line_segment), para a lista ficar
         homogenea e is_line() reconhecer de volta na hora de gravar.
         """
-        m = raw.FS_MATRIX()
-        raw.FPDFPageObj_GetMatrix(obj.raw, m)
+        a, b, c, d, e, f = matriz_acumulada(obj)
 
         def xform(x: float, y: float) -> tuple[float, float]:
-            # matriz do objeto e depois PDF (baixo-esq) -> tela (topo-esq)
-            tx = m.a * x + m.c * y + m.e
-            ty = m.b * x + m.d * y + m.f
-            return tx, page_h - ty
+            # matriz do objeto (com a dos forms-pai) e depois PDF cru ->
+            # referencial da arte (topo-esquerda, pagina girada)
+            return topo_esq(a * x + c * y + e, b * x + d * y + f)
 
         tol_pt = self._approximation / PT2MM
         subpaths: list[tuple[list[tuple[float, float]], list[BezierSegment]]] = []

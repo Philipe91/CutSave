@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import MISSING, asdict, dataclass, fields
 from pathlib import Path
 
 from app.shared.errors import ConfigError
@@ -68,8 +69,58 @@ class AppSettings:
 
     @classmethod
     def from_dict(cls, data: dict) -> AppSettings:
-        known = set(cls.__dataclass_fields__)
-        return cls(**{k: v for k, v in data.items() if k in known})
+        """Monta as preferencias aceitando SO valores do tipo do padrao.
+
+        Campo com tipo errado (config editado a mao, versao antiga, outra
+        ferramenta) volta ao padrao DELE — o resto da configuracao do
+        operador fica. Antes passava direto: material_width = "abc" so
+        estourava depois, no meio da tela (auditoria de 13/10/2026)."""
+        if not isinstance(data, dict):
+            raise TypeError("configuracao precisa ser um objeto JSON")
+        valores = {}
+        for campo in fields(cls):
+            if campo.name not in data or campo.default is MISSING:
+                continue
+            valor = _coagir(data[campo.name], campo.default)
+            if valor is not None:
+                valores[campo.name] = valor
+        return cls(**valores)
+
+
+def _coagir(valor, padrao):
+    """`valor` no tipo de `padrao`, ou None quando nao da para confiar nele.
+
+    bool NAO vale como numero (True viraria 1 grau de rotacao) e numero nao
+    vale como bool; int aceita float inteiro (90.0); float aceita int; numero
+    nao finito (1e999 vira infinito no json) nunca e medida."""
+    if isinstance(padrao, bool):
+        return valor if isinstance(valor, bool) else None
+    if isinstance(valor, bool):
+        return None
+    if isinstance(padrao, int):
+        if isinstance(valor, int):
+            return valor
+        if isinstance(valor, float) and math.isfinite(valor) and valor.is_integer():
+            return int(valor)
+        return None
+    if isinstance(padrao, float):
+        if isinstance(valor, (int, float)) and math.isfinite(valor):
+            return float(valor)
+        return None
+    if isinstance(padrao, str):
+        return valor if isinstance(valor, str) else None
+    return None
+
+
+def _texto_do_config(bruto: bytes) -> str:
+    """UTF-8 (com ou sem BOM — o Bloco de Notas grava BOM); se nao for UTF-8,
+    o ANSI do Windows (cp1252), que e como o Bloco de Notas antigo salva.
+    Perder a configuracao inteira por causa de um acento no caminho da pasta
+    seria pior do que ler o arquivo do jeito que ele foi gravado."""
+    try:
+        return bruto.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return bruto.decode("cp1252")
 
 
 class SettingsStore:
@@ -94,11 +145,16 @@ class SettingsStore:
         return settings
 
     def load(self) -> AppSettings:
+        # Tudo que der errado aqui vira ConfigError: o load_or_create roda
+        # ANTES do log de crash, e qualquer outra excecao fazia o .exe abrir e
+        # fechar para sempre. Ja visto: [] / null no arquivo (AttributeError),
+        # config salvo em ANSI pelo Bloco de Notas (UnicodeDecodeError).
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            data = json.loads(_texto_do_config(self.path.read_bytes()))
+            return AppSettings.from_dict(data)
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            # ValueError cobre JSONDecodeError e UnicodeDecodeError
             raise ConfigError(f"Falha ao ler configuracao: {self.path}") from exc
-        return AppSettings.from_dict(data)
 
     def save(self, settings: AppSettings) -> None:
         # Escrita ATOMICA (tmp + os.replace): o save acontece a cada salvar

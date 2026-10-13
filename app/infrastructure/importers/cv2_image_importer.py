@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 
 from app.application.ports.image_importer import IImageImporter, ImportedImage
 from app.domain.geometry import Point2D, Size
 from app.domain.model.artwork import ArtKind, FileFormat
 from app.domain.model.cut_contour import CutContour
 from app.domain.model.image_artwork import ImageArtwork, ImageKind
+from app.infrastructure.imagem import abrir_imagem
 from app.shared.errors import ImageImportError
 
 MM_PER_INCH = 25.4
@@ -37,6 +39,11 @@ _ALPHA_OPAQUE = 250
 # tamanho da imagem. ~9mm^2 = um quadradinho de 3x3mm. E teto de desenhos.
 MIN_DESIGN_MM2 = 9.0
 MAX_DESIGNS = 400
+# Quantas imagens decodificadas ficam em memoria (LRU). O cache existe para
+# mexer na sensibilidade sem reler o disco — da MESMA imagem. Sem teto, uma
+# sessao com dezenas de fotos de 40 MP guardava 160 MB de RGBA por foto ate
+# fechar o programa (auditoria de 13/10/2026).
+MAX_DECODED_CACHE = 4
 
 
 class Cv2ImageImporter(IImageImporter):
@@ -52,7 +59,7 @@ class Cv2ImageImporter(IImageImporter):
         self._cache_dir = (
             Path(cache_dir) if cache_dir else Path(tempfile.gettempdir()) / "printnest_img_cache"
         )
-        self._decoded: dict[tuple, np.ndarray] = {}
+        self._decoded: OrderedDict[tuple, np.ndarray] = OrderedDict()
         self._render_paths: dict[tuple, str] = {}
 
     def import_image(
@@ -109,16 +116,27 @@ class Cv2ImageImporter(IImageImporter):
         key = self._file_key(path)
         cached = self._decoded.get(key)
         if cached is not None:
+            self._decoded.move_to_end(key)
             return cached
+        # abrir_imagem: EXIF aplicado, 16 bits escalado, erro em portugues para
+        # imagem grande demais — a MESMA abertura do preview e da impressao
+        im = abrir_imagem(path)
         try:
-            with Image.open(path) as im:
-                im = ImageOps.exif_transpose(im)
-                rgba = np.array(im.convert("RGBA"))
+            rgba = np.array(im.convert("RGBA"))
+        except MemoryError as exc:
+            raise ImageImportError(
+                f"Sem memória para abrir a imagem ({im.width} x {im.height} px). "
+                f"Feche outros programas ou reduza a resolução.\n\n{path}"
+            ) from exc
         except (OSError, ValueError) as exc:
             raise ImageImportError(f"Falha ao ler a imagem: {path}") from exc
+        finally:
+            im.close()
         if rgba.ndim != 3 or rgba.shape[2] != 4:
             raise ImageImportError(f"Imagem sem formato esperado: {path}")
         self._decoded[key] = rgba
+        while len(self._decoded) > MAX_DECODED_CACHE:
+            self._decoded.popitem(last=False)
         return rgba
 
     @staticmethod
@@ -161,12 +179,37 @@ class Cv2ImageImporter(IImageImporter):
         pagina de PDF rasterizada). Devolve a faca em milimetros."""
         height, width = rgba.shape[:2]
         has_alpha = bool(rgba[:, :, 3].min() < _ALPHA_OPAQUE)
-        mask = self._mask(rgba, has_alpha, sensitivity, ignore_white)
+        mask = self._mask_reduzida(rgba, has_alpha, sensitivity, ignore_white)
         return self._contour(mask, width, height, dpi)
 
     # ---- mascara de conteudo ----
-    def _mask(
+    def _mask_reduzida(
         self, rgba: np.ndarray, has_alpha: bool, sensitivity: float, ignore_white: bool
+    ) -> np.ndarray:
+        """Mascara JA no tamanho de deteccao (lado maior <= MAX_DETECT_SIDE).
+
+        A mascara de imagem grande era montada na resolucao CHEIA e so depois
+        reduzida: numa foto de 40 MP isso alocava 2,16 GB de float64 para jogar
+        fora 98% dos pixels (auditoria de 13/10/2026). Reduzir o RGBA ANTES,
+        com o mesmo vizinho-mais-proximo e o mesmo tamanho que _contours_multi
+        usaria na mascara, da a mesma mascara — os pixels amostrados sao os
+        mesmos. A cor de fundo continua estimada na borda da imagem CHEIA."""
+        height, width = rgba.shape[:2]
+        longest = max(width, height)
+        bg = None
+        if ignore_white and not has_alpha:
+            bg = self._background_color(rgba[:, :, :3])
+        if longest > MAX_DETECT_SIDE:
+            scale = MAX_DETECT_SIDE / longest
+            rgba = cv2.resize(
+                rgba, (max(1, int(width * scale)), max(1, int(height * scale))),
+                interpolation=cv2.INTER_NEAREST,
+            )
+        return self._mask(rgba, has_alpha, sensitivity, ignore_white, bg)
+
+    def _mask(
+        self, rgba: np.ndarray, has_alpha: bool, sensitivity: float, ignore_white: bool,
+        bg: np.ndarray | None = None,
     ) -> np.ndarray:
         s = max(0.0, min(100.0, float(sensitivity)))
         if has_alpha:
@@ -180,7 +223,8 @@ class Cv2ImageImporter(IImageImporter):
         # para fundo branco, escuro ou colorido (nao so branco). Para fundo
         # branco e equivalente ao criterio antigo (distancia ao branco).
         rgb = rgba[:, :, :3].astype(np.int16)
-        bg = self._background_color(rgb)
+        if bg is None:
+            bg = self._background_color(rgb)
         tol = (s / 100.0) * 55.0  # 0 (s=0) .. 55 (s=100)
         diff = np.abs(rgb - bg).max(axis=2)
         return (diff > tol).astype(np.uint8)
@@ -262,7 +306,7 @@ class Cv2ImageImporter(IImageImporter):
         """Todos os contornos (desenhos separados) de um RGBA, maior primeiro."""
         height, width = rgba.shape[:2]
         has_alpha = bool(rgba[:, :, 3].min() < _ALPHA_OPAQUE)
-        mask = self._mask(rgba, has_alpha, sensitivity, ignore_white)
+        mask = self._mask_reduzida(rgba, has_alpha, sensitivity, ignore_white)
         return self._contours_multi(mask, width, height, dpi)
 
     @staticmethod

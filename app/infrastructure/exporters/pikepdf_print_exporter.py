@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import io
 import math
+import os
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -9,7 +11,7 @@ from app.application.dto.print_placement import PrintSheet
 from app.application.ports.print_pdf_exporter import IPrintPdfExporter
 from app.infrastructure.color_space import origem_e_cmyk
 from app.infrastructure.exporters.pdf_writer import PdfWriter, bbox_normalizada
-from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf, raw_box, trim_clip_pdf
+from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf, regiao_pdf
 from app.infrastructure.pdfium_knife import knife_free_pdf
 from app.shared.errors import PrintExportError
 
@@ -55,6 +57,19 @@ class ExportacaoCancelada(PrintExportError):
 
     def __init__(self) -> None:
         super().__init__("Exportação cancelada.")
+
+
+def _temporario_ao_lado(alvo: str) -> str:
+    """Caminho temporario na MESMA pasta do alvo (os.replace so e atomico
+    dentro do mesmo volume)."""
+    p = Path(alvo)
+    return str(p.with_name(f"{p.name}.{os.getpid()}.parcial"))
+
+
+def _apagar(caminho: str | None) -> None:
+    if caminho:
+        with contextlib.suppress(OSError):
+            Path(caminho).unlink()
 
 
 def _is_image_source(path: str) -> bool:
@@ -300,9 +315,15 @@ class PikePdfPrintExporter(IPrintPdfExporter):
 
     def export(self, sheets: Sequence[PrintSheet], output_path: str) -> None:
         writer = self._build_writer(sheets)
+        # grava ao lado e so troca no fim: falha no meio (disco cheio, pasta
+        # de rede que caiu) deixava um PDF truncado POR CIMA do arquivo bom que
+        # ja estava la (auditoria de 13/10/2026)
+        temporario = _temporario_ao_lado(output_path)
         try:
-            writer.save(output_path)
+            writer.save(temporario)
+            os.replace(temporario, output_path)
         except Exception as exc:
+            _apagar(temporario)
             raise PrintExportError(
                 f"Falha ao gerar PDF de impressao: {output_path}"
             ) from exc
@@ -374,7 +395,11 @@ class PikePdfPrintExporter(IPrintPdfExporter):
             data = writer.save_bytes()
         finally:
             writer.close()
+        # generated: SO o que esta exportacao gravou (ja trocado no lugar).
+        # Arquivo de exportacao anterior que ainda nao foi regravado nao e
+        # nosso: cancelar no meio da serie nao pode apagar o _02 de ontem.
         generated: list[str] = []
+        temporario: str | None = None
         with PDFIUM_LOCK:  # pdfium não é thread-safe (worker + UI ao vivo)
             try:
                 doc = pdfium.PdfDocument(io.BytesIO(data))
@@ -416,29 +441,34 @@ class PikePdfPrintExporter(IPrintPdfExporter):
                         pil, icc = _no_espaco_de_saida(pil, fmt, color_space, icc_path)
                         extra = {"icc_profile": icc} if icc else {}
                         _passo(0.98, "Gravando arquivo…")
+                        # grava ao lado e troca no fim: falha no meio nao deixa
+                        # imagem truncada por cima da chapa boa que ja existia
+                        temporario = _temporario_ao_lado(target)
                         try:
                             if fmt == "jpeg":
-                                pil.save(target, format="JPEG",
+                                pil.save(temporario, format="JPEG",
                                          quality=int(quality),
                                          dpi=(dpi, dpi), **extra)
                             else:
-                                pil.save(target, format=fmt.upper(),
+                                pil.save(temporario, format=fmt.upper(),
                                          dpi=(dpi, dpi), **extra)
+                            os.replace(temporario, target)
                         except Exception as exc:
                             raise PrintExportError(
                                 f"Falha ao gerar imagem: {target}"
                             ) from exc
+                        temporario = None
                     finally:
                         pil.close()
                     generated.append(target)
                     _passo(1.0)
-            except ExportacaoCancelada:
-                # nada desta exportacao fica: o parcial e as chapas prontas
-                for caminho in {*generated, target}:
-                    try:
-                        Path(caminho).unlink()
-                    except OSError:
-                        pass
+            except BaseException:
+                # cancelou ou falhou: nada desta exportacao fica — o parcial e
+                # as chapas ja prontas. Meia serie na pasta do cliente vira
+                # chapa faltando na producao sem ninguem perceber.
+                _apagar(temporario)
+                for caminho in generated:
+                    _apagar(caminho)
                 raise
             finally:
                 doc.close()
@@ -534,12 +564,10 @@ class PikePdfPrintExporter(IPrintPdfExporter):
             doc = open_pdf(path)
             try:
                 page = doc[page_index]
-                rect = trim_clip_pdf(page, box)
-                if rect is None:
-                    rect = raw_box(page, "MediaBox")
-                    if rect is None:
-                        w, h = page.get_size()
-                        rect = (0.0, 0.0, w, h)
+                # a MESMA regiao do tamanho importado e do preview (antes: apara
+                # ou a MediaBox inteira, mesmo com CropBox menor — 13/10/2026).
+                # Coords cruas, sem /Rotate: o giro da pagina e do PdfWriter.
+                rect = regiao_pdf(page, box)
                 # caixa do PDF pode vir com as coordenadas trocadas (ex.:
                 # [0 297 210 0]) — e legal, e o leitor normaliza sozinho. Aqui
                 # nao: sem ordenar, x1-x0 fica negativo, o recorte de borda e

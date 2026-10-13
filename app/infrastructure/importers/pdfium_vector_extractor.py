@@ -6,7 +6,12 @@ import pypdfium2.raw as raw
 
 from app.application.ports.vector_extractor import IVectorExtractor
 from app.domain.cut.vector import RingInfo
-from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, open_pdf
+from app.infrastructure.pdfium_boxes import (
+    PDFIUM_LOCK,
+    matriz_acumulada,
+    open_pdf,
+    para_topo_esquerda,
+)
 
 PT2MM = 25.4 / 72.0
 
@@ -16,17 +21,22 @@ class PdfiumVectorExtractor(IVectorExtractor):
 
     Mesmo contrato do extrator PyMuPDF: lados retos e retangulos viram pontos
     diretos; curvas de Bezier sao amostradas em segmentos; coordenadas saem
-    com origem no TOPO-esquerda (convencao do resto do sistema). Nao trata
-    rotacao de pagina (assume 0).
+    com origem no TOPO-esquerda DA ARTE: o canto da regiao da caixa ('media'
+    = pagina visivel, 'trim' = apara), ja com o /Rotate da pagina — o mesmo
+    referencial do preview e da impressao (pdfium_boxes.para_topo_esquerda).
     """
 
     def __init__(self, bezier_steps: int = 8) -> None:
         self._steps = bezier_steps
 
-    def extract_rings(self, path: str, page_index: int = 0) -> list[list[tuple[float, float]]]:
-        return [info.ring for info in self.extract_rings_info(path, page_index)]
+    def extract_rings(
+        self, path: str, page_index: int = 0, box: str = "media"
+    ) -> list[list[tuple[float, float]]]:
+        return [info.ring for info in self.extract_rings_info(path, page_index, box)]
 
-    def extract_rings_info(self, path: str, page_index: int = 0) -> list[RingInfo]:
+    def extract_rings_info(
+        self, path: str, page_index: int = 0, box: str = "media"
+    ) -> list[RingInfo]:
         """Aneis + pintura (traço/preenchimento/cor do traço) de cada path.
 
         A cor separa a FACA do cliente (traço magenta/spot, sem fill) da arte
@@ -35,12 +45,12 @@ class PdfiumVectorExtractor(IVectorExtractor):
             document = open_pdf(path)
             try:
                 page = document[page_index]
-                _w, page_h = page.get_size()
+                topo_esq = para_topo_esquerda(page, box)
                 infos = []
                 for obj in page.get_objects(max_depth=4):
                     if obj.type != raw.FPDF_PAGEOBJ_PATH:
                         continue
-                    ring = self._path_to_ring(obj, page_h)
+                    ring = self._path_to_ring(obj, topo_esq)
                     if len(ring) >= 3:
                         stroked, filled = self._draw_mode(obj)
                         infos.append(RingInfo(
@@ -76,18 +86,16 @@ class PdfiumVectorExtractor(IVectorExtractor):
             return None
         return (r.value, g.value, b.value)
 
-    def _path_to_ring(self, obj, page_h: float) -> list[tuple[float, float]]:
+    def _path_to_ring(self, obj, topo_esq) -> list[tuple[float, float]]:
         """Um anel por objeto de path (como o get_drawings do fitz): move so
         desloca o cursor; linha grava os DOIS extremos; Bezier grava o inicio
         e a curva amostrada — pontos duplicados nao atrapalham o motor."""
-        m = raw.FS_MATRIX()
-        raw.FPDFPageObj_GetMatrix(obj.raw, m)
+        a, b, c, d, e, f = matriz_acumulada(obj)
 
         def xform(x: float, y: float) -> tuple[float, float]:
-            # matriz do objeto e depois PDF (baixo-esq) -> tela (topo-esq)
-            tx = m.a * x + m.c * y + m.e
-            ty = m.b * x + m.d * y + m.f
-            return tx, page_h - ty
+            # matriz do objeto (com a dos forms-pai) e depois PDF cru ->
+            # referencial da arte (topo-esquerda da caixa, pagina girada)
+            return topo_esq(a * x + c * y + e, b * x + d * y + f)
 
         n = raw.FPDFPath_CountSegments(obj.raw)
         points: list[tuple[float, float]] = []

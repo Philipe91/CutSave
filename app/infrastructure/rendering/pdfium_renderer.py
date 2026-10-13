@@ -6,9 +6,10 @@ from pathlib import Path
 from PIL import Image
 
 from app.application.ports.page_renderer import IPageRenderer
+from app.infrastructure.imagem import abrir_imagem
 from app.infrastructure.pdfium_boxes import PDFIUM_LOCK, clip_topleft_pt, open_pdf
 from app.infrastructure.pdfium_knife import knife_free_page, knife_free_pdf
-from app.shared.errors import PdfImportError
+from app.shared.errors import ImageImportError, PdfImportError
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -94,9 +95,12 @@ class PdfiumPageRenderer(IPageRenderer):
 
     @staticmethod
     def _pil_image_file(path: str, dpi: int):
+        # mesma abertura do importador e da impressao: EXIF aplicado (foto de
+        # celular em pe aparece em pe) e cinza de 16 bits escalado (nao branco)
         try:
-            pil = Image.open(path)
-            pil.load()
+            pil = abrir_imagem(path)
+        except ImageImportError as exc:
+            raise PdfImportError(str(exc)) from exc
         except Exception as exc:
             raise PdfImportError(f"Falha ao abrir imagem: {path}") from exc
         # JPEG de grafica costuma vir CMYK (e ha YCbCr/16-bit): PNG so aceita

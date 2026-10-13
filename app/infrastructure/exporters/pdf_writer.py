@@ -27,6 +27,8 @@ import pikepdf
 from pikepdf import Array, Dictionary, Name
 from PIL import Image
 
+from app.infrastructure.imagem import abrir_imagem, orientacao_exif
+
 MM2PT = 72.0 / 25.4
 # fator do arco de circulo por Bezier (4 arcos de 90 graus)
 _K = 0.5522847498307936
@@ -102,6 +104,47 @@ def bbox_normalizada(caixa) -> tuple[float, float, float, float]:
     return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
 
 
+def _rotacao_herdada(pagina) -> int:
+    """/Rotate da pagina (0/90/180/270, horario), subindo pela arvore /Parent:
+    o /Rotate e herdavel, e muito gerador grava UM so no no /Pages."""
+    no, passos = pagina, 0
+    while no is not None and passos < 64:
+        valor = no.get("/Rotate")
+        if valor is not None:
+            try:
+                return int(valor) % 360 // 90 * 90
+            except (TypeError, ValueError):
+                return 0
+        no, passos = no.get("/Parent"), passos + 1
+    return 0
+
+
+def _caixa_girada(bbox, rot: int) -> tuple[float, float, float, float]:
+    """A caixa como o leitor a mostra depois do /Rotate (com giro, origem em
+    (0,0) — e para la que `_giro_da_pagina` leva as coords cruas)."""
+    if rot not in (90, 180, 270):
+        return tuple(bbox)
+    bx0, by0, bx1, by1 = bbox
+    bw, bh = bx1 - bx0, by1 - by0
+    return (0.0, 0.0, bh, bw) if rot in (90, 270) else (0.0, 0.0, bw, bh)
+
+
+def _giro_da_pagina(bbox, rot: int):
+    """Matriz cm que leva as coords cruas da pagina para a caixa ja girada
+    (`_caixa_girada`) no sentido HORARIO do /Rotate. None sem giro.
+
+    Conferida pelos cantos: em 90 o canto baixo-esquerdo cru vira o topo-
+    esquerdo; em 270 vira o baixo-direito; em 180 vira o topo-direito."""
+    bx0, by0, bx1, by1 = bbox
+    if rot == 90:
+        return (0.0, -1.0, 1.0, 0.0, -by0, bx1)
+    if rot == 180:
+        return (-1.0, 0.0, 0.0, -1.0, bx1, by1)
+    if rot == 270:
+        return (0.0, 1.0, -1.0, 0.0, by1, -bx0)
+    return None  # sem giro: a matriz de encaixe desconta a origem da caixa
+
+
 def _f(v: float) -> str:
     """Numero em ate 4 casas (0,0001pt = 0,000035mm), sem zeros a direita."""
     return f"{v:.4f}".rstrip("0").rstrip(".")
@@ -162,12 +205,19 @@ class PdfWriter:
         clip_pdf_pt: regiao da FONTE a usar, em coords PDF cruas (pt); a
         regiao e mapeada exatamente no retangulo destino (contrato do antigo
         show_pdf_page com clip)."""
-        xo, bbox = self._form_xobject(src_path, page_index, clip_pdf_pt)
+        xo, bbox, rot_pagina = self._form_xobject(src_path, page_index, clip_pdf_pt)
         name = self._resource_name(xo)
+        # /Rotate da pagina-fonte: o form entra CRU (coords da pagina sem
+        # giro) e o giro vira a primeira etapa da matriz. A regiao, ja girada
+        # como o leitor a mostra, e que e encaixada no retangulo destino.
+        giro = _giro_da_pagina(bbox, rot_pagina)
         m = self._placement_matrix(
-            bbox, x_mm * MM2PT, self._cur["h_pt"] - (y_mm + h_mm) * MM2PT,
+            _caixa_girada(bbox, rot_pagina),
+            x_mm * MM2PT, self._cur["h_pt"] - (y_mm + h_mm) * MM2PT,
             w_mm * MM2PT, h_mm * MM2PT, rotate % 360, mirror,
         )
+        if giro is not None:
+            m = self._compor(m, giro)
         self._cur["ops"].append(
             f"q {' '.join(_f(v) for v in m)} cm {name} Do Q\n"
         )
@@ -181,12 +231,19 @@ class PdfWriter:
         if src is None:
             src = pikepdf.open(src_path)
             self._sources[src_path] = src
-        xo = self._pdf.copy_foreign(src.pages[page_index].as_form_xobject())
+        pagina = src.pages[page_index]
+        # handle_transformations=False: o form sai nas coords CRUAS da pagina.
+        # Com True o pikepdf ja embutia o /Rotate na /Matrix do form, e a
+        # matriz de encaixe (que mapeia a caixa NAO girada) girava de novo:
+        # pagina com /Rotate 90 imprimia metade da arte, esticada (auditoria
+        # de 13/10/2026). O giro agora e aplicado uma vez so, em place_pdf_page.
+        xo = self._pdf.copy_foreign(pagina.as_form_xobject(False))
         if clip is not None:
             xo.BBox = Array([float(v) for v in clip])
         bbox = bbox_normalizada(xo.BBox)
-        self._xobjects[key] = (xo, bbox)
-        return xo, bbox
+        cached = (xo, bbox, _rotacao_herdada(pagina.obj))
+        self._xobjects[key] = cached
+        return cached
 
     def _resource_name(self, xo) -> str:
         names = self._cur["names"]
@@ -294,10 +351,21 @@ class PdfWriter:
         if cached is not None:
             return cached
         suffix = Path(path).suffix.lower()
-        pil = Image.open(path)
-        pil.load()
+        with Image.open(path) as crua:
+            orientacao = orientacao_exif(crua)
+        # abrir_imagem: orientacao EXIF aplicada e cinza de 16 bits escalado —
+        # os mesmos pixels que o importador mediu e o preview mostrou
+        pil = abrir_imagem(path)
         icc = pil.info.get("icc_profile")
-        dct = suffix in (".jpg", ".jpeg") and pil.mode in ("RGB", "L", "CMYK")
+        # JPEG com EXIF orientation != 1 NAO entra passthrough: o PDF nao le
+        # EXIF, e o arquivo cru sairia deitado e esticado no retangulo em pe
+        # (auditoria de 13/10/2026). Os pixels ja girados entram em Flate —
+        # sem perda e sem segunda geracao de JPEG; o perfil ICC vai junto.
+        dct = (
+            suffix in (".jpg", ".jpeg")
+            and pil.mode in ("RGB", "L", "CMYK")
+            and orientacao == 1
+        )
         if self._imagens_em_rgb and pil.mode == "CMYK":
             # ver __init__: para rasterizar, CMYK vira sRGB aqui, uma vez.
             # Sai por Flate (sem segunda geracao de JPEG) e como DeviceRGB,
