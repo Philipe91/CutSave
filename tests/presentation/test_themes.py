@@ -164,3 +164,200 @@ def test_dialogo_personalizar_abre_e_cancela_restaura(temp_manager):
     dlg._cancel()
     assert theme.BG == palettes.LIGHT["BG"]
     dlg.deleteLater()
+
+
+# ---- tema importado invalido nao pode travar a abertura (13/10/2026) ----
+def test_normalizar_hex_aceita_formatos_validos_e_recusa_o_resto():
+    assert palettes.normalize_hex("#22C55E") == "#22c55e"
+    assert palettes.normalize_hex("#f00") == "#ff0000"
+    for ruim in ("red", "", "#12345", "#gggggg", None, 123, "22c55e"):
+        assert palettes.normalize_hex(ruim) is None, ruim
+
+
+def test_importar_tema_com_cor_invalida_nao_salva_nada(temp_manager, tmp_path):
+    import json as _json
+
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    m = temp_manager()
+    m.reset()
+    arq = tmp_path / "ruim.json"
+    arq.write_text(_json.dumps({"printnest_theme": 1, "base": "dark",
+                                "accent": "red", "overrides": {}}),
+                   encoding="utf-8")
+    with pytest.raises(ValueError):
+        m.import_json(str(arq))
+    # nada foi persistido: a proxima abertura le o tema anterior
+    m2 = temp_manager()
+    assert m2.theme_key == "light" and m2.accent == ""
+
+
+def test_importar_tema_curto_normaliza_e_descarta_override_invalido(
+        temp_manager, tmp_path):
+    import json as _json
+
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    m = temp_manager()
+    arq = tmp_path / "curto.json"
+    arq.write_text(_json.dumps({
+        "printnest_theme": 1, "base": "dark", "accent": "#f00",
+        "overrides": {"SHEET": "#abc", "BG": "azul"}}), encoding="utf-8")
+    m.import_json(str(arq))
+    assert m.accent == "#ff0000"
+    assert m.overrides == {"SHEET": "#aabbcc"}
+
+
+def test_abertura_com_tema_salvo_corrompido_volta_ao_padrao(temp_manager):
+    # cenario real: QSettings ja gravado com acento "red" por uma versao antiga
+    # -> toda abertura caia com ValueError. Agora abre no PrintNest Original.
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    import importlib
+    mgr_mod = importlib.import_module("app.presentation.themes.manager")
+    m = temp_manager()
+    m._settings.setValue("theme/base", "dark")
+    m._settings.setValue("theme/accent", "red")
+    m._settings.setValue("theme/overrides", '{"BG": "#zzz", "SHEET": "#abc"}')
+    m._settings.sync()
+    antigo = mgr_mod._manager
+    mgr_mod._manager = None
+    try:
+        mgr_mod.apply_startup(app)  # nao pode levantar
+        novo = mgr_mod._manager
+        assert novo.accent == ""
+        assert "BG" not in novo.overrides
+    finally:
+        mgr_mod._manager = antigo
+
+
+def test_abertura_cai_no_padrao_se_aplicar_o_tema_falhar(temp_manager,
+                                                         monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    import importlib
+    mgr_mod = importlib.import_module("app.presentation.themes.manager")
+    m = temp_manager()
+    m.theme_key = "dark"
+    chamadas = []
+    original = mgr_mod.palettes.resolve
+
+    def _quebra_uma_vez(*a, **k):
+        if not chamadas:
+            chamadas.append(1)
+            raise ValueError("paleta corrompida")
+        return original(*a, **k)
+
+    monkeypatch.setattr(mgr_mod.palettes, "resolve", _quebra_uma_vez)
+    antigo = mgr_mod._manager
+    mgr_mod._manager = m
+    try:
+        mgr_mod.apply_startup(app)
+        assert m.theme_key == "light"
+        assert theme.BG == palettes.LIGHT["BG"]
+    finally:
+        mgr_mod._manager = antigo
+
+
+# ---- "Automatico (segue o Windows)" nao pode fixar o esquema (13/10/2026) ----
+@pytest.fixture
+def spy_esquema(monkeypatch):
+    from PySide6.QtGui import QStyleHints
+
+    chamadas: list = []
+    monkeypatch.setattr(QStyleHints, "setColorScheme",
+                        lambda self, s: chamadas.append(s))
+    monkeypatch.setattr(QStyleHints, "unsetColorScheme",
+                        lambda self: chamadas.append("unset"))
+    return chamadas
+
+
+def test_modo_automatico_nao_fixa_o_esquema_do_windows(temp_manager,
+                                                       spy_esquema):
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    m = temp_manager()
+    m.set_theme("dark")
+    assert spy_esquema[-1] != "unset"  # tema fixo: fixa o esquema nativo
+    spy_esquema.clear()
+    m.set_theme("auto")
+    # antes: setColorScheme(Light/Dark) PRENDIA o esquema e o app parava de
+    # acompanhar o Windows; agora so solta (unset) e nunca fixa
+    assert "unset" in spy_esquema
+    assert all(c == "unset" for c in spy_esquema), spy_esquema
+    m.reset()
+
+
+def test_abertura_em_modo_automatico_nao_fixa_o_esquema(temp_manager,
+                                                        spy_esquema):
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    import importlib
+    mgr_mod = importlib.import_module("app.presentation.themes.manager")
+    m = temp_manager()
+    m.theme_key = "auto"
+    antigo = mgr_mod._manager
+    mgr_mod._manager = m
+    try:
+        mgr_mod.apply_startup(app)
+        assert spy_esquema and all(c == "unset" for c in spy_esquema)
+    finally:
+        mgr_mod._manager = antigo
+        m.theme_key = "light"
+
+
+# ---- Esc / X do dialogo descartam as mudancas (13/10/2026) ----
+def test_dialogo_esc_restaura_como_cancelar(temp_manager):
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from app.presentation.themes.settings_dialog import ThemeSettingsDialog
+
+    m = temp_manager()
+    m.reset()
+    dlg = ThemeSettingsDialog(m)
+    dlg._theme_combo.setCurrentIndex(dlg._theme_combo.findData("dark"))
+    assert theme.BG == palettes.DARK["BG"]
+    dlg.reject()  # o que Esc e o X da janela chamam
+    assert theme.BG == palettes.LIGHT["BG"]
+    assert m.theme_key == "light"
+    dlg.deleteLater()
+
+
+def test_dialogo_ok_mantem_as_mudancas(temp_manager):
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from app.presentation.themes.settings_dialog import ThemeSettingsDialog
+
+    m = temp_manager()
+    m.reset()
+    dlg = ThemeSettingsDialog(m)
+    dlg._theme_combo.setCurrentIndex(dlg._theme_combo.findData("dark"))
+    dlg.accept()
+    assert m.theme_key == "dark"
+    m.reset()
+    dlg.deleteLater()
+
+
+def test_combo_do_tema_acompanha_preset_e_restaurar(temp_manager):
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from app.presentation.themes.settings_dialog import ThemeSettingsDialog
+
+    m = temp_manager()
+    m.reset()
+    dlg = ThemeSettingsDialog(m)
+    nome, base, *_ = next(p for p in palettes.PRESETS if p[1] != "light")
+    m.apply_preset(nome)
+    assert dlg._theme_combo.currentData() == base
+    m.reset()  # "Restaurar padrao"
+    assert dlg._theme_combo.currentData() == "light"
+    dlg.deleteLater()

@@ -21,7 +21,12 @@ from app.infrastructure.importers.pdfium_importer import PdfiumImporter
 from app.infrastructure.rendering.pdfium_renderer import PdfiumPageRenderer
 from app.presentation import theme
 from app.presentation.main_window import MainWindow
-from app.presentation.single_instance import forward_to_running, start_server
+from app.presentation.single_instance import (
+    CaixaDeEntrada,
+    adquirir_mutex_de_instancia,
+    entregar_a_instancia_aberta,
+    start_server,
+)
 from app.shared.config import AppPaths, SettingsStore
 from app.shared.logging import setup_logging
 from app.shared.resources import resource_path
@@ -194,6 +199,16 @@ def _hold_splash(splash) -> None:
 
 
 def main() -> int:
+    # Modo Corte direto (macro do CorelDRAW): processo proprio, FORA da
+    # instancia unica — abre so o dialogo por cima do Corel (como o eCut) e
+    # nao mexe na sessao de impressao que estiver aberta.
+    cut_pdf = _cut_mode_arg(sys.argv)
+    # instancia unica: o mutex e a PRIMEIRA coisa do processo. Abrir 3 PDFs
+    # pelo Explorer dispara 3 processos juntos; antes so o servidor IPC (que
+    # sobe depois da janela montada) decidia, e saiam 2-3 janelas
+    # (13/10/2026). O Modo Corte nao toma o mutex (vive fora da instancia).
+    primeira = adquirir_mutex_de_instancia() if cut_pdf is None else None
+
     paths = AppPaths.default().ensure()
     store = SettingsStore(paths.config_file)
     settings = store.load_or_create()
@@ -208,16 +223,28 @@ def main() -> int:
     # dialogo de ativacao). Fechar aqui evita ela ficar atras desses.
     _close_pyi_splash()
 
-    # Modo Corte direto (macro do CorelDRAW): processo proprio, FORA da
-    # instancia unica — abre so o dialogo por cima do Corel (como o eCut) e
-    # nao mexe na sessao de impressao que estiver aberta.
-    cut_pdf = _cut_mode_arg(sys.argv)
-
     # instância única: se o PrintNest já estiver aberto, entrega os arquivos
-    # (ex.: vindos da macro do CorelDRAW) para a sessao atual e encerra.
+    # (ex.: vindos da macro do CorelDRAW) para a sessao atual e encerra. Se
+    # outra instancia ainda esta abrindo, espera ela responder (ate ~20 s);
+    # se nao confirmar (travada), abre normal — nunca perde o arquivo.
     file_args = _file_args(sys.argv)
-    if cut_pdf is None and forward_to_running(file_args):
+    # se for preciso esperar a outra instancia, a splash aparece JA (antes
+    # ficava ate ~20 s sem nada na tela) e e reaproveitada no fluxo normal
+    splash_cedo: list = []
+    if cut_pdf is None and entregar_a_instancia_aberta(
+        file_args, primeira,
+        ao_esperar=lambda: splash_cedo.append(_make_splash(app)),
+    ):
+        for sp in splash_cedo:
+            if sp is not None:
+                sp.close()
         return 0
+    # primeira instância: escuta JA (antes de montar a janela) para a segunda
+    # abertura simultanea ser entregue aqui; o que chegar antes da janela
+    # existir fica na caixa de entrada. Referencia no app (senao o GC fecha).
+    caixa_de_entrada = CaixaDeEntrada()
+    if cut_pdf is None:
+        app._ipc_server = start_server(caixa_de_entrada.receber)
     # "aqui estou": grava o caminho do executavel para integracoes externas
     # (a macro do CorelDRAW le este arquivo — o cliente nunca configura nada)
     if getattr(sys, "frozen", False):
@@ -248,6 +275,11 @@ def main() -> int:
 
         lic = LicenseManager(paths)
         if not lic.is_licensed():
+            # splash da espera e "sempre no topo": cobriria a ativacao
+            for sp in splash_cedo:
+                if sp is not None:
+                    sp.close()
+            splash_cedo.clear()
             dlg = ActivationDialog(lic, blocking=True)
             if app_icon is not None:
                 dlg.setWindowIcon(app_icon)
@@ -272,7 +304,9 @@ def main() -> int:
     # tela de abertura enquanto a janela e montada (fluxo normal so — nao entra
     # no --modo-corte, que ja retornou acima, nem no --selftest, que nem chega
     # na GUI). Some sozinha quando a janela aparece (splash.finish).
-    splash = _make_splash(app)
+    splash = next((sp for sp in splash_cedo if sp is not None), None)
+    if splash is None:
+        splash = _make_splash(app)
 
     pipeline = RunProductionPipelineUseCase(
         ImportPdfUseCase(PdfiumImporter()),
@@ -289,10 +323,6 @@ def main() -> int:
     if app_icon is not None:
         window.setWindowIcon(app_icon)  # garante a logo na barra de título
 
-    # primeira instância: escuta caminhos de outras chamadas (CorelDRAW/CLI).
-    # guarda a referência no app para não ser coletado pelo GC.
-    app._ipc_server = start_server(window.open_external_files)
-
     # janela ja montada por tras da splash; segura o restante dos ~3s antes de
     # revelar (a tela de abertura fica visivel o tempo combinado).
     _hold_splash(splash)
@@ -305,6 +335,9 @@ def main() -> int:
         splash.finish(window)  # some quando a janela ja esta na tela
     if file_args:  # arquivos passados na linha de comando -> abre já na sessao
         window.open_external_files(file_args)
+    # daqui em diante os caminhos de outras chamadas (CorelDRAW/CLI/Explorer)
+    # vao direto para a janela; os que chegaram durante a montagem entram agora
+    caixa_de_entrada.ligar(window.open_external_files)
     return app.exec()
 
 

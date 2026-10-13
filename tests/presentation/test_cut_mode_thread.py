@@ -86,23 +86,89 @@ def test_a_referencia_cai_quando_a_thread_termina(dialog, qapp, tmp_path):
     assert dialog._nest_thread is None
 
 
-def test_nao_fecha_com_a_thread_rodando(dialog, monkeypatch):
-    """Enquanto a thread roda, fechar e recusado — destruir o dialogo levaria
-    junto uma QThread em execucao (ela e filha dele)."""
+def _organizar_lento(dialog, tmp_path):
+    """Organizar que so termina quando o teste liberar (NFP de minutos)."""
+    import threading
 
-    class _Viva:
-        def isRunning(self):
-            return True
+    liberar = threading.Event()
 
-    dialog._nest_thread = _Viva()
-    evento = QCloseEvent()
-    evento.accept()
+    def _lento(uc, shapes, material, length):
+        liberar.wait(20)
+        return ()
 
-    dialog.closeEvent(evento)
+    dialog.add_vector_file(_rect_svg(tmp_path))
+    dialog._compute = _lento
+    dialog._on_nest()
+    assert dialog._nest_thread is not None
+    return liberar
 
-    assert not evento.isAccepted()
-    assert "Aguarde" in dialog._status.text()
-    dialog._nest_thread = None
+
+def test_cancelar_libera_a_janela_na_hora(dialog, qapp, tmp_path):
+    # 13/10/2026: Organizar de dezenas de letras levava minutos e nao havia
+    # como parar nem fechar a janela ("Aguarde terminar...")
+    liberar = _organizar_lento(dialog, tmp_path)
+    try:
+        assert not dialog._btn_cancel.isHidden()
+        dialog._btn_cancel.click()
+        assert dialog._nest_thread is None
+        assert dialog._btn_nest.isEnabled()
+        assert dialog._progress.isHidden()
+        assert dialog._btn_cancel.isHidden()
+        assert "cancelad" in dialog._status.text().lower()
+    finally:
+        liberar.set()
+    # o resultado atrasado da execucao cancelada e descartado
+    for _ in range(50):
+        qapp.processEvents()
+    assert not dialog._layouts
+
+
+def test_cancelar_avisa_o_motor_pela_flag(dialog, tmp_path, monkeypatch):
+    # quando o packer aceitar should_stop, o cancelamento chega ate ele
+    capturado = {}
+    original = mod.TrueShapePacker
+
+    class _Packer(original):
+        def __init__(self, *a, should_stop=None, **k):
+            capturado["should_stop"] = should_stop
+            super().__init__(*a, **k)
+
+    monkeypatch.setattr(mod, "TrueShapePacker", _Packer)
+    liberar = _organizar_lento(dialog, tmp_path)
+    try:
+        parar = capturado["should_stop"]
+        assert parar is not None and parar() is False
+        dialog._cancel_nest()
+        assert parar() is True
+    finally:
+        liberar.set()
+
+
+def test_esc_durante_organizar_cancela_sem_fechar(dialog, qapp, tmp_path):
+    liberar = _organizar_lento(dialog, tmp_path)
+    dialog.show()
+    qapp.processEvents()
+    try:
+        dialog.reject()  # Esc / botao Fechar
+        assert dialog.isVisible()  # Esc acidental nao perde as pecas importadas
+        assert dialog._nest_thread is None
+        assert "cancelad" in dialog._status.text().lower()
+        dialog.reject()  # segundo Esc: agora fecha
+        assert not dialog.isVisible()
+    finally:
+        liberar.set()
+
+
+def test_x_durante_organizar_cancela_e_fecha(dialog, tmp_path):
+    liberar = _organizar_lento(dialog, tmp_path)
+    try:
+        evento = QCloseEvent()
+        evento.accept()
+        dialog.closeEvent(evento)
+        assert evento.isAccepted()  # antes: recusado ("Aguarde...")
+        assert dialog._nest_thread is None
+    finally:
+        liberar.set()
 
 
 def test_encerrar_thread_sobrevive_a_thread_ja_destruida(dialog):

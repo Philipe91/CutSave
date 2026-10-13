@@ -67,7 +67,9 @@ def test_organizar_duas_vezes_seguidas_nao_dispara_duas_threads(dialog, tmp_path
 # -- fechar durante Organizar ----------------------------------------------------
 
 
-def test_reject_durante_organizar_nao_fecha_e_avisa(dialog, tmp_path, qapp):
+def test_reject_durante_organizar_cancela_sem_fechar(dialog, tmp_path, qapp):
+    # 13/10/2026: Esc durante o Organizar CANCELA o calculo (antes so dizia
+    # "Aguarde" e nao havia como parar); a janela fica, com as pecas
     dialog.add_vector_file(_rect_svg(tmp_path, 40, 20))
     dialog.show()
     qapp.processEvents()
@@ -75,12 +77,11 @@ def test_reject_durante_organizar_nao_fecha_e_avisa(dialog, tmp_path, qapp):
     assert dialog._nest_thread is not None
 
     dialog.reject()
-    assert dialog.isVisible()  # nao fechou com a thread viva
-    assert "Aguarde" in dialog._status.text()
+    assert dialog.isVisible()  # Esc acidental nao perde as pecas importadas
+    assert dialog._nest_thread is None
+    assert "cancelad" in dialog._status.text().lower()
 
-    _wait_thread(dialog, qapp)
-
-    dialog.reject()  # thread livre: agora fecha de verdade
+    dialog.reject()  # sem calculo em curso: agora fecha de verdade
     assert not dialog.isVisible()
 
 

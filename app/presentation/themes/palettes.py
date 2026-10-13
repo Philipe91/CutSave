@@ -9,6 +9,8 @@ Contraste: os pares texto/fundo seguem WCAG AA (ver test_themes).
 
 from __future__ import annotations
 
+import re
+
 # tokens de COR que uma paleta precisa definir (espacamento/tipografia ficam
 # fixos no theme.py — fase de escala/densidade vem depois)
 COLOR_TOKENS = (
@@ -44,6 +46,24 @@ CUSTOM_LABELS = (
 
 
 # ---------- utilidades de cor (hex puro, sem Qt) ----------
+_HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})$")
+
+
+def normalize_hex(value) -> str | None:
+    """'#RRGGBB' minusculo, '#rgb' expandido; None se nao for cor hex valida.
+
+    Porta de entrada de toda cor que vem de FORA (JSON importado, QSettings):
+    _rgb/accent_set so entendem '#rrggbb' — um tema com "red" ou "#f00" salvo
+    sem validar travava TODA abertura do app (13/10/2026).
+    """
+    if not isinstance(value, str) or not _HEX_RE.match(value.strip()):
+        return None
+    h = value.strip()[1:].lower()
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return "#" + h
+
+
 def _rgb(hexcolor: str) -> tuple[int, int, int]:
     h = hexcolor.lstrip("#")
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)

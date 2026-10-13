@@ -19,14 +19,16 @@ Exportar DXF, Enviar p/ Corel e SVG leem dali, entao nao ha como divergirem.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import math
 import os
 import tempfile
+import threading
 from collections import Counter
 from dataclasses import dataclass, replace
 from functools import lru_cache
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QObject, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -353,23 +355,59 @@ class _ZoomView(QGraphicsView):
             self.fitInView(rect, Qt.KeepAspectRatio)
 
 
-class _NestThread(QThread):
+def _packer_aceita_should_stop(cls) -> bool:
+    """O TrueShapePacker sabe ser interrompido? (parametro should_stop)."""
+    try:
+        return "should_stop" in inspect.signature(cls).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+class _NestThread(QObject):
     """Roda o packer FORA da thread da UI. O NFP de dezenas de letras leva
     minutos e o 'Tempo de otimizacao' nao limita essa etapa — na thread da
     UI a janela congela e o Windows carimba 'Nao esta respondendo' (visto
-    com 44 letras em 21/07)."""
+    com 44 letras em 21/07).
+
+    Thread Python DAEMON, nao QThread (13/10/2026): o motor ainda nao tem como
+    ser interrompido no meio do NFP, entao "Cancelar" ABANDONA o calculo — o
+    resultado atrasado e descartado. Uma QThread abandonada viva derrubaria o
+    processo ao fechar ("QThread: Destroyed while thread is still running");
+    a daemon morre junto com o processo. Este objeto e so a ponte de sinais
+    (entrega enfileirada na thread da UI) e nao tem pai: fechar o dialogo nao
+    o destroi debaixo da thread."""
 
     done = Signal(object, object)  # (layouts | None, excecao | None)
+    finished = Signal()
 
     def __init__(self, parent, compute) -> None:
-        super().__init__(parent)
+        super().__init__()  # sem pai de proposito (ver docstring)
         self._compute = compute
+        # flag de cancelamento: repassada ao packer (should_stop) quando ele
+        # souber ouvi-la; ate la serve para descartar o resultado
+        self.cancel_event = threading.Event()
+        self._thread = threading.Thread(
+            target=self.run, name="printnest-cut-nest", daemon=True
+        )
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def isRunning(self) -> bool:  # noqa: N802 — mesma API da QThread
+        return self._thread.is_alive()
+
+    def wait(self, msecs: int = 0) -> bool:
+        self._thread.join(msecs / 1000.0 if msecs else None)
+        return not self._thread.is_alive()
 
     def run(self) -> None:
         try:
-            self.done.emit(self._compute(), None)
+            resultado, erro = self._compute(), None
         except Exception as exc:  # noqa: BLE001 - a UI mostra, nao decide
-            self.done.emit(None, exc)
+            resultado, erro = None, exc
+        with contextlib.suppress(RuntimeError):  # ponte ja destruida
+            self.done.emit(resultado, erro)
+            self.finished.emit()
 
 
 class CutModeDialog(QDialog):
@@ -534,6 +572,13 @@ class CutModeDialog(QDialog):
         self._progress.setTextVisible(False)
         self._progress.setVisible(False)
         col.addWidget(self._progress)
+        # parar o Organizar: so aparece durante o calculo
+        self._btn_cancel = QPushButton("Cancelar organização")
+        self._btn_cancel.setIcon(icons.icon("x"))
+        self._btn_cancel.setToolTip("Para o cálculo (Esc também cancela)")
+        self._btn_cancel.clicked.connect(self._cancel_nest)
+        self._btn_cancel.setVisible(False)
+        col.addWidget(self._btn_cancel, 0, Qt.AlignLeft)
 
         self._status = QLabel()
         self._status.setProperty("role", "caption")
@@ -730,12 +775,18 @@ class CutModeDialog(QDialog):
         # PRIMEIRA avaliacao e o genetico devolvia o chute inicial sem girar
         # nada; com 0.5 ele itera de verdade (benchmark 21/07: 21s -> 10s e
         # passa a girar quando compensa, ex. 24/36 letras em chapa estreita).
+        kwargs = {}
+        cancel = getattr(self, "_cancel_event", None)
+        if cancel is not None and _packer_aceita_should_stop(TrueShapePacker):
+            # Cancelar/Esc/X chegam ao motor entre pares de NFP/geracoes
+            kwargs["should_stop"] = cancel.is_set
         return TrueShapePacker(
             gap=self._gap.value(),
             margin=self._margin.value(),
             genetics_time=self._seconds.value(),
             approximation=0.5,
             inside_check=self._inside.isChecked(),
+            **kwargs,
         )
 
     def _use_case(self) -> RunTrueShapeNestingUseCase:
@@ -793,29 +844,63 @@ class CutModeDialog(QDialog):
         except Exception as exc:  # noqa: BLE001 - fronteira de UI
             QMessageBox.warning(self, "Modo Corte", str(exc))
             return
+        # flag desta execucao: o packer (via _use_case) recebe a MESMA
+        cancel = threading.Event()
+        self._cancel_event = cancel
         uc = self._use_case()
         self._set_busy(True)
-        self._nest_thread = _NestThread(self, lambda: self._compute(uc, shapes, material, length))
-        self._nest_thread.done.connect(
-            lambda layouts, error: self._on_nest_done(shapes, layouts, error)
+        thread = _NestThread(self, lambda: self._compute(uc, shapes, material, length))
+        thread.cancel_event = cancel
+        self._nest_thread = thread
+        # t=thread: resposta de uma execucao CANCELADA chega depois e tem de
+        # ser ignorada (a referencia atual ja e outra ou None)
+        thread.done.connect(
+            lambda layouts, error, t=thread: self._on_nest_done(
+                shapes, layouts, error, t)
         )
-        self._nest_thread.finished.connect(self._nest_thread.deleteLater)
+        thread.finished.connect(thread.deleteLater)
         # a referencia so cai quando a thread REALMENTE terminou (ver
         # _on_nest_done): `finished` vem depois que run() retornou.
-        self._nest_thread.finished.connect(self._on_nest_thread_finished)
-        self._nest_thread.start()
+        thread.finished.connect(
+            lambda t=thread: self._on_nest_thread_finished(t))
+        thread.start()
 
-    def _on_nest_thread_finished(self) -> None:
+    def _on_nest_thread_finished(self, thread=None) -> None:
         """A thread terminou de verdade: agora e seguro esquecer dela."""
-        self._nest_thread = None
+        if thread is None or thread is self._nest_thread:
+            self._nest_thread = None
 
-    def _on_nest_done(self, shapes, layouts, error) -> None:
+    def _cancel_nest(self) -> bool:
+        """Cancelar/Esc/X durante o Organizar: avisa o motor pela flag e
+        ABANDONA o calculo — a janela volta a responder na hora e o resultado
+        atrasado e descartado. True se havia calculo em curso.
+
+        Antes nao havia como parar: Esc/X so diziam "Aguarde terminar de
+        organizar" e um NFP de dezenas de letras prendia o operador por
+        minutos (13/10/2026)."""
+        thread = self._nest_thread
+        if thread is None:
+            return False
+        with contextlib.suppress(RuntimeError, AttributeError):
+            thread.cancel_event.set()
+        self._nest_thread = None
+        self._set_busy(False)
+        self._status.setText(
+            "Organização cancelada. Ajuste e clique em Organizar de novo."
+        )
+        return True
+
+    def _on_nest_done(self, shapes, layouts, error, thread=None) -> None:
+        if thread is not None and thread is not self._nest_thread:
+            return  # execucao cancelada: resultado atrasado nao vale mais
         # NAO zerar self._nest_thread aqui. Este metodo e chamado pelo sinal
         # `done`, que e emitido DE DENTRO de run(): a thread ainda esta viva.
         # Zerando agora, as travas de reject()/closeEvent() passavam a enxergar
         # None e liberavam o fechamento — e como a _NestThread e FILHA do
         # dialogo, destruir o dialogo destruiria uma QThread em execucao, caso
-        # em que o Qt aborta o processo.
+        # em que o Qt aborta o processo. (Desde 13/10/2026 a thread e daemon e
+        # a ponte nao tem pai, entao esse abort nao existe mais; a invariante
+        # segue valendo para o Cancelar saber se ha calculo em curso.)
         #
         # ESCOPO: e uma corrida real, mas ESTREITA (a janela entre `done` e o
         # fim de run()) e NAO e a causa do crash dos modulos test_cut_mode_*:
@@ -865,6 +950,7 @@ class CutModeDialog(QDialog):
         """Trava a UI enquanto a thread trabalha: mexer em parametro no meio
         do calculo dessincronizaria preview e resultado."""
         self._progress.setVisible(busy)
+        self._btn_cancel.setVisible(busy)
         for widget in (
             self._list,
             self._qty,
@@ -1181,20 +1267,19 @@ class CutModeDialog(QDialog):
     # -- utilidades --------------------------------------------------------------
 
     def reject(self) -> None:
-        """Fechar com a thread viva destruiria o QThread no meio do calculo
-        (crash). Segura o fechamento e avisa."""
-        if self._nest_thread is not None:
-            self._status.setText("Aguarde terminar de organizar para fechar.")
+        """Esc/Fechar durante o Organizar CANCELA o calculo e a janela fica
+        (Esc acidental nao pode perder as pecas importadas — no --modo-corte
+        fechar encerra o processo); o segundo Esc fecha."""
+        if self._cancel_nest():
             return
         if not self._confirma_descartar_arranjo():
             return
         super().reject()
 
     def closeEvent(self, event) -> None:
-        if self._nest_thread is not None and self._nest_thread.isRunning():
-            event.ignore()
-            self._status.setText("Aguarde terminar de organizar para fechar.")
-            return
+        # X da janela e escolha deliberada: cancela o calculo e fecha. A
+        # thread e daemon e o resultado atrasado e descartado (ver _NestThread)
+        self._cancel_nest()
         self._encerrar_thread()
         if not self._confirma_descartar_arranjo():
             event.ignore()

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PySide6.QtWidgets import QSplitter, QToolButton
 
 from app.presentation import icons, theme
@@ -52,6 +52,15 @@ class _AlcaRedonda(QToolButton):
         """Repinta a seta: ela aponta para o lado em que o painel vai."""
         self.setIcon(icons.icon(self._seta(), theme.ICON, _ICONE))
         self.setToolTip(self._dica())
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        # troca de tema ao vivo: a seta ficava na cor do tema anterior (o
+        # QIcon guarda a cor renderizada) — 13/10/2026. setIcon nao gera nova
+        # troca de paleta, entao nao ha laco.
+        if event.type() in (QEvent.PaletteChange,
+                            QEvent.ApplicationPaletteChange):
+            self.atualizar()
+        super().changeEvent(event)
 
 
 class SplitterComAlcas(QSplitter):
@@ -91,6 +100,11 @@ class SplitterComAlcas(QSplitter):
             alca.atualizar()
         self._posicionar()
         QTimer.singleShot(0, self._posicionar)
+
+    def refresh_icons(self) -> None:
+        """Re-renderiza as setas na cor do tema atual (troca de tema)."""
+        for alca in self._alcas.values():
+            alca.atualizar()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)

@@ -26,7 +26,8 @@ _DURATION_MS = 3200
 class _Toast(QFrame):
     def __init__(self, parent: QWidget, level: AlertLevel, message: str) -> None:
         super().__init__(parent)
-        icon_name, color, _soft = level.value
+        # cor resolvida AGORA (tema atual), nao no import do modulo
+        icon_name, color = level.icon_name, level.color
         self.setStyleSheet(
             f"QFrame{{background:{theme.SURFACE}; border:1px solid {theme.BORDER};"
             f"border-left:4px solid {color}; border-radius:{theme.RADIUS}px;}}"

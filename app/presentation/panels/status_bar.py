@@ -7,9 +7,40 @@ de visualização. Atualizado pela janela conforme a produção e o mouse mudam.
 
 from __future__ import annotations
 
+from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QLabel, QProgressBar, QStatusBar
 
 from app.presentation import icons, theme, units
+
+_ICONE = 14
+
+
+class _IconeDeStatus(QLabel):
+    """Icone da barra que se re-renderiza sozinho.
+
+    Antes o pixmap era feito uma vez na montagem: trocar para o tema escuro
+    deixava os icones no cinza do tema claro, e num monitor secundario com
+    outra escala o pixmap do principal saia borrado (13/10/2026). Agora guarda
+    o NOME do icone e repinta na troca de tema e de escala do monitor."""
+
+    def __init__(self, icon_name: str) -> None:
+        super().__init__()
+        self._icon_name = icon_name
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.setPixmap(icons.pixmap(
+            self._icon_name, theme.TEXT_MUTED, _ICONE,
+            dpr=self.devicePixelRatioF(),
+        ))
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        # setPixmap nao gera nova troca de paleta: sem laco
+        if event.type() in (QEvent.PaletteChange,
+                            QEvent.ApplicationPaletteChange,
+                            QEvent.DevicePixelRatioChange):
+            self.refresh()
+        super().changeEvent(event)
 
 
 class StatusBarController:
@@ -17,6 +48,7 @@ class StatusBarController:
 
     def __init__(self, status_bar: QStatusBar) -> None:
         self._bar = status_bar
+        self._icones: list[_IconeDeStatus] = []
         self._pieces = self._add_left("layers", "0 peças")
         self._sheets = self._add_left("file-text", "0 chapas")
         self._area = self._add_left("grid-3x3", "0%")
@@ -40,8 +72,8 @@ class StatusBarController:
         self._bar.addWidget(self._progress)
 
     def _add_left(self, icon_name: str, text: str) -> QLabel:
-        ico = QLabel()
-        ico.setPixmap(icons.pixmap(icon_name, theme.TEXT_MUTED, 14))
+        ico = _IconeDeStatus(icon_name)
+        self._icones.append(ico)
         label = QLabel(text)
         label.setProperty("role", "caption")
         label.setContentsMargins(2, 0, theme.SPACE_MD, 0)
@@ -50,14 +82,19 @@ class StatusBarController:
         return label
 
     def _add_right(self, icon_name: str, text: str) -> QLabel:
-        ico = QLabel()
-        ico.setPixmap(icons.pixmap(icon_name, theme.TEXT_MUTED, 14))
+        ico = _IconeDeStatus(icon_name)
+        self._icones.append(ico)
         label = QLabel(text)
         label.setProperty("role", "caption")
         label.setContentsMargins(2, 0, theme.SPACE_MD, 0)
         self._bar.addPermanentWidget(ico)
         self._bar.addPermanentWidget(label)
         return label
+
+    def refresh_icons(self) -> None:
+        """Re-renderiza os icones na cor do tema atual (troca de tema)."""
+        for ico in self._icones:
+            ico.refresh()
 
     # ---- atualizacoes ----
     def set_production(self, pieces: int, sheets: int) -> None:

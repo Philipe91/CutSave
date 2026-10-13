@@ -46,13 +46,21 @@ from app.presentation import theme
 
 # verde no leve, ambar no pesado. Vermelho de proposito fora: vermelho le-se
 # como "deu erro", e aqui nao ha erro nenhum — so demora.
+# Guarda o NOME do token (resolvido em cor_nivel na hora de pintar): com a cor
+# capturada no import, o medidor ficava com o verde/ambar do tema claro no
+# tema escuro (13/10/2026).
 COR_NIVEL = {
-    "rapido": theme.SUCCESS,
-    "normal": theme.SUCCESS,
-    "demorado": theme.WARNING,
-    "muito_demorado": theme.WARNING,
-    "impossivel": theme.TEXT_MUTED,
+    "rapido": "SUCCESS",
+    "normal": "SUCCESS",
+    "demorado": "WARNING",
+    "muito_demorado": "WARNING",
+    "impossivel": "TEXT_MUTED",
 }
+
+
+def cor_nivel(nivel: str) -> str:
+    """Cor do nivel de peso no tema ATUAL."""
+    return getattr(theme, COR_NIVEL.get(nivel, "TEXT_MUTED"))
 
 
 class NivelBarra(QWidget):
@@ -68,7 +76,7 @@ class NivelBarra(QWidget):
 
     def set_nivel(self, nivel: str) -> None:
         self._nivel = NIVEIS.index(nivel) + 1 if nivel in NIVEIS else 0
-        self._cor = COR_NIVEL.get(nivel, theme.TEXT_MUTED)
+        self._cor = cor_nivel(nivel)
         self.update()
 
     def paintEvent(self, _event) -> None:
@@ -112,7 +120,7 @@ class LeituraDpi(QWidget):
         )
         self._barra.set_nivel(nivel)
         self._rotulo.setText(rotulo)
-        self._rotulo.setStyleSheet(f"color: {COR_NIVEL.get(nivel, theme.TEXT_MUTED)};")
+        self._rotulo.setStyleSheet(f"color: {cor_nivel(nivel)};")
         self._tamanho.setText(f"· {tamanho}")
         return nivel
 

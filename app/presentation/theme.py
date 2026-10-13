@@ -166,7 +166,7 @@ def build_qpalette():
     return pal
 
 
-def apply(app) -> None:
+def apply(app, follow_system: bool = False) -> None:
     """Aplica o design system inteiro a um QApplication (esquema + paleta
     nativa + QSS).
 
@@ -175,9 +175,16 @@ def apply(app) -> None:
     __main__ injetava o QSS. Respeita a paleta ATUAL (Theme Engine)."""
     from PySide6.QtCore import Qt
 
-    app.styleHints().setColorScheme(
-        Qt.ColorScheme.Dark if _DARK_UI else Qt.ColorScheme.Light
-    )
+    if follow_system:
+        # modo "Automatico (segue o Windows)": NAO fixar o esquema. Com o
+        # setColorScheme o Qt deixava de ouvir o Windows e o colorSchemeChanged
+        # nunca mais disparava — o app parava de acompanhar o claro/escuro do
+        # sistema na primeira aplicacao (13/10/2026)
+        app.styleHints().unsetColorScheme()
+    else:
+        app.styleHints().setColorScheme(
+            Qt.ColorScheme.Dark if _DARK_UI else Qt.ColorScheme.Light
+        )
     app.setPalette(build_qpalette())
     app.setStyleSheet(build_app_qss())
 

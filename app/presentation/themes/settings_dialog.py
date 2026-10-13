@@ -160,6 +160,14 @@ class ThemeSettingsDialog(QDialog):
             self._m.set_override(token, c.name())
 
     def _refresh_swatches(self) -> None:
+        # combo acompanha mudancas feitas por fora dele (preset, Restaurar
+        # padrao, Importar): antes mostrava "Claro" com o tema escuro aplicado.
+        # Sinais bloqueados para nao reaplicar o tema (13/10/2026)
+        idx = self._theme_combo.findData(self._m.theme_key)
+        if idx >= 0 and idx != self._theme_combo.currentIndex():
+            self._theme_combo.blockSignals(True)
+            self._theme_combo.setCurrentIndex(idx)
+            self._theme_combo.blockSignals(False)
         colors, _dark = self._m.palette()
         for token, btn in self._token_buttons.items():
             value = colors.get(token, "#ffffff")
@@ -168,8 +176,15 @@ class ThemeSettingsDialog(QDialog):
             btn.setToolTip(value)
 
     def _cancel(self) -> None:
-        self._m.restore(self._snapshot)
         self.reject()
+
+    def reject(self) -> None:
+        # Esc e o X da janela chamam reject() direto: sem isto as mudancas
+        # (que ja estao aplicadas ao vivo) ficavam, como se fosse OK
+        # (13/10/2026). Cancelar passa por aqui tambem.
+        if self._m.snapshot() != self._snapshot:
+            self._m.restore(self._snapshot)
+        super().reject()
 
     def _export(self) -> None:
         path, _ = QFileDialog.getSaveFileName(

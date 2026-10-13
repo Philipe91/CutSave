@@ -110,3 +110,25 @@ def test_sem_aplicacao_grafica_o_fator_e_neutro():
     """device_ratio() nunca pode explodir num contexto sem interface: o valor
     neutro 1.0 é o que mantém os testes de domínio idênticos."""
     assert icons.device_ratio() >= 1.0
+
+
+# ---- monitor secundario com escala diferente (13/10/2026) ----
+# O QIcon levava UM pixmap so, no dpr do monitor PRINCIPAL: arrastar a janela
+# para um monitor a 150% com o principal a 100% esticava o pixmap de 1x ->
+# icone borrado (multi-monitor reportado pelo cliente).
+@pytest.mark.parametrize("dpr", (1.0, 1.25, 1.5, 1.75, 2.0))
+def test_qicon_tem_pixmap_nitido_para_cada_escala(qapp, dpr):
+    ic = icons.icon("scissors", theme.ICON, 18)
+    from PySide6.QtCore import QSize
+
+    pm = ic.pixmap(QSize(18, 18), dpr)
+    assert pm.width() == round(18 * dpr)
+    # nitido = o MESMO desenho renderizado naquela escala, nao um esticado
+    esperado = icons._pixmap("scissors", theme.ICON, 18, dpr).toImage()
+    assert pm.toImage().convertToFormat(esperado.format()) == esperado
+
+
+def test_pixmap_aceita_dpr_explicito(qapp):
+    pm = icons.pixmap("scissors", theme.ICON, 14, dpr=1.5)
+    assert pm.width() == 21
+    assert pm.devicePixelRatio() == pytest.approx(1.5)

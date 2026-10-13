@@ -66,19 +66,40 @@ def _pixmap(name: str, color: str, size: int, dpr: float = 1.0) -> QPixmap:
     return pixmap
 
 
+# escalas do Windows (100%..200%) que todo QIcon leva renderizadas. Com um
+# pixmap so (dpr do monitor PRINCIPAL), a janela num monitor secundario com
+# outra escala esticava o pixmap -> icones borrados (multi-monitor reportado
+# pelo cliente, 13/10/2026). O QIcon escolhe sozinho o pixmap cujo tamanho
+# real casa com o dpr da janela onde ele e pintado.
+_ESCALAS = (1.0, 1.25, 1.5, 1.75, 2.0)
+
+
+@lru_cache(maxsize=512)
+def _icon(name: str, color: str, size: int, dpr_principal: float) -> QIcon:
+    ic = QIcon()
+    for dpr in sorted({*_ESCALAS, dpr_principal}):
+        ic.addPixmap(_pixmap(name, color, size, dpr))
+    return ic
+
+
 def icon(name: str, color: str | None = None, size: int = 18) -> QIcon:
     """QIcon do icone 'name' (sem extensao), recolorido para 'color'.
 
     'color=None' usa theme.ICON resolvido AGORA (varredura 09/07: o default
     avaliado na importação congelava a cor do tema claro para sempre)."""
-    return QIcon(_pixmap(name, color or theme.ICON, size, device_ratio()))
+    return QIcon(_icon(name, color or theme.ICON, size, device_ratio()))
 
 
-def pixmap(name: str, color: str | None = None, size: int = 18) -> QPixmap:
-    """QPixmap do icone (util para QLabel)."""
-    return _pixmap(name, color or theme.ICON, size, device_ratio())
+def pixmap(name: str, color: str | None = None, size: int = 18,
+           dpr: float | None = None) -> QPixmap:
+    """QPixmap do icone (util para QLabel).
+
+    'dpr' = fator do monitor onde o pixmap vai aparecer (ex.:
+    widget.devicePixelRatioF()); sem ele, o do monitor principal."""
+    return _pixmap(name, color or theme.ICON, size, dpr or device_ratio())
 
 
 def clear_cache() -> None:
     """Esvazia o cache de pixmaps (trocou o tema: cores novas)."""
     _pixmap.cache_clear()
+    _icon.cache_clear()
