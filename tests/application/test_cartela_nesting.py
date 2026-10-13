@@ -74,3 +74,45 @@ def test_cartela_maior_que_a_chapa_erro_amigavel():
     material = Material("m", width=300, spacing=0)
     with pytest.raises(ValidationError):
         _uc().execute_sheets([_art(0)], material, 400)
+
+
+# --- Giro por peca nas cartelas (13/10/2026) --------------------------------
+# O encaixe sequencial recriava o PlacedItem sem a rotacao (a peca deitada
+# voltava a ficar em pe, mais larga que a cartela) e a centralizacao media a
+# peca SEM giro — x negativo, peca saindo da cartela.
+
+
+def _uc_giro(cell_w=100.0, cell_h=200.0) -> CartelaNestingUseCase:
+    return CartelaNestingUseCase(
+        RunGridNestingUseCase(MaxRectsPacker(allow_rotate=True)), cell_w, cell_h
+    )
+
+
+def test_encaixe_sequencial_preserva_o_giro_da_peca():
+    arts = [_art(i, 150, 40) for i in range(3)]  # so cabem deitadas (40x150)
+    sheets = _uc_giro().execute_sheets(arts, Material("m", width=300), 0)
+    itens = [it for s in sheets for it in s.items]
+    assert len(itens) == 3
+    assert all(int(it.rotation) in (90, 270) for it in itens)
+
+
+def test_centralizacao_usa_o_tamanho_girado_e_peca_fica_na_cartela():
+    from app.application.footprint import tamanho_ocupado
+
+    arts = [_art(i, 150, 40) for i in range(3)]
+    uc = _uc_giro()
+    material = Material("m", width=300)
+    grid = uc.grid_for(material, 0)
+    by_id = {a.id: a for a in arts}
+    for s in uc.execute_sheets(arts, material, 0):
+        for it in s.items:
+            occ = tamanho_ocupado(by_id[it.artwork_id], it.rotation)
+            dentro = False
+            for slot in range(len(arts)):
+                ox, oy = grid.slot_origin(slot)
+                if (ox - 1e-6 <= it.position.x
+                        and it.position.x + occ.width <= ox + 100 + 1e-6
+                        and oy - 1e-6 <= it.position.y
+                        and it.position.y + occ.height <= oy + 200 + 1e-6):
+                    dentro = True
+            assert dentro, (it.position, occ)

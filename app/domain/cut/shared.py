@@ -142,12 +142,48 @@ def merge_touching_rect_cuts(
     return touching, segments
 
 
+# Folga (mm) para dizer que uma peca ocupa a coluna/linha INTEIRA da grade.
+# Mesma ordem do _EPS de encaixe do MaxRects: engole ruido de float da
+# importacao (pt->mm), nao diferenca real de tamanho.
+_GRID_TOL = 0.01
+
+
+def _fills_band(lo: float, hi: float, cover: list[tuple[float, float]]) -> bool:
+    """A faixa [lo, hi] da peca coincide com uma faixa coberta inteira?"""
+    return any(
+        abs(lo - a) <= _GRID_TOL and abs(hi - b) <= _GRID_TOL for a, b in cover
+    )
+
+
+def _individual_outlines(rects: Sequence[BoundingBox]) -> list[Segment]:
+    """Contorno proprio de cada peca; bordas coincidentes (pecas coladas)
+    viram uma linha so, para a faca nao passar duas vezes no mesmo lugar."""
+    verticals: list[tuple[float, float, float]] = []
+    horizontals: list[tuple[float, float, float]] = []
+    for r in rects:
+        verticals += [(r.min_x, r.min_y, r.max_y), (r.max_x, r.min_y, r.max_y)]
+        horizontals += [(r.min_y, r.min_x, r.max_x), (r.max_y, r.min_x, r.max_x)]
+    segments = [
+        Segment(Point2D(x, a), Point2D(x, b)) for x, a, b in _fuse_axis(verticals, _EPS)
+    ]
+    segments += [
+        Segment(Point2D(a, y), Point2D(b, y)) for y, a, b in _fuse_axis(horizontals, _EPS)
+    ]
+    return segments
+
+
 def build_shared_grid(rects: Sequence[BoundingBox]) -> list[Segment]:
     """Faca compartilhada: grade de linhas "fora a fora" sobre os retangulos.
 
     A partir das facas posicionadas numa chapa, projeta os retangulos nos eixos
     para descobrir as colunas/linhas; desenha uma linha por separacao (no meio do
     vao entre pecas vizinhas) atravessando todo o bloco, mais o contorno externo.
+
+    So vale quando as pecas formam GRADE de verdade: cada peca ocupa a coluna
+    e a linha inteiras da projecao. Com tamanhos misturados (o MaxRects poe uma
+    peca 10x10 em cima de uma 30x10) nao ha linha na borda da peca menor e ela
+    sairia com um rabo de material, nunca cortada daquele lado (13/10/2026,
+    auditoria). Nesse caso cada peca leva o proprio contorno.
 
     Pecas isoladas degradam para o proprio contorno (4 linhas).
     """
@@ -161,6 +197,14 @@ def build_shared_grid(rects: Sequence[BoundingBox]) -> list[Segment]:
 
     x_cover = _merge_intervals([(r.min_x, r.max_x) for r in rects])
     y_cover = _merge_intervals([(r.min_y, r.max_y) for r in rects])
+
+    # Cada peca preenchendo a sua coluna e a sua linha inteiras garante que
+    # cada celula da grade guarda no maximo uma peca, rente as linhas.
+    if not all(
+        _fills_band(r.min_x, r.max_x, x_cover) and _fills_band(r.min_y, r.max_y, y_cover)
+        for r in rects
+    ):
+        return _individual_outlines(rects)
 
     xs = [min_x, *_gap_midpoints(x_cover), max_x]
     ys = [min_y, *_gap_midpoints(y_cover), max_y]

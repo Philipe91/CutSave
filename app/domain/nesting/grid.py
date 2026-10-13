@@ -83,7 +83,11 @@ class GridPacker:
                 y += row_height + spacing_y
                 x = margin
                 row_height = 0.0
-            if current and y + height > sheet_length:  # nova chapa
+            # Limite e a borda MENOS a margem inferior (13/10/2026: comparava com
+            # sheet_length cru e a ultima linha invadia a margem de baixo). A
+            # primeira peca de uma chapa vazia vai assim mesmo: se ela sozinha
+            # nao cabe, nenhuma chapa nova resolveria (mesmo criterio do MaxRects).
+            if current and y + height > sheet_length - margin:  # nova chapa
                 sheets.append(Layout(material, current, sheet_length))
                 current = []
                 x = margin

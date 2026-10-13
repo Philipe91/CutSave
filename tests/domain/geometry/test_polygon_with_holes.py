@@ -149,3 +149,31 @@ def test_furo_normalizado_tambem_inverte_a_curva():
     assert curves[0].p0 == forma.holes[0].vertices[0]
     for i in range(3):
         assert curves[i].p1 == curves[(i + 1) % 3].p0
+
+
+# --- Aneis duplicados (13/10/2026) ------------------------------------------
+# PDF com preenchimento + traco do MESMO caminho entrega o anel duas vezes.
+# Cada copia "continha" a outra: o corpo duplicado virava profundidade 1 sem
+# pai par (KeyError) e o furo duplicado virava profundidade 2 = peca nova.
+
+
+def _q(o: float, s: float) -> Polygon:
+    return Polygon((Point2D(o, o), Point2D(o + s, o), Point2D(o + s, o + s), Point2D(o, o + s)))
+
+
+def test_group_rings_anel_duplicado_vira_uma_peca_so():
+    shapes = group_rings([_q(0, 10), _q(0, 10)])
+    assert len(shapes) == 1
+    assert shapes[0].holes == ()
+
+
+def test_group_rings_furo_duplicado_continua_furo():
+    shapes = group_rings([_q(0, 10), _q(2, 5), _q(2, 5)])
+    assert len(shapes) == 1
+    assert len(shapes[0].holes) == 1
+
+
+def test_group_rings_duplicado_em_sentido_contrario_tambem_e_deduplicado():
+    q = _q(0, 10)
+    invertido = Polygon(tuple(reversed(q.vertices)))
+    assert len(group_rings([q, invertido])) == 1

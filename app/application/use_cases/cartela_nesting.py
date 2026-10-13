@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
-from app.application.footprint import artwork_footprint
+from app.application.footprint import tamanho_ocupado
 from app.domain.cut.cartela import CartelaGrid, build_cartela_grid
 from app.domain.model.artwork import Artwork
 from app.domain.model.layout import Layout
@@ -68,10 +68,15 @@ class CartelaNestingUseCase:
             items: list[PlacedItem] = []
             for slot, cartela in enumerate(group):
                 ox, oy = grid.slot_origin(slot)
+                # leva o giro junto: sem ele a peca que o MaxRects deitou para
+                # caber voltava em pe, mais larga que a cartela (13/10/2026,
+                # cartela 100x200 com pecas 150x40 saia em x=-45). O ramo das
+                # cartelas identicas ja passava a rotacao.
                 items.extend(
                     PlacedItem(
                         it.artwork_id,
                         type(it.position)(ox + it.position.x, oy + it.position.y),
+                        it.rotation,
                     )
                     for it in self._centered_in_cell(cartela.items, artworks)
                 )
@@ -99,9 +104,11 @@ class CartelaNestingUseCase:
             art = by_id.get(it.artwork_id)
             if art is None:
                 return items  # nao da pra medir: mantem como veio
-            fp = artwork_footprint(art)
-            xs.extend((it.position.x, it.position.x + (fp.max_x - fp.min_x)))
-            ys.extend((it.position.y, it.position.y + (fp.max_y - fp.min_y)))
+            # tamanho JA GIRADO: a 90/270 os lados trocam; medir sem giro
+            # descentralizava a peca deitada para fora da cartela (13/10/2026).
+            occ = tamanho_ocupado(art, it.rotation)
+            xs.extend((it.position.x, it.position.x + occ.width))
+            ys.extend((it.position.y, it.position.y + occ.height))
         dx = (self._cell_w - (max(xs) - min(xs))) / 2 - min(xs)
         dy = (self._cell_h - (max(ys) - min(ys))) / 2 - min(ys)
         if abs(dx) < 1e-9 and abs(dy) < 1e-9:

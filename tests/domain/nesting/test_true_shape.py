@@ -762,3 +762,77 @@ def test_simplified_remove_redundantes_sem_destruir_peca_pequena():
     # peca MENOR que a tolerancia: a simplificacao a destruiria; fica o original
     minuscula = Polygon((Point2D(0, 0), Point2D(0.05, 0), Point2D(0, 0.05)))
     assert _simplified(minuscula, 0.1) is minuscula
+
+
+# --- Cancelamento real (13/10/2026) -----------------------------------------
+# O Cancelar/Esc do Modo Corte so era ouvido quando o orcamento de tempo
+# acabava: num trabalho grande o usuario esperava o "Tempo de otimizacao"
+# inteiro. should_stop e consultado entre pares de NFP e a cada avaliacao.
+
+
+def _circulos(n: int, verts: int = 48) -> list:
+    from app.domain.nesting.true_shape import NestingShape
+
+    rng = random.Random(3)
+    out = []
+    for i in range(n):
+        r = rng.uniform(8, 25)
+        out.append(NestingShape(f"c{i}", Polygon(tuple(
+            Point2D(r * math.cos(2 * math.pi * k / verts), r * math.sin(2 * math.pi * k / verts))
+            for k in range(verts)
+        ))))
+    return out
+
+
+def _para_depois_de(n_chamadas: int):
+    estado = {"n": 0, "virou": None}
+
+    def should_stop() -> bool:
+        estado["n"] += 1
+        if estado["n"] > n_chamadas and estado["virou"] is None:
+            estado["virou"] = time.monotonic()
+        return estado["n"] > n_chamadas
+
+    return should_stop, estado
+
+
+def test_should_stop_devolve_o_melhor_ate_entao_rapido():
+    from app.domain.nesting.true_shape import TrueShapePacker
+
+    # 25 pecas: a 1a semente custa ~25 + 300 consultas (uma por peca e uma
+    # por par de NFP); 600 deixa ela terminar e corta o resto do trabalho.
+    shapes = _circulos(25, verts=32)
+    should_stop, estado = _para_depois_de(600)
+    packer = TrueShapePacker(gap=1, margin=5, genetics_time=60.0, should_stop=should_stop)
+    t0 = time.monotonic()
+    layout = packer.pack(shapes, Material("m", 600))
+    fim = time.monotonic()
+    assert estado["virou"] is not None   # o motor de fato consultou o callback
+    assert fim - estado["virou"] < 2.0   # parou logo depois do pedido
+    assert fim - t0 < 30.0               # bem abaixo dos 60s do orcamento
+    assert len(layout.items) == len(shapes)  # o melhor ja encontrado volta inteiro
+
+
+def test_should_stop_antes_de_qualquer_layout_levanta_cancelamento():
+    from app.domain.nesting.true_shape import NestingCancelado, TrueShapePacker
+
+    packer = TrueShapePacker(genetics_time=60.0, should_stop=lambda: True)
+    with pytest.raises(NestingCancelado):
+        packer.pack(_circulos(10), Material("m", 600))
+
+
+def test_should_stop_em_pack_sheets_antes_de_tudo_levanta_cancelamento():
+    from app.domain.nesting.true_shape import NestingCancelado, TrueShapePacker
+
+    packer = TrueShapePacker(genetics_time=60.0, should_stop=lambda: True)
+    with pytest.raises(NestingCancelado):
+        packer.pack_sheets(_circulos(10), Material("m", 600), 300)
+
+
+def test_should_stop_e_parametro_nomeado_do_construtor():
+    # o dialogo do Modo Corte so repassa o callback se a assinatura o tiver
+    import inspect
+
+    from app.domain.nesting.true_shape import TrueShapePacker
+
+    assert "should_stop" in inspect.signature(TrueShapePacker).parameters

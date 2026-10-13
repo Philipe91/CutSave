@@ -91,3 +91,15 @@ def test_pack_sheets_duas_linhas_por_chapa():
     sheets = GridPacker().pack_sheets(pieces, material, sheet_length=110)
     assert len(sheets) == 2
     assert all(s.item_count == 2 for s in sheets)
+
+
+def test_pack_sheets_respeita_a_margem_de_baixo():
+    # 13/10/2026: o teste era "y + altura > comprimento" — a segunda linha
+    # invadia a margem inferior (y=60..110 numa chapa de 110 com margem 10).
+    material = Material("UV", width=120, spacing=0, margin=10)  # 1 peca por linha
+    pieces = _pieces(2, w=100, h=50)
+    sheets = GridPacker().pack_sheets(pieces, material, sheet_length=110)
+    assert len(sheets) == 2
+    for s in sheets:
+        for it in s.items:
+            assert it.position.y + 50 <= 110 - 10 + 1e-9

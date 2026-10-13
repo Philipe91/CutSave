@@ -18,6 +18,9 @@ from app.domain.geometry.polygon import Polygon
 _AREA_EPS = 1e-4
 # Folga (mm) nos testes de bounding box da arvore de contencao.
 _EPS = 1e-6
+# Folga (mm na bbox; fracao na area) para dizer que dois aneis sao o MESMO
+# contorno repetido. Bem abaixo da lamina: so engole ruido de float.
+_DUP_EPS = 1e-3
 
 
 def _reversed_ring(polygon: Polygon) -> Polygon:
@@ -93,6 +96,34 @@ def _ring_contains(outer: Polygon, inner: Polygon) -> bool:
     return outer.contains(inner.vertices[0])
 
 
+def _same_ring(a: Polygon, b: Polygon) -> bool:
+    """Dois aneis com a mesma bbox e a mesma area: o mesmo contorno repetido."""
+    ba, bb = a.bounding_box, b.bounding_box
+    if (
+        abs(ba.min_x - bb.min_x) > _DUP_EPS
+        or abs(ba.min_y - bb.min_y) > _DUP_EPS
+        or abs(ba.max_x - bb.max_x) > _DUP_EPS
+        or abs(ba.max_y - bb.max_y) > _DUP_EPS
+    ):
+        return False
+    return abs(a.area - b.area) <= _DUP_EPS * max(1.0, a.area, b.area)
+
+
+def _dedupe_rings(rings: list[Polygon]) -> list[Polygon]:
+    """Remove aneis repetidos, mantendo o de MENOR indice (ordem do arquivo).
+
+    PDF com preenchimento + traco do mesmo caminho entrega o anel duas vezes.
+    Cada copia "contem" a outra: o corpo repetido ficava com profundidade 1 e
+    pai sem entrada em shapes (KeyError), e o furo repetido ficava com
+    profundidade 2 e virava uma PECA a mais (13/10/2026, auditoria).
+    """
+    unique: list[Polygon] = []
+    for r in rings:
+        if not any(_same_ring(u, r) for u in unique):
+            unique.append(r)
+    return unique
+
+
 def group_rings(rings: Iterable[Polygon]) -> list[PolygonWithHoles]:
     """Arvore de contencao -> formas com furos (regra even-odd da Fase 3).
 
@@ -104,7 +135,7 @@ def group_rings(rings: Iterable[Polygon]) -> list[PolygonWithHoles]:
     Aneis degenerados (area ~0) sao descartados. O(n^2) em aneis: ok para
     arquivos de corte reais (dezenas/centenas de aneis).
     """
-    valid = [r for r in rings if r.area > _AREA_EPS]
+    valid = _dedupe_rings([r for r in rings if r.area > _AREA_EPS])
     n = len(valid)
     parents: list[list[int]] = [
         [j for j in range(n) if j != i and _ring_contains(valid[j], valid[i])]

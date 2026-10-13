@@ -184,7 +184,14 @@ class MaxRectsPacker:
         sp = max(0.0, material.spacing)
         spy = max(0.0, material.spacing_y)
         margin = material.margin
-        bin_w = material.usable_width
+        # Cada peca reserva w+sp x h+spy no bin; o espacamento da ULTIMA coluna
+        # (e da ultima linha, em pack_sheets) pode passar da borda util, porque
+        # nao ha peca do outro lado. Sem essa folga uma peca da largura util com
+        # spacing > 0 "nao cabia" na chapa vazia, caia no fallback e as pecas
+        # seguintes eram postas POR CIMA dela (13/10/2026, auditoria: Material
+        # 100mm, spacing 5, pecas 100x50 + 40x40 + 40x40 todas em y=0). Mesmo
+        # criterio do GridPacker, que so testa x + largura contra a borda.
+        bin_w = material.usable_width + sp
         ordered = self._ordered(pieces)
         # chapa aberta: altura generosa garante caber tudo (com rotacao, uma
         # peca deitada pode ficar de pe, entao a folga usa o MAIOR lado).
@@ -194,9 +201,15 @@ class MaxRectsPacker:
         max_bottom = 0.0
         for piece in ordered:
             achou = self._try_insert(bin_, piece, sp, spy)
-            if achou is None:  # nao deveria ocorrer (altura generosa); empilha abaixo
-                rect = _Rect(0.0, max_bottom, piece.size.width, piece.size.height)
+            if achou is None:
+                # So acontece com peca mais larga que a chapa (altura e generosa).
+                # Empilha abaixo de tudo e OCUPA a faixa inteira no bin: sem o
+                # place, as pecas seguintes achavam esse espaco livre e iam por
+                # cima dela (13/10/2026).
+                y0 = (max_bottom + spy) if placed else 0.0
+                rect = _Rect(0.0, y0, piece.size.width, piece.size.height)
                 rot, eff_h = Rotation.NONE, piece.size.height
+                bin_.place(_Rect(0.0, y0, bin_w, piece.size.height + spy))
             else:
                 rect, rot, _, eff_h = achou
             placed.append(
@@ -218,8 +231,9 @@ class MaxRectsPacker:
         sp = max(0.0, material.spacing)
         spy = max(0.0, material.spacing_y)
         margin = material.margin
-        bin_w = material.usable_width
-        bin_h = max(sheet_length - 2 * margin, 1.0)
+        # espacamento da ultima coluna/linha pode passar da borda (ver pack()).
+        bin_w = material.usable_width + sp
+        bin_h = max(sheet_length - 2 * margin, 1.0) + spy
 
         remaining = self._ordered(pieces)
         sheets: list[Layout] = []

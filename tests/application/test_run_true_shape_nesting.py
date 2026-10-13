@@ -290,3 +290,67 @@ def test_sem_curva_o_posicionamento_nao_muda():
 
     assert min(p.x for p in pontos) == pytest.approx(7.0)
     assert min(p.y for p in pontos) == pytest.approx(3.0)
+
+
+# --- Contorno simplificado x contorno real (13/10/2026) ---------------------
+# O Modo Corte chama o packer com approximation=0.5: o CleanPolygon deixava um
+# circulo de 120 vertices com 10 (a corda entra 1,47mm no circulo) e o encaixe
+# usava esse poligono MENOR. O DXF reconstroi o contorno REAL, posicionado
+# pelo bbox dele — as pecas reais se sobrepunham e passavam da margem.
+
+
+def _circulo(r: float, n: int = 120) -> Polygon:
+    import math
+
+    return Polygon(tuple(
+        Point2D(r * math.cos(2 * math.pi * k / n), r * math.sin(2 * math.pi * k / n))
+        for k in range(n)
+    ))
+
+
+def _area_intersecao_mm2(a: Polygon, b: Polygon, folga: float) -> float:
+    import pyclipper
+
+    s = 10_000
+
+    def cresce(p: Polygon):
+        path = [(round(v.x * s), round(v.y * s)) for v in p.vertices]
+        if folga <= 0:
+            return [path]
+        off = pyclipper.PyclipperOffset()
+        off.AddPath(path, pyclipper.JT_ROUND, pyclipper.ET_CLOSEDPOLYGON)
+        return off.Execute(folga / 2 * s)
+
+    pc = pyclipper.Pyclipper()
+    pc.AddPaths(cresce(a), pyclipper.PT_SUBJECT, True)
+    pc.AddPaths(cresce(b), pyclipper.PT_CLIP, True)
+    inter = pc.Execute(pyclipper.CT_INTERSECTION, pyclipper.PFT_NONZERO, pyclipper.PFT_NONZERO)
+    return sum(abs(pyclipper.Area(p)) for p in inter) / (s * s)
+
+
+@pytest.mark.parametrize("gap", [0.0, 2.0])
+def test_contornos_reais_nao_se_sobrepoem_com_aproximacao_grossa(gap):
+    import random
+
+    from app.domain.nesting.true_shape import NestingShape
+
+    rng = random.Random(5)
+    shapes = [NestingShape(f"s{i}", _circulo(rng.uniform(15, 40))) for i in range(6)]
+    margin, largura = 5.0, 200.0
+    layout = TrueShapePacker(
+        gap=gap, margin=margin, generations=1, approximation=0.5
+    ).pack(shapes, Material("m", largura))
+    by_id = {s.artwork_id: s for s in shapes}
+    reais = [
+        Polygon(tuple(placed_cut_contours(by_id[it.artwork_id], it)[0].points))
+        for it in layout.items
+    ]
+    assert len(reais) == len(shapes)
+    # folga de medicao: 0,05mm a menos que o gap pedido (arredondamento clipper)
+    medir = max(0.0, gap - 0.05)
+    for i, p in enumerate(reais):
+        bb = p.bounding_box
+        assert bb.min_x >= margin - 0.01 and bb.min_y >= margin - 0.01
+        assert bb.max_x <= largura - margin + 0.01, bb
+        for q in reais[i + 1:]:
+            assert _area_intersecao_mm2(p, q, medir) <= 0.01

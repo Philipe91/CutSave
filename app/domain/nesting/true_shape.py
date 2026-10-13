@@ -36,12 +36,13 @@ import math
 import random
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 
 import pyclipper
 
 from app.domain.geometry import Point2D
+from app.domain.geometry.bezier import bezier_bounds
 from app.domain.geometry.polygon import Polygon
 from app.domain.model.layout import Layout
 from app.domain.model.material import Material
@@ -82,6 +83,12 @@ class _Placement:
 
 
 # --- ponte mm <-> clipper (Regra de Ouro n.1) --------------------------------
+
+
+class NestingCancelado(Exception):
+    """O usuario cancelou o nesting ANTES de existir qualquer layout para
+    devolver. Se ja havia um, o packer devolve o melhor ate entao em vez de
+    levantar isto (13/10/2026)."""
 
 
 def _to_clipper(polygon: Polygon) -> list[tuple[int, int]]:
@@ -443,6 +450,7 @@ def _place_nfp(
     inside_check: bool = False,
     ifp_cache: dict[tuple[str, float, int, str, float], tuple[Polygon, ...]] | None = None,
     prefer_holes: bool = False,
+    should_stop: Callable[[], bool] | None = None,
 ) -> list[_Placement] | None:
     """Posicionador NFP bottom-left: para cada peca (na ordem e rotacao dadas)
     a regiao valida da referencia = IFP - uniao dos NFPs das pecas ja postas.
@@ -499,6 +507,10 @@ def _place_nfp(
 
     ifp_cache: {(host_id, host_rot, indice_do_furo, id_b, rot_b): aneis},
     mesmas precondicoes do nfp_cache (o IFP tambem embute o gap).
+
+    should_stop: consultado a cada peca e entre pares de NFP; True levanta
+    NestingCancelado (a passada fica incompleta — quem decide se ha um melhor
+    anterior para devolver e o _optimize_ga).
     """
     gap = max(0.0, material.spacing)
     margin = material.margin
@@ -545,6 +557,10 @@ def _place_nfp(
         # NFP de cada peca posta contra esta peca, ja transladado para a chapa.
         nfp_paths: list[list[list[tuple[int, int]]]] = []
         for pos, other_off, other_id, other_rot, _ in placed_off:
+            # cancelamento entre pares de NFP: com dezenas de pecas uma unica
+            # peca custa centenas de NFPs, esperar o fim dela nao e "na hora".
+            if should_stop is not None and should_stop():
+                raise NestingCancelado
             if nfp_cache is None:
                 nfp = _nfp(other_off, norm_off)
             else:
@@ -595,6 +611,8 @@ def _place_nfp(
     for shape, rot_spec in zip(order, rotations_choice, strict=True):
         if deadline is not None and time.monotonic() >= deadline:
             return None  # busca abortada: o chamador fica com o que ja tinha
+        if should_stop is not None and should_stop():
+            raise NestingCancelado
         chosen = None
         for rotation in rot_spec if isinstance(rot_spec, tuple) else (rot_spec,):
             spot = best_spot(shape, rotation)
@@ -680,6 +698,7 @@ def _optimize_ga(
     tournament_k: int = 3,
     mutation_prob: float = 0.5,
     inside_check: bool = False,
+    should_stop: Callable[[], bool] | None = None,
 ) -> list[_Placement]:
     """Algoritmo genetico sobre (ordem, rotacoes, preferencia), avaliado com
     _place_nfp.
@@ -718,6 +737,11 @@ def _optimize_ga(
     avaliacoes — retorna o melhor ate entao) ou, se None, 'generations' fixas.
     DETERMINISMO: toda aleatoriedade vem de random.Random(seed) local; com
     genetics_time=None, mesmo seed => mesmo resultado, sempre.
+
+    CANCELAMENTO (should_stop, 13/10/2026): consultado em out_of_time() e,
+    via _place_nfp, entre pares de NFP. Com algum layout ja avaliado, devolve
+    o melhor ate entao (como no fim do tempo); sem nenhum, levanta
+    NestingCancelado — inclusive durante as duas sementes obrigatorias.
     """
     n = len(shapes)
     if n == 0:
@@ -734,8 +758,17 @@ def _optimize_ga(
         tuple[tuple[float, float], list[_Placement]],
     ] = {}
     start = time.monotonic()
+    cancelado = False
+
+    def stopped() -> bool:
+        nonlocal cancelado
+        if not cancelado and should_stop is not None and should_stop():
+            cancelado = True
+        return cancelado
 
     def out_of_time() -> bool:
+        if stopped():
+            return True
         return genetics_time is not None and time.monotonic() - start >= genetics_time
 
     def evaluate(
@@ -756,6 +789,7 @@ def _optimize_ga(
             inside_check=inside_check,
             ifp_cache=ifp_cache,
             prefer_holes=prefer,
+            should_stop=should_stop,
         )
         # CUSTO LEXICOGRAFICO: (chapa consumida, compacidade do bloco).
         #
@@ -791,8 +825,16 @@ def _optimize_ga(
     best: tuple[tuple[float, float], list[_Placement]] = (_PIOR, [])
 
     def consider(gene: tuple[tuple[int, ...], tuple[float, ...], bool]) -> None:
-        nonlocal best_gene, best
-        result = evaluate(gene)
+        nonlocal best_gene, best, cancelado
+        try:
+            result = evaluate(gene)
+        except NestingCancelado:
+            # avaliacao interrompida no meio: com um melhor ja em maos, o
+            # chamador fica com ele (out_of_time passa a dizer True).
+            cancelado = True
+            if best_gene is None:
+                raise
+            return
         if result[0] < best[0]:
             best_gene, best = gene, result
 
@@ -838,7 +880,11 @@ def _optimize_ga(
         # de PDF). O 'Tempo de otimizacao' vale do 3o individuo em diante.
         if i >= 2 and best_gene is not None and out_of_time():
             return list(best[1])
+        if best_gene is None and stopped():
+            raise NestingCancelado  # cancelado antes de qualquer layout
         consider(gene)
+        if best_gene is not None and stopped():
+            return list(best[1])
 
     # semente 3, estilo eCut/SVGnest: bottom-left com busca de rotacao POR
     # PECA (cada uma testa todas as rotacoes permitidas e fica com o ponto
@@ -847,16 +893,21 @@ def _optimize_ga(
     # o melhor das sementes anteriores.
     if any(len(s.rotations) > 1 for s in shapes) and not out_of_time():
         order_shapes = [shapes[i] for i in seeded[0]]
-        greedy = _place_nfp(
-            order_shapes,
-            [tuple(s.rotations) for s in order_shapes],
-            material,
-            sheet_h,
-            nfp_cache=nfp_cache,
-            deadline=None if genetics_time is None else start + genetics_time,
-            inside_check=inside_check,
-            ifp_cache=ifp_cache,
-        )
+        try:
+            greedy = _place_nfp(
+                order_shapes,
+                [tuple(s.rotations) for s in order_shapes],
+                material,
+                sheet_h,
+                nfp_cache=nfp_cache,
+                deadline=None if genetics_time is None else start + genetics_time,
+                inside_check=inside_check,
+                ifp_cache=ifp_cache,
+                should_stop=should_stop,
+            )
+        except NestingCancelado:
+            # as sementes ja avaliaram (best_gene existe): fica o melhor delas
+            return list(best[1])
         if greedy:
             rot = list(seeded[1])
             pi = 0
@@ -895,14 +946,60 @@ def _optimize_ga(
 # --- 2E: interface publica + reconciliacao com o enum Rotation -----------------
 
 
+def _dist_to_ring(p: Point2D, ring: Sequence[Point2D]) -> float:
+    """Distancia do ponto ate a fronteira do anel (menor distancia a aresta)."""
+    best = math.inf
+    n = len(ring)
+    for i in range(n):
+        a, b = ring[i], ring[(i + 1) % n]
+        ex, ey = b.x - a.x, b.y - a.y
+        L2 = ex * ex + ey * ey
+        t = 0.0 if L2 <= 0 else max(0.0, min(1.0, ((p.x - a.x) * ex + (p.y - a.y) * ey) / L2))
+        best = min(best, math.hypot(p.x - (a.x + t * ex), p.y - (a.y + t * ey)))
+    return best
+
+
+def _outside_deviation(contour: Polygon, simplified: Polygon) -> float:
+    """Quanto o contorno REAL passa para FORA do simplificado (mm).
+
+    Mede os vertices que ficaram de fora; se ha curva original, soma o quanto
+    a caixa exata da Bezier passa da caixa do poligono achatado (a curva
+    estufa alem das cordas e e ELA que a faca corta).
+    """
+    path = _to_clipper(simplified)
+    ring = simplified.vertices
+    dev = 0.0
+    for v in contour.vertices:
+        if pyclipper.PointInPolygon((round(v.x * _SCALE), round(v.y * _SCALE)), path) != 0:
+            continue  # dentro ou na borda
+        dev = max(dev, _dist_to_ring(v, ring))
+    if contour.curves:
+        cb, pb = bezier_bounds(contour.curves), contour.bounding_box
+        dev += max(0.0, pb.min_x - cb.min_x, pb.min_y - cb.min_y,
+                   cb.max_x - pb.max_x, cb.max_y - pb.max_y)
+    return dev
+
+
+# Folga extra (mm) no crescimento do simplificado: engole o arredondamento
+# do clipper (1/_SCALE mm) para o real ficar ESTRITAMENTE dentro.
+_GROW_EPS = 0.001
+
+
 def _simplified(contour: Polygon, tolerance: float) -> Polygon:
     """Simplifica o contorno ate 'tolerance' mm (Approximation_CB do eCut):
     CleanPolygon do clipper remove vertices redundantes/quase-colineares.
     Menos vertices = NFP muito mais rapido.
 
+    O simplificado e CRESCIDO para fora pelo maior desvio do contorno real e
+    sempre CONTEM o real. Antes nao: o CleanPolygon tira vertices em cadeia
+    (um circulo de 120 vertices com tolerancia 0,5 virava um decagono cuja
+    corda entra 1,47mm no circulo) e o encaixe arrumava o poligono MENOR — o
+    DXF corta o real, e as pecas reais se sobrepunham e passavam da margem
+    (13/10/2026, auditoria do Modo Corte com approximation=0.5).
+
     Guardas anti-destruicao de peca pequena: devolve o ORIGINAL se a
-    simplificacao deixar menos de 3 vertices ou alterar a area em mais de 10%
-    (peca menor que a tolerancia colapsaria em nada).
+    simplificacao deixar menos de 3 vertices, nao conseguir conter o real ou
+    alterar a area em mais de 10% (peca menor que a tolerancia colapsaria).
     """
     if tolerance <= 0 or len(contour.vertices) <= 4 or contour.area <= _AREA_EPS:
         return contour
@@ -910,9 +1007,24 @@ def _simplified(contour: Polygon, tolerance: float) -> Polygon:
     if len(cleaned) < 3:
         return contour
     poly = _from_clipper(cleaned)
+    if poly.area <= _AREA_EPS:
+        return contour
+    dev = _outside_deviation(contour, poly)
+    if dev > 0:
+        poly = _offset(poly, dev + _GROW_EPS)
+    if not _contains(poly, contour):
+        return contour
     if abs(poly.area - contour.area) > 0.1 * contour.area:
         return contour
     return poly
+
+
+def _reference_min(contour: Polygon) -> tuple[float, float]:
+    """Canto minimo usado como referencia de posicao — o MESMO criterio da
+    reconstrucao (placed_cut_contours): caixa exata da curva quando ha curva,
+    senao a do poligono."""
+    bb = bezier_bounds(contour.curves) if contour.curves else contour.bounding_box
+    return bb.min_x, bb.min_y
 
 
 def _to_rotation(angle: float) -> Rotation | float:
@@ -956,7 +1068,14 @@ class TrueShapePacker:
         seed: int = 0,
         approximation: float = 0.1,
         inside_check: bool = False,
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
+        # should_stop (13/10/2026): callback de cancelamento do Modo Corte
+        # (Cancelar/Esc/X -> Event.is_set). O dialogo so o repassa quando a
+        # assinatura tem um parametro com ESTE nome (inspect.signature).
+        # Cancelado com layout em maos -> devolve o melhor ate entao; sem
+        # nenhum -> NestingCancelado.
+        self._should_stop = should_stop
         # inside_check (Fase 6, "Allow inside"): peca pequena pode ocupar o
         # FURO de outra ja posta. Desligado = motor da Fase 2 sem alteracao
         # nenhuma (os furos voltam a so viajar ate a exportacao).
@@ -984,7 +1103,7 @@ class TrueShapePacker:
         )
         sheet_h = 2 * self._margin + sum(a + max(0.0, self._gap) for a in alturas) + 1.0
         placements = self._optimized(prepared, mat, max(sheet_h, 1.0))
-        items, used_length = self._to_items(prepared, placements)
+        items, used_length = self._to_items(prepared, placements, shapes)
         return Layout(material=material, items=tuple(items), used_length=used_length)
 
     def pack_sheets(
@@ -1004,7 +1123,16 @@ class TrueShapePacker:
         for _ in range(len(remaining) + 1):
             if not remaining:
                 break
-            placements = self._optimized(remaining, mat, sheet_length)
+            if sheets and self._stop_requested():
+                # cancelado entre chapas: fica com as ja prontas; as pecas
+                # que sobraram aparecem como nao colocadas para o chamador.
+                break
+            try:
+                placements = self._optimized(remaining, mat, sheet_length)
+            except NestingCancelado:
+                if not sheets:
+                    raise
+                break
             if not placements:
                 # nenhuma peca coube numa chapa VAZIA (peca maior que a chapa):
                 # coloca a primeira assim mesmo (convencao do MaxRects) e segue.
@@ -1013,7 +1141,7 @@ class TrueShapePacker:
                 sheets.append(Layout(material, (item,), sheet_length))
                 remaining = remaining[1:]
                 continue
-            items, _ = self._to_items(remaining, placements)
+            items, _ = self._to_items(remaining, placements, shapes)
             sheets.append(Layout(material, tuple(items), sheet_length))
             # remove as colocadas por MULTISET de id: copias com o mesmo id tem
             # o mesmo contorno (precondicao do cache), tanto faz qual sai.
@@ -1041,6 +1169,9 @@ class TrueShapePacker:
             for s in shapes
         ]
 
+    def _stop_requested(self) -> bool:
+        return self._should_stop is not None and bool(self._should_stop())
+
     def _effective_material(self, material: Material) -> Material:
         """Material com o gap/margin DO PACKER (o motor 2A-2D le de la)."""
         return replace(material, spacing=self._gap, margin=self._margin)
@@ -1056,6 +1187,7 @@ class TrueShapePacker:
                 seed=self._seed,
                 generations=self._generations,
                 inside_check=self._inside_check,
+                should_stop=self._should_stop,
             )
         return _optimize_ga(
             shapes,
@@ -1064,22 +1196,44 @@ class TrueShapePacker:
             seed=self._seed,
             genetics_time=self._genetics_time,
             inside_check=self._inside_check,
+            should_stop=self._should_stop,
         )
 
     def _to_items(
-        self, shapes: Sequence[NestingShape], placements: Sequence[_Placement]
+        self,
+        shapes: Sequence[NestingShape],
+        placements: Sequence[_Placement],
+        originals: Sequence[NestingShape],
     ) -> tuple[list[PlacedItem], float]:
         """_Placement (rotacao float) -> PlacedItem (enum) + used_length.
 
         used_length no espirito do MaxRects (fundo do conteudo + margens): as
         posicoes aqui ja sao absolutas (margem inclusa), entao e o maior
         bbox.max_y das pecas colocadas + a margem de baixo.
+
+        'shapes' sao as que o motor encaixou (contorno simplificado/crescido);
+        'originals' as do chamador. A position devolvida segue a convencao da
+        classe sobre o contorno ORIGINAL: o motor reservou o espaco do
+        simplificado (que contem o real), entao a peca real vai para o mesmo
+        lugar deslocada pela diferenca entre os dois cantos minimos. Sem isso
+        a Fase 4 punha o canto do REAL onde estava o do simplificado e a peca
+        escorregava para fora do espaco reservado (13/10/2026).
         """
         by_id = {s.artwork_id: s for s in shapes}
+        real_by_id = {s.artwork_id: s for s in originals}
         items: list[PlacedItem] = []
         bottom = 0.0
         for p in placements:
-            items.append(PlacedItem(p.artwork_id, p.position, _to_rotation(p.rotation)))
-            bottom = max(bottom, _placed_contour(by_id[p.artwork_id], p).bounding_box.max_y)
+            used = by_id[p.artwork_id]
+            pos = p.position
+            real = real_by_id.get(p.artwork_id)
+            if real is not None and real.contour is not used.contour:
+                # giro pelo MESMO centro nos dois: a diferenca dos cantos e so
+                # a forma, nao o giro.
+                rx, ry = _reference_min(real.contour.rotated(p.rotation, around=Point2D(0, 0)))
+                sb = used.contour.rotated(p.rotation, around=Point2D(0, 0)).bounding_box
+                pos = Point2D(pos.x + rx - sb.min_x, pos.y + ry - sb.min_y)
+            items.append(PlacedItem(p.artwork_id, pos, _to_rotation(p.rotation)))
+            bottom = max(bottom, _placed_contour(used, p).bounding_box.max_y)
         used_length = (bottom + self._margin) if items else 0.0
         return items, used_length
